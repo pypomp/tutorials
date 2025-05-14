@@ -1,0 +1,29 @@
+# For jupyter users
+.ipynb_checkpoints/
+.jupyter/
+
+# For quarto users
+*_files
+*_quarto_ipynb
+
+# For emacs users
+*~
+
+# For R users
+*.RData
+*.Renviron
+*.Rout
+*.Rhistory
+
+# For Latex users
+*.bbl
+*.log
+*.aux
+*.toc
+*.blg
+
+# For Mac users
+.DS_Store
+
+
+
