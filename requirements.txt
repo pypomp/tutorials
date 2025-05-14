@@ -1,0 +1,4 @@
+jax
+numpy
+jupyter
+tqdm

@@ -25,5 +25,6 @@
 # For Mac users
 .DS_Store
 
-
+# Extra
+.venv
 
