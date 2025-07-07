@@ -163,15 +163,16 @@ LG_obj.mif(J=200, M=100, sigmas=0.02, sigmas_init=0.02, a=0.5, key=subkey)
 LG_obj.pfilter(J=200, reps=20)
 ```
 
-One we we can access the results of the a method call is by using `results()`.
-This returns a tidy data frame with the results of the method call belonging to the particular index passed to `results()`.
-By default, `results()` returns the results of the last method call.
+One way to access the results of a method call is by using the method `results()`.
+This returns a tidy data frame of results stored in `LG_obj.results_history` at a given index passed to `results()` (defaults to -1, the last method call).
+The data frame includes the log-likelihood and parameter estimates from the method call.
 
 ```{python}
 LG_obj.results()
 ```
 
-We can also use `LG_obj.traces()` to access the traces of the parameters as a data frame.
+We can also use `LG_obj.traces()` to access the traces of the parameters and log-likelihood as a data frame.
+This includes log-likelihood estimates from `pfilter()` as well. 
 
 ```{python}
 LG_obj.traces()

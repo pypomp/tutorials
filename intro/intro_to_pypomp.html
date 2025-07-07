@@ -3252,7 +3252,7 @@ window.Quarto = {
 
 <p>This document showcases basic functions in <code>pypomp</code>. We demonstrate by building the linear Gaussian model (available as <code>pypomp.LG()</code>) from scratch.</p>
 <p>First, we import the necessary packages.</p>
-<div id="31a2cc9e" class="cell" data-execution_count="1">
+<div id="95380354" class="cell" data-execution_count="1">
 <div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> jax.numpy <span class="im">as</span> jnp</span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> jax.random</span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pypomp <span class="im">as</span> pp</span>
@@ -3260,7 +3260,7 @@ window.Quarto = {
 <span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> functools <span class="im">import</span> partial</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>Because the model parameters will all be passed in one JAX array, it can be helpful to define functions that pack the values into the array or unpack them into a more natural form. We also generate a pseudorandom number generation (PRNG) key to be used with JAX.</p>
-<div id="3dec56ce" class="cell" data-execution_count="2">
+<div id="5d021ca6" class="cell" data-execution_count="2">
 <div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> get_thetas(theta):</span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;</span></span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="co">    Cast a theta vector into A, C, Q, and R matrices as if casting iron.</span></span>
@@ -3281,7 +3281,7 @@ window.Quarto = {
 <span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>key <span class="op">=</span> jax.random.key(<span class="dv">1</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>Next, we define the model mechanics. We require users to provide the function code to an object constructor that, among other things, checks that all of the necessary function arguments are included and are in the expected order. This is required because, internally, <code>pypomp</code> uses <code>jax.vmap()</code> to vectorize the component functions to efficiently run them for thousands of particles. <code>jax.vmap()</code> maps the function over input arrays based on position rather than by keyword, so the order needs to be enforced on the user. Although every expected argument must be included, it is not necessary for the function to use all of them.</p>
-<div id="f98f8622" class="cell" data-execution_count="3">
+<div id="693e3de1" class="cell" data-execution_count="3">
 <div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="at">@partial</span>(pp.RInit, t0<span class="op">=</span><span class="fl">0.0</span>)</span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> rinit(theta_, key, covars<span class="op">=</span><span class="va">None</span>, t0<span class="op">=</span><span class="va">None</span>):</span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="co">&quot;&quot;&quot;Initial state process simulator for the linear Gaussian model&quot;&quot;&quot;</span></span>
@@ -3310,7 +3310,7 @@ window.Quarto = {
 <span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> jax.random.multivariate_normal(key<span class="op">=</span>key, mean<span class="op">=</span>C <span class="op">@</span> X_, cov<span class="op">=</span>R)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>The <code>Pomp</code> constructor also requires model parameters. These can be provided either as a dictionary or as a list of dictionaries. Each item in a dictionary should include the parameter name as the key and the parameter value as the dictionary value. If the parameter sets are provided as a list of dictionaries, methods such as <code>pfilter()</code> run on each set of parameters. Here, we use <code>Pomp.sample_params()</code> to sample sets of parameters from uniform distributions with bounds passed as a dictionary of length-2 tuples. <code>Pomp.sample_params()</code> returns a ready-to-use list of dictionaries with the sampled parameters.</p>
-<div id="0ec86a1e" class="cell" data-execution_count="4">
+<div id="b55be40e" class="cell" data-execution_count="4">
 <div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>theta <span class="op">=</span> {</span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;A11&quot;</span>: jnp.cos(<span class="fl">0.2</span>),</span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;A12&quot;</span>: <span class="op">-</span>jnp.sin(<span class="fl">0.2</span>),</span>
@@ -3335,7 +3335,7 @@ window.Quarto = {
 <span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>theta_list <span class="op">=</span> pp.Pomp.sample_params(param_bounds, n, subkey)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>We do not have real data in this example, so we generate our own. To make this example cleaner, we cheat a little bit by using the function <code>LG()</code> to construct the completed linear Gaussian model object and then generate the data using <code>simulate()</code> (a future update will make it easier to populate a data-less <code>Pomp</code> object with simulated data).</p>
-<div id="aaac5172" class="cell" data-execution_count="5">
+<div id="6fd30413" class="cell" data-execution_count="5">
 <div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>key, subkey <span class="op">=</span> jax.random.split(key)</span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>T <span class="op">=</span> <span class="dv">100</span></span>
 <span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>sims <span class="op">=</span> pp.LG(T<span class="op">=</span>T).simulate(key<span class="op">=</span>subkey)</span>
@@ -3346,7 +3346,7 @@ window.Quarto = {
 <span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <p>We finally construct the POMP model object. Observation times are provided to the <code>Pomp</code> constructor via the <code>pandas.DataFrame</code> row index. If covariates were provided, the times at which the covariates were observed would also be provided by the <code>pandas.DataFrame</code> row index. Each argument to <code>Pomp</code> is accessible from the object as an attribute.</p>
-<div id="7fa34db4" class="cell" data-execution_count="6">
+<div id="2efb6cc6" class="cell" data-execution_count="6">
 <div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>LG_obj <span class="op">=</span> pp.Pomp(</span>
 <span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    rinit<span class="op">=</span>rinit,</span>
 <span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    rproc<span class="op">=</span>rproc,</span>
@@ -3360,15 +3360,15 @@ window.Quarto = {
 <p>Unlike the R family of POMP packages, some <code>Pomp</code> methods including <code>pfilter()</code>, <code>mif()</code>, and <code>train()</code> yield results by modifying the object in place instead of returning new objects. Results are stored in a list under <code>LG_obj.results_history</code>, where each element corresponds to one method call. Each element includes results such as the log-likelihood and parameter estimates when applicable as well as the inputs used for the function call, so it is easy to keep track of how the results were calculated. If multiple parameter sets are supplied in a list as an argument, the method evaluates at each set and the results for each are stored.</p>
 <p>We implement IF2 as the <code>Pomp</code> method <code>mif()</code>. The random walk standard deviation is controlled by <code>sigmas</code> and <code>sigmas_init</code>. <code>sigmas</code> controls the random walk standard deviation after time <span class="math inline">\(t_0\)</span> whereas <code>sigmas_init</code> controls it for time <span class="math inline">\(t_0\)</span>, allowing the user to perturb initial value parameters just once per iteration. These arguments can be provided as arrays where each entry dictates the random walk standard deviation of the parameter with the corresponding index, or they can be provided as a float which gets broadcasted to all parameters.</p>
 <p>Notably, <code>Pomp</code> methods such as <code>mif()</code> can update attributes other than <code>results_history</code>. For example, <code>LG_obj.mif()</code> and <code>LG_obj.train()</code> replace <code>LG_obj.theta</code> with the parameter estimate from the end of the last iteration. Furthermore, each method that takes a key as an argument stores an unused child key under <code>LG_obj.fresh_key</code> that later method calls can use by default when a key argument is not given. Consequently, the following sequence of method calls is valid.</p>
-<div id="3140c85d" class="cell" data-execution_count="7">
+<div id="0aedac4f" class="cell" data-execution_count="7">
 <div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>key, subkey <span class="op">=</span> jax.random.split(key)</span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>LG_obj.mif(J<span class="op">=</span><span class="dv">200</span>, M<span class="op">=</span><span class="dv">100</span>, sigmas<span class="op">=</span><span class="fl">0.02</span>, sigmas_init<span class="op">=</span><span class="fl">0.02</span>, a<span class="op">=</span><span class="fl">0.5</span>, key<span class="op">=</span>subkey)</span>
 <span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>LG_obj.pfilter(J<span class="op">=</span><span class="dv">200</span>, reps<span class="op">=</span><span class="dv">20</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
-<p>One we we can access the results of the a method call is by using <code>results()</code>. This returns a tidy data frame with the results of the method call belonging to the particular index passed to <code>results()</code>. By default, <code>results()</code> returns the results of the last method call.</p>
-<div id="51e53c18" class="cell" data-execution_count="8">
+<p>One way to access the results of a method call is by using the method <code>results()</code>. This returns a tidy data frame of results stored in <code>LG_obj.results_history</code> at a given index passed to <code>results()</code> (defaults to -1, the last method call). The data frame includes the log-likelihood and parameter estimates from the method call.</p>
+<div id="b670d357" class="cell" data-execution_count="8">
 <div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>LG_obj.results()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
-<div class="cell-output cell-output-display" data-execution_count="24">
+<div class="cell-output cell-output-display" data-execution_count="8">
 <div>
 
 
@@ -3508,10 +3508,10 @@ window.Quarto = {
 </div>
 </div>
 </div>
-<p>We can also use <code>LG_obj.traces()</code> to access the traces of the parameters as a data frame.</p>
-<div id="5e2c973c" class="cell" data-execution_count="9">
+<p>We can also use <code>LG_obj.traces()</code> to access the traces of the parameters and log-likelihood as a data frame. This includes log-likelihood estimates from <code>pfilter()</code> as well.</p>
+<div id="5ccba732" class="cell" data-execution_count="9">
 <div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>LG_obj.traces()</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
-<div class="cell-output cell-output-display" data-execution_count="25">
+<div class="cell-output cell-output-display" data-execution_count="9">
 <div>
 
 
