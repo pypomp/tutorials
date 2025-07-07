@@ -15,11 +15,13 @@ First, we import the necessary packages.
 ```{python Import package}
 import jax.numpy as jnp
 import jax.random
-import pypomp as po
-from pypomp.LG import Generate_data
+import pypomp as pp
+import pandas as pd
+from functools import partial
 ```
 
 Because the model parameters will all be passed in one JAX array, it can be helpful to define functions that pack the values into the array or unpack them into a more natural form. 
+We also generate a pseudorandom number generation (PRNG) key to be used with JAX.
 
 ```{python Define the linear Gaussian model}
 def get_thetas(theta):
@@ -38,76 +40,139 @@ def transform_thetas(A, C, Q, R):
     Take A, C, Q, and R matrices and melt them into a single 1D array.
     """
     return jnp.concatenate([A.flatten(), C.flatten(), Q.flatten(), R.flatten()])
+
+key = jax.random.key(1)
 ```
 
-Next, we define the components of the model. The decorators are used to ensure that the arguments are in the order required for `jax.vmap()` to work internally. 
+Next, we define the model mechanics. 
+We require users to provide the function code to an object constructor that, among other things, checks that all of the necessary function arguments are included and are in the expected order. 
+This is required because, internally, `pypomp` uses `jax.vmap()` to vectorize the component functions to efficiently run them for thousands of particles. 
+`jax.vmap()` maps the function over input arrays based on position rather than by keyword, so the order needs to be enforced on the user. 
+Although every expected argument must be included, it is not necessary for the function to use all of them. 
 
 ```{python}
-@po.RInit
-def rinit(params, J, covars=None):
+@partial(pp.RInit, t0=0.0)
+def rinit(theta_, key, covars=None, t0=None):
     """Initial state process simulator for the linear Gaussian model"""
-    return jnp.ones((J, 2))
+    A, C, Q, R = get_thetas(theta_)
+    return jax.random.multivariate_normal(key=key, mean=jnp.array([0, 0]), cov=Q)
 
-@po.RProc
-def rproc(state, params, key, covars=None):
+
+@partial(pp.RProc, step_type="fixedstep", nstep=1)
+def rproc(X_, theta_, key, covars=None, t=None, dt=None):
     """Process simulator for the linear Gaussian model"""
-    A, C, Q, R = get_thetas(params)
-    key, subkey = jax.random.split(key)
-    return jax.random.multivariate_normal(
-        key=subkey,
-        mean=A @ state, cov=Q
-    )
+    A, C, Q, R = get_thetas(theta_)
+    return jax.random.multivariate_normal(key=key, mean=A @ X_, cov=Q)
 
-@po.DMeas
-def dmeas(y, state, params):
+
+@pp.DMeas
+def dmeas(Y_, X_, theta_, covars=None, t=None):
     """Measurement model distribution for the linear Gaussian model"""
-    A, C, Q, R = get_thetas(params)
-    return jax.scipy.stats.multivariate_normal.logpdf(y, state, R)
+    A, C, Q, R = get_thetas(theta_)
+    return jax.scipy.stats.multivariate_normal.logpdf(Y_, X_, R)
+
+
+@partial(pp.RMeas, ydim=2)
+def rmeas(X_, theta_, key, covars=None, t=None):
+    """Measurement simulator for the linear Gaussian model"""
+    A, C, Q, R = get_thetas(theta_)
+    return jax.random.multivariate_normal(key=key, mean=C @ X_, cov=R)
 ```
 
-Now we define the parameter values as JAX arrays.
+The `Pomp` constructor also requires model parameters.
+These can be provided either as a dictionary or as a list of dictionaries.
+Each item in a dictionary should include the parameter name as the key and the parameter value as the dictionary value. 
+If the parameter sets are provided as a list of dictionaries, methods such as `pfilter()` run on each set of parameters. 
+Here, we use `Pomp.sample_params()` to sample sets of parameters from uniform distributions with bounds passed as a dictionary of length-2 tuples. 
+`Pomp.sample_params()` returns a ready-to-use list of dictionaries with the sampled parameters. 
 
 ```{python}
-# Transition matrix
-A = jnp.array([
-    [jnp.cos(0.2), -jnp.sin(0.2)],
-    [jnp.sin(0.2),  jnp.cos(0.2)]
-])
-# Measurement matrix
-C = jnp.eye(2)
-# Covariance matrix of state noise
-Q = jnp.array([
-    [1, 1e-4],
-    [1e-4, 1]
-]) / 100
-# Covariance matrix of measurement noise
-R = jnp.array([
-    [1, .1],
-    [.1, 1]
-]) / 10
+theta = {
+    "A11": jnp.cos(0.2),
+    "A12": -jnp.sin(0.2),
+    "A21": jnp.sin(0.2),
+    "A22": jnp.cos(0.2),
+    "C11": 1.0,
+    "C12": 0.0,
+    "C21": 0.0,
+    "C22": 1.0,
+    "Q11": 0.01,
+    "Q12": 1e-6,
+    "Q21": 1e-6,
+    "Q22": 0.01,
+    "R11": 0.1,
+    "R12": 0.01,
+    "R21": 0.01,
+    "R22": 0.1,
+}
+param_bounds = {k: (v * 0.9, v * 1.1) for k, v in theta.items()}
+n = 5  # Number of parameter sets to sample
+key, subkey = jax.random.split(key)
+theta_list = pp.Pomp.sample_params(param_bounds, n, subkey)
 ```
 
-We do not have real-world data, so we generate our own data. 
+We do not have real data in this example, so we generate our own.
+To make this example cleaner, we cheat a little bit by using the function `LG()` to construct the completed linear Gaussian model object and then generate the data using `simulate()` (a future update will make it easier to populate a data-less `Pomp` object with simulated data). 
 
 ```{python Generate data}
-Y = Generate_data(T = 100)
-```
-
-We finally construct the POMP model object. 
-
-```{python Make the model}
-LG_mod = po.Pomp(
-    rinit = rinit,
-    rproc = rproc, 
-    dmeas = dmeas,
-    theta = transform_thetas(A, C, Q, R),
-    ys=Y
+key, subkey = jax.random.split(key)
+T = 100
+sims = pp.LG(T=T).simulate(key=subkey)
+ys = pd.DataFrame(
+    sims[0]["Y_sims"].squeeze(),
+    index=range(1, T + 1),
+    columns=pd.Index(["Y1", "Y2"]),
 )
 ```
 
-Now we can run the particle filter on our model object to obtain an estimate of the negative log likelihood of the data given the model. 
+We finally construct the POMP model object. 
+Observation times are provided to the `Pomp` constructor via the `pandas.DataFrame` row index.
+If covariates were provided, the times at which the covariates were observed would also be provided by the `pandas.DataFrame` row index. 
+Each argument to `Pomp` is accessible from the object as an attribute. 
+
+```{python Make the model}
+LG_obj = pp.Pomp(
+    rinit=rinit,
+    rproc=rproc,
+    dmeas=dmeas,
+    rmeas=rmeas,
+    ys=ys,
+    theta=theta_list,
+    covars=None,
+)
+```
+
+Unlike the R family of POMP packages, some `Pomp` methods including `pfilter()`, `mif()`, and `train()` yield results by modifying the object in place instead of returning new objects.
+Results are stored in a list under `LG_obj.results_history`, where each element corresponds to one method call. 
+Each element includes results such as the log-likelihood and parameter estimates when applicable as well as the inputs used for the function call, so it is easy to keep track of how the results were calculated. 
+If multiple parameter sets are supplied in a list as an argument, the method evaluates at each set and the results for each are stored.
+
+We implement IF2 as the `Pomp` method `mif()`.
+The random walk standard deviation is controlled by `sigmas` and `sigmas_init`. 
+`sigmas` controls the random walk standard deviation after time $t_0$ whereas `sigmas_init` controls it for time $t_0$, allowing the user to perturb initial value parameters just once per iteration.
+These arguments can be provided as arrays where each entry dictates the random walk standard deviation of the parameter with the corresponding index, or they can be provided as a float which gets broadcasted to all parameters.
+
+Notably, `Pomp` methods such as `mif()` can update attributes other than `results_history`.
+For example, `LG_obj.mif()` and `LG_obj.train()` replace `LG_obj.theta` with the parameter estimate from the end of the last iteration. 
+Furthermore, each method that takes a key as an argument stores an unused child key under `LG_obj.fresh_key` that later method calls can use by default when a key argument is not given. 
+Consequently, the following sequence of method calls is valid.
 
 ```{python}
-pfilter_results = LG_mod.pfilter(J=200, key=jax.random.key(123))
-float(pfilter_results)
+key, subkey = jax.random.split(key)
+LG_obj.mif(J=200, M=100, sigmas=0.02, sigmas_init=0.02, a=0.5, key=subkey)
+LG_obj.pfilter(J=200, reps=20)
+```
+
+One we we can access the results of the a method call is by using `results()`.
+This returns a tidy data frame with the results of the method call belonging to the particular index passed to `results()`.
+By default, `results()` returns the results of the last method call.
+
+```{python}
+LG_obj.results()
+```
+
+We can also use `LG_obj.traces()` to access the traces of the parameters as a data frame.
+
+```{python}
+LG_obj.traces()
 ```
