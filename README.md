@@ -1,14 +1,14 @@
 # tutorials
 Tutorials related to the pypomp project
 
-### [Introduction to pypomp](intro/intro_to_pypomp.html)
+### [Introduction to pypomp](https://pypomp.github.io/tutorials/intro/intro_to_pypomp.html)
 
 This is a basic introduction for new users.
 
-### SBIED (Simulation-based Inference for Epidemiological Dynamics)
+### [Simulation-based Inference for Epidemiological Dynamics using pypomp](https://pypomp.github.io/tutorials/SBIED)
 
-This section mainly involves rewriting [sbied](https://github.com/kingaa/sbied) using `pypomp`, aiming to provide resources for readers interested in `pypomp`.
-
+These tutorials involves adapting the previous [SBIED](https://github.com/kingaa/sbied) short course from R-pomp to `pypomp`. 
+These notes are especially relevant for readers interested in `pypomp` for epidemiological or ecological applications, but the methodology is sufficiently general to be relevant to all those interested in inference for partially observed Markov process models in any application area.
 
 ### Notes
 
