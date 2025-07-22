@@ -5,6 +5,10 @@ Tutorials related to the pypomp project
 
 This is a basic introduction for new users.
 
+### SBIED (Simulation-based Inference for Epidemiological Dynamics)
+
+This section mainly involves rewriting [sbied](https://github.com/kingaa/sbied) using `pypomp`, aiming to provide resources for readers interested in `pypomp`.
+
 
 ### Notes
 
