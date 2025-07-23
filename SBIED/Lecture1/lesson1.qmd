@@ -1,0 +1,416 @@
+---
+title: >
+  Lesson 1: Introduction to Simulation-based Inference for Epidemiological Dynamics
+author:
+  - Aaron A. King
+  - Edward L. Ionides
+  - Translated in pypomp by Kunyang He
+
+shortauthor: "King & Ionides et al."   
+shorttitle: "Lesson 1"  
+date: "July 23, 2025"
+
+bibliography: sbied.bib                
+
+format:
+  beamer:
+    code-block-font-size: \tiny                    
+    theme: AnnArbor
+    colortheme: default
+    fontsize: 11pt
+    cite-method: natbib
+    biblio-style: apalike
+    toc: true  
+    slide-level: 3
+    highlight-style: tango  
+  
+  pdf:
+    documentclass: article          
+    fontsize: 11pt
+    cite-method: natbib           
+    biblio-style: apalike
+    toc: true
+    geometry: margin=1in
+    
+jupyter: python3 
+
+
+
+header-includes: |
+  \providecommand{\AtBeginSection}[1]{}
+  \providecommand{\AtBeginSubsection}[1]{}
+  \providecommand{\framebreak}{}
+  \AtBeginSection{}
+  \AtBeginSubsection{}
+  \usepackage{amsmath,amssymb,amsfonts}
+  \usepackage{graphicx}
+  \usepackage{hyperref}
+  \usepackage{xcolor}
+  \usepackage{tikz}
+  \usetikzlibrary{positioning,calc,arrows.meta}
+
+  \newcommand{\myemph}[1]{\emph{#1}}
+  \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
+  \newcommand{\pkg}[1]{\texttt{#1}}
+  \newcommand{\code}[1]{\texttt{#1}}
+  \newcommand{\Rlanguage}{\textsf{R}}
+  \newcommand{\Rzero}{\mathcal{R}_{0}}
+  \newcommand{\pr}{\mathbb{P}}
+  \newcommand{\equals}{=}
+  \newcommand{\dist}[2]{\operatorname{#1}\!\bigl(#2\bigr)}
+  \newcommand{\Sexpr}[1]{\textcolor{gray}{[\detokenize{#1}]}}
+  \newcommand{\myexercise}{\paragraph{Exercise}}
+---
+
+
+# Introduction
+
+## Objectives for this lesson
+- To understand the motivations for simulation‑based inference in the study of epidemiological and ecological systems.
+- To introduce the class of partially observed Markov process (POMP) models.
+- To introduce the \pkg{pomp} \Rlanguage package.
+
+## What is pypomp
+
+- pypomp is an independent Python framework for building, simulating and fitting partially observed Markov process (POMP) models.
+
+- Written in modern Python ≥ 3.10 and built on JAX for just‑in‑time compilation, automatic differentiation (AD) and transparent CPU/GPU/TPU execution.
+
+- Aims to serve two user groups:
+
+     - Scientists who need fast, plug‑and‑play likelihood‑based inference for nonlinear dynamical systems.
+
+     - Method developers who want a clean, differentiable platform for experimenting with new particle‐filter and Bayesian algorithms. 
+
+## What makes epidemiological inference hard?
+
+### Epidemiological and Ecological Dynamics
+- Ecological systems are **complex, open, nonlinear, and non‑stationary**.
+- “Laws of Nature” are unavailable except in the most general form.
+- It is useful to model them as **stochastic systems**.
+- For any observable phenomenon, **multiple competing explanations** are possible.
+- **Central scientific goals**  
+  - Which explanations are most favored by the data?  
+  - Which kinds of data are most informative?
+- **Central applied goals**  
+  - How to design ecological or epidemiological intervention?  
+  - How to make accurate forecasts?
+- **Time series** are particularly useful sources of data.
+
+## Why pypomp
+
+- **Automatic differentiation**: gradients of log‑likelihoods, summary statistics and even full particle‑filter traces are available out‑of‑the‑box—no hand‑coded adjoints.
+
+- **Hardware acceleration**: a single GPU can advance tens of thousands of particles in parallel, giving up‑to‑16× speed‑ups over CPU‑bound workflows.
+
+- **Functional, stateless design**: all simulators take explicit JAX random keys, making large‐scale parallelisation and reproducibility straightforward.
+
+
+
+### Obstacles to inference
+*Obstacles for **ecological** modeling and inference via nonlinear mechanistic models enumerated by* [@Bjornstad2001]:
+
+1. Combining measurement noise and process noise.  
+2. Including covariates in mechanistically plausible ways.  
+3. Using continuous‑time models.  
+4. Modeling and estimating interactions in coupled systems.  
+5. Dealing with unobserved variables.  
+6. Modeling spatial‑temporal dynamics.
+
+The same issues arise for **epidemiological** modeling and inference via nonlinear mechanistic models.
+
+The *partially observed Markov process* (POMP) modeling framework we focus on in this course addresses most of these problems effectively.
+
+
+
+## Course overview
+
+### Course objectives
+1. To show how stochastic dynamical systems models can be used as scientific instruments.  
+2. To teach statistically and computationally efficient approaches for performing scientific inference using POMP models.  
+3. To give students the ability to formulate models of their own.  
+4. To give students opportunities to work with such inference methods.  
+5. To familiarize students with the \pkg{pomp} package.  
+6. To provide documented examples for adaptation and re‑use.
+
+
+
+### Questions and answers {.allowframebreaks}
+
+1. [How does one combine various data types to quantify asymptomatic COVID‑19 infections?](https://doi.org/10.1073/pnas.2019716118) [@Subramanian2021]  
+2. [How effective have various non‑pharmaceutical interventions been at controlling SARS‑CoV‑2 spread in hospitals?](https://doi.org/10.3201/eid2807.212339) [@Shirreff2022]  
+3. [How does one use incidence and mobility data to infer key epidemiological parameters?](https://doi.org/10.1371/journal.pcbi.1010206) [@Andrade2022]  
+4. [How does one make forecasts for an outbreak of an emerging infectious disease?](https://doi.org/10.1098/rspb.2015.0347) [@King2015]  
+5. [How does one build a system for real‑time surveillance of COVID‑19 using epidemiological and mobility data?](https://doi.org/10.1073/pnas.2111870119) [@Fox2022]  
+6. [What strategies are effective at containing mumps spread on college campuses?](https://doi.org/10.1098/rsos.210948) [@Shah2022]  
+7. [What explains the resurgence of pertussis in countries with sustained high vaccine coverage?](https://doi.org/10.1126/scitranslmed.aaj1748) [@DomenechdeCelles2018]  
+8. [Do subclinical infections of pertussis play an important epidemiological role?](https://doi.org/10.1371/journal.pone.0072086) [@Lavine2013]  
+9. [Can serotype‑specific immunity explain the strain dynamics of human enteroviruses?](https://doi.org/10.1126/science.aat6777) [@PonsSalort2018]  
+10. [How does dynamic variation in individual sexual behavior contribute to the HIV epidemic? How does this compare to the role of heterogeneity between individuals?](https://doi.org/10.1093/aje/kwv044) [@Romero-Severson2015]  
+11. [What is the contribution of adults to polio transmission?](https://doi.org/10.1073/pnas.1323688111) [@Blake2014]  
+12. [What explains the interannual variability of malaria?](https://doi.org/10.1371/journal.pcbi.1000898) [@Laneri2010]  
+13. [Can hydrology explain the seasonality of cholera?](https://doi.org/10.1016/j.advwatres.2016.11.012) [@Baracchini2017]  
+14. [What roles are played by asymptomatic infection and waning immunity in cholera epidemics?](https://doi.org/10.1038/nature07084) [@King2008]  
+
+
+# Partially observed Markov processes
+
+## Mathematical definitions
+
+### Partially observed Markov process (POMP) models {.allowframebreaks}
+- Data $y^*_1,\dots,y^*_N$ collected at times $t_1<\dots<t_N$ are modeled as noisy, incomplete, and indirect observations of a Markov process $\{X(t), t\ge t_0\}$.
+- This is a \myemph{partially observed Markov process (POMP)} model, also known as a hidden Markov model or a state space model.
+- $\{X(t)\}$ is Markov if the history of the process, $\{X(s), s\le t\}$, is uninformative about the future of the process, $\{X(s), s\ge t\}$, given the current value of the process, $X(t)$.
+- If all quantities important for the dynamics of the system are placed in the \myemph{state}, $X(t)$, then the Markov property holds by construction.
+
+\framebreak
+
+- Systems with delays can usually be rewritten as Markovian systems, at least approximately.
+- An important special case: any system of differential equations $dx/dt=f(x)$ is Markovian.
+- POMP models can include all the features desired by \cite{Bjornstad2001}.
+
+### Schematic of the structure of a POMP
+- Arrows in the following diagram show causal relations.
+- A key perspective to keep in mind is that \myemph{the model is to be viewed as the process that generated the data}.
+- That is: the data are viewed as one realization of the model's stochastic process.
+
+![Schematic of the structure of a POMP](pomp_schematic1.png){height=4cm fig-cap="Schematic of the structure of a POMP" fig-alt="Diagram of POMP structure"}
+
+
+### Notation for POMP models
+- Write $X_n=X(t_n)$ and $X_{0:N}=(X_0,\dots,X_N)$. Let $Y_n$ be a random variable modeling the observation at time $t_n$.
+- The one-step transition density, $f_{X_n|X_{n-1}}(x_n|x_{n-1};\theta)$, together with the measurement density, $f_{Y_n|X_n}(y_n|x_n;\theta)$ and the initial density, $f_{X_0}(x_0;\theta)$, specify the entire POMP model.
+- The joint density $f_{X_{0:N},Y_{1:N}}(x_{0:N},y_{1:N};\theta)$ can be written as  
+  $$
+  f_{X_0}(x_0;\theta)\,\prod_{n=1}^N f_{X_n \mid X_{n-1}}(x_n|x_{n-1};\theta)\,f_{Y_n|X_n}(y_n|x_n;\theta)
+  $$
+- The marginal density for $Y_{1:N}$ evaluated at the data, $y_{1:N}^*$, is  
+  $$
+  f_{Y_{1:N}}(y^*_{1:N};\theta)=\int f_{X_{0:N},Y_{1:N}}(x_{0:N},y^*_{1:N};\theta)\, dx_{0:N}
+  $$
+
+
+### Another POMP model schematic
+
+\begin{figure}[htbp]     
+  \centering             
+  \begin{tikzpicture}[
+      scale=0.5,
+      every node/.style={transform shape},
+      node distance=1.5cm, auto, >=Stealth]
+    
+      % Styles
+  \tikzstyle{state} = [rectangle, draw, minimum size=1cm, font=\small]
+  \tikzstyle{observation} = [rectangle, draw, minimum size=1cm, font=\small]
+  \tikzstyle{label} = [font=\bfseries\small, align=center]
+  \tikzstyle{model} = [font=\itshape\small]
+
+  % Nodes
+  \node[state] (x0) {$X_0$};
+  \node[state, right=of x0] (x1) {$X_1$};
+  \node[right=1cm of x1] (dots1) {$\cdots$};
+  \node[state, right=1cm of dots1] (xn1) {$X_{n-1}$};
+  \node[state, right=of xn1] (xn) {$X_n$};
+  \node[state, right=of xn] (xnp1) {$X_{n+1}$};
+  \node[observation, above=of x1] (y1) {$Y_1$};
+  \node[observation, above=of xn1] (yn1) {$Y_{n-1}$};
+  \node[observation, above=of xn] (yn) {$Y_n$};
+  \node[observation, above=of xnp1] (ynp1) {$Y_{n+1}$};
+
+  % Labels
+  \node[label, left=1cm of x0] {States};
+  \node[label, left=2.25cm of y1] {Observations};
+
+  % Time Labels
+  \node[below=1.5cm of x0] {$t_0$};
+  \node[below=1.5cm of x1] {$t_1$};
+  \node[below=1.8cm of dots1] {$\cdots$};
+  \node[below=1.5cm of xn1] {$t_{n-1}$};
+  \node[below=1.5cm of xn] {$t_n$};
+  \node[below=1.5cm of xnp1] {$t_{n+1}$};
+
+  % Paths
+  \path[->]
+    (x0) edge (x1)
+    (x1) edge (dots1)
+    (dots1) edge (xn1)
+    (xn1) edge (xn)
+    (xn) edge (xnp1)
+    (x1) edge[dashed] (y1)
+    (xn1) edge[dashed] (yn1)
+    (xn) edge[dashed] (yn)
+    (xnp1) edge[dashed] (ynp1);
+
+  % Model Labels
+  \node[model, below=1.0cm of dots1, align=center] (processmodel) {Process model};
+  \node[model, above=3.3cm of dots1, align=center] (measurementmodel) {Measurement model}; 
+
+\usetikzlibrary{calc} 
+  % Coordinate for new arrow
+  \coordinate (midarrow) at ($(x1)!0.5!(y1)$);
+  \coordinate (midbrrow) at ($(xn1)!0.5!(yn1)$);
+  \coordinate (midcrrow) at ($(xn)!0.5!(yn)$);
+  \coordinate (middrrow) at ($(xnp1)!0.5!(ynp1)$);
+  \coordinate (miderrow) at ($(x0)!0.5!(x1)$);
+  \coordinate (midfrrow) at ($(x1)!0.5!(xn1)$);
+  \coordinate (midgrrow) at ($(xn1)!0.5!(xn)$);
+  \coordinate (midhrrow) at ($(xn)!0.5!(xnp1)$);
+  
+  % New arrow
+  \draw[->, dashed] (midarrow) -- (measurementmodel);
+  \draw[->, dashed] (midbrrow) -- (measurementmodel);
+  \draw[->, dashed] (midcrrow) -- (measurementmodel);
+  \draw[->, dashed] (middrrow) -- (measurementmodel);
+  \draw[->, dashed] (miderrow) -- (processmodel);
+  \draw[->, dashed] (midfrrow) -- (processmodel);
+  \draw[->, dashed] (midgrrow) -- (processmodel);
+  \draw[->, dashed] (midhrrow) -- (processmodel);
+
+  
+  % Add horizontal arrow between t_n and process model
+  \coordinate (startarrow) at ($(x0) - (0,2)$);
+  \coordinate (endarrow) at ($(xnp1) - (0,2)$);
+  \draw[->] (startarrow) -- (endarrow) node[midway, below] {};
+  \end{tikzpicture}
+  \label{fig:pomp-centered}
+\end{figure}
+
+- The state process, $X_n$, is Markovian, i.e.,
+  $$
+    f_{X_n|X_{0:n-1},Y_{1:n-1}}(x_n|x_{0:n-1},y_{1:n-1})
+    =f_{X_n|X_{n-1}}(x_n|x_{n-1}).
+  $$
+
+- Moreover, $Y_n$, depends only on the state at that time:
+  $$
+    f_{Y_n|X_{0:N},Y_{1:n-1}}(y_n|x_{0:n},y_{1:n-1})
+    =f_{Y_n|X_{n}}(y_n|x_n), \quad\text{for $n=1,\dots,N$}.
+  $$
+
+## From math to algorithms
+
+### Moving from math to algorithms for POMP models
+We specify some \myemph{basic model components} which can be used within algorithms:
+
+- `rprocess`: a draw from $f_{X_n|X_{n-1}}(x_n| x_{n-1};\theta)$  
+- `dprocess`: evaluation of $f_{X_n|X_{n-1}}(x_n| x_{n-1};\theta)$  
+- `rmeasure`: a draw from $f_{Y_n|X_n}(y_n| x_n;\theta)$  
+- `dmeasure`: evaluation of $f_{Y_n|X_n}(y_n| x_n;\theta)$  
+- `rinit`: a draw from $f_{X_0}(x_0;\theta)$  
+
+These basic model components define the specific POMP model under consideration.
+
+
+
+### What is a simulation-based method?
+- Simulating random processes is often much easier than evaluating their transition probabilities.  
+- In other words, we may be able to write rprocess but not dprocess.  
+-  \myemph{Simulation-based} methods require the user to specify rprocess but not dprocess.  
+-  \myemph{Plug-and-play}, \myemph{likelihood-free} and \myemph{equation-free} are alternative terms for “simulation-based’’ methods.  
+- Much development of simulation-based statistical methodology has occurred in the past decade.  
+
+
+
+# The \pkg{pomp} package
+
+### The \pkg{pomp} package for POMP models
+- \pkg{pomp} is an  \Rlanguage package for data analysis using partially observed Markov process (POMP) models \citep{King2016}.  
+- Note the distinction: lower case \pkg{pomp} is a software package; upper case POMP is a class of models.  
+- \pkg{pomp} builds methodology for POMP models in terms of arbitrary user-specified POMP models.  
+- \pkg{pomp} provides tools, documentation, and examples to help users specify POMP models.  
+- \pkg{pomp} provides a platform for modification and sharing of models, data-analysis workflows, and methodological development.  
+
+
+
+### Structure of the \pkg{pomp} package
+It is useful to divide the \pkg{pomp} package functionality into different levels:
+
+- Basic model components  
+- Workhorses  
+- Elementary POMP algorithms  
+- Inference algorithms  
+
+
+
+### Basic model components
+Basic model components are user-specified procedures that perform the elementary computations that specify a POMP model.  
+There are nine of these:
+
+- `rinit`: simulator for the initial-state distribution, i.e., the distribution of the latent state at time $t_0$.  
+- `rprocess` and `dprocess`: simulator and density evaluation procedure, respectively, for the process model.  
+- `rmeasure` and `dmeasure`: simulator and density evaluation procedure, respectively, for the measurement model.  
+- `rprior` and `dprior`: simulator and density evaluation procedure, respectively, for the prior distribution.  
+- `skeleton`: evaluation of a deterministic skeleton.  
+- `partrans`: parameter transformations.  
+
+The scientist must specify whichever of these basic model components are required for the algorithms that the scientist uses.
+
+
+
+### Workhorses
+Workhorses are \Rlanguage functions, built into the package, that cause the basic model component procedures to be executed.
+
+- Each basic model component has a corresponding workhorse.  
+- Effectively, the workhorse is a vectorized wrapper around the basic model component.  
+- For example, the \code{rprocess()} function uses code specified by the rprocess model component, constructed via the \code{rprocess} argument to \code{pomp()}.  
+- The rprocess model component specifies how a single trajectory evolves at a single moment of time.  
+  The \code{rprocess()} workhorse combines these computations for arbitrary collections of times and arbitrary numbers of replications.  
+
+
+
+### Elementary POMP algorithms
+These are algorithms that interrogate the model or the model/data confrontation without attempting to estimate parameters.  
+There are currently four of these:
+
+- \code{simulate} performs simulations of the POMP model, i.e., it samples from the joint distribution of latent states and observables.  
+- \code{pfilter} runs a sequential Monte Carlo (particle filter) algorithm to compute the likelihood and (optionally) estimate the prediction and filtering distributions of the latent state process.  
+- \code{probe} computes one or more uni- or multi-variate summary statistics on both actual and simulated data.  
+- \code{spect} estimates the power spectral density functions for the actual and simulated data.  
+
+
+
+### POMP inference algorithms  {.allowframebreaks}
+These are procedures that build on the elementary algorithms and are used for estimation of parameters and other inferential tasks.  
+There are currently ten of these:
+
+- \code{abc}: approximate Bayesian computation  
+- \code{bsmc2}: Liu-West algorithm for Bayesian SMC  
+- \code{pmcmc}: a particle MCMC algorithm  
+- \code{mif2}: iterated filtering (IF2)  
+- \code{enkf}, \code{eakf} ensemble and ensemble adjusted Kalman filters  
+- \code{traj\_objfun}: trajectory matching  
+- \code{spect\_objfun}: power spectrum matching  
+- \code{probe\_objfun}: probe matching  
+- \code{nlf\_objfun}: nonlinear forecasting  
+
+\framebreak
+
+\emph{Objective function methods}: among the estimation algorithms just listed, four are methods that construct stateful objective functions that can be optimized using general-purpose numerical optimization algorithms such as \code{optim}, \code{subplex}, or the optimizers in the \pkg{nloptr} package.
+
+# The \pkg{pypomp} package
+
+### Structure of the \pkg{pypomp} package
+
+Basic model components are user-specified procedures that perform the elementary computations that specify a POMP model.  
+There are nine of these:
+
+- `RInit`: simulator for the initial-state distribution, i.e., the distribution of the latent state at time $t_0$.  
+- `RProc`: simulator and density evaluation procedure, respectively, for the process model.  
+- `RMeas` and `DMeas`: simulator and density evaluation procedure, respectively, for the measurement model.   
+
+- LG(), dacca(), spx(), UKMeasles() : Four ready‑to‑run example models returning a Pomp object.
+
+The scientist must specify whichever of these basic model components are required for the algorithms that the scientist uses.
+
+### key methods of the pyomp class
+
+- \code{sample\_params(bounds, n, key)}: Uniformly sample parameters within given bounds.
+- \code{simulate(key, theta=None, times=None, nsim=\dots)}: Simulate latent states + observations.
+- \code{pfilter(J, key, \dots)}: Particle filtering (optionally with multiple repeats).
+- \code{mif(sigmas, M, a, J, key, \dots)}: IF2 iterated filtering to maximise likelihood.
+- \code{train(J, itns, key, optimizer='Newton', \dots)}: Optimisation based on auto‑diff gradients.
+- \code{mop(J, key, alpha=0.97, \dots)}: Evaluate the Monte Carlo objective.
+- \code{traces()} / \code{results(idx)}: Inspect parameter / log‑likelihood histories.
+- \code{plot\_traces()}: Visualise convergence and diagnostics.
+
+
