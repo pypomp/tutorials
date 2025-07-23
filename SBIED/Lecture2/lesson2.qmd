@@ -10,7 +10,7 @@ shortauthor: "King & Ionides et al."
 shorttitle: "Lesson 2"  
 date: "May 28, 2025"
 
-bibliography: sbied.bib                
+bibliography: ../sbied.bib             
 
 format:
   beamer:
