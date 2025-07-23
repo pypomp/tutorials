@@ -27,7 +27,7 @@ As such, its objectives are:
 
 **0. Instructions for preparing your laptop for the course exercises.** Not yet implemented.
 
-**1. Introduction: What is "Simulation-based Inference for Epidemiological Dynamics"?  POMPs and pypomp.** (./Lecture1/index.html)
+[**1. Introduction: What is "Simulation-based Inference for Epidemiological Dynamics"?  POMPs and pypomp.**] (./Lecture1/index.html)
 
 [**2. Simulation of stochastic dynamic models.**](./Lecture2/index.html)
 
