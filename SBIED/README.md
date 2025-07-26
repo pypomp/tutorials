@@ -31,7 +31,7 @@ As such, its objectives are:
 
 [**2. Simulation of stochastic dynamic models.**](./Lecture2/index.html)
 
-**3. Likelihood for POMPs: theory and practice.** Not yet implemented.
+[**3. Likelihood for POMPs: theory and practice.**](./Lecture3/index.html)
 
 **4. Iterated filtering: theory and practice.** Not yet implemented.
 
