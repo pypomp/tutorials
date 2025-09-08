@@ -20,13 +20,7 @@ os.environ["JAX_PLATFORM_NAME"] = "cpu"
 ```
 
 ```{python}
-
-# shouldn't 
-# jax
 import jax
-#jax.config.update('jax_platform_name', 'cpu')
-# before execute any computation / allocation
-
 ```
 
 
