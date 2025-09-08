@@ -294,7 +294,7 @@ A key design choice `pypomp` is it relys heavily on the JAX numerical backend. U
 
 - **Consistent shapes and sizes handling**:  model parameters, even multidimensional, are stored as flattened dictionaries. Consequently, JAX can uniformly process parameters, thereby maintaining consistency in particle propagation.
 
-Later section will demonstrate how how the JAX-based design enables further inference methods.
+Later section will demonstrate how the JAX-based design supports further inference methods.
 
 [Question: more introductions on JAX?]
 
