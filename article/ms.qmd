@@ -15,17 +15,21 @@ header-includes:
   - \usepackage{algpseudocode}
 ---
 ```{python}
+#| label: os
+#| echo: false
 import os
 os.environ["JAX_PLATFORM_NAME"] = "cpu"
 ```
 
 ```{python}
+#| label: jax
+#| echo: false
 import jax
 ```
 
 
 # Introduction
-[Topic] Partially Observable Markov Process (POMP) models, also known as state-space models or hidden Markov models, provide a flexible and mechanistic framework for modeling time-series dynamic systems, particularly suited for scenarios where latent states are only partially observable. Characterized by transition densities and measurement densities of Markov processes, this framework bridges complex underlying dynamics with limited information in real-world data. Consequently, POMP models find extensive application in epidemiology ([@Mietchen2024], [@Fox2022], [@Wen2024]), ecology ([@AugerMethe2021], [@Marino2019], [@Blackwood2013]), finance ([@Breto2014]), and other domains.
+[Topic] Partially Observable Markov Process (POMP) models, also known as state-space models or hidden Markov models, provide a flexible and mechanistic framework for modeling time-series dynamic systems, particularly suited for scenarios where latent states are only partially observable. Characterized by transition densities and measurement densities of Markov processes, this framework bridges complex underlying dynamics with limited information in real-world data. Consequently, POMP models find extensive application in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains.
 
 [Existing package discussion] The rich POMP package ecosystem built in `R` has provided a solid, standardized, and extensible framework for modeling time series data using nonlinear, stochastic partially observed mechanism dynamic models. The `R pomp` package has become a well-established tool for fitting POMP models using a general and abstract representation, that supports multiple inference techniques. Its extension packages `panelPomp`, `spatpomp`, and `phyloPomp` further enhance its capabilities for panel, spatio-temporal and phylodynamic data analysis respectively
 
@@ -33,7 +37,7 @@ import jax
 
 On the other hand, these POMP models have demonstrated strong potential to be sped up considerably. Many of the processes are embarassingly parallel, such as simulating the state process for each of thousands of particles, running the particle filter multiple times for the same parameter set, and running iterated filtering from multiple starting parameter sets, especially when estimating a profile likelihood to construct a confidence interval as per [@ionides2017]. Graphics Processing Units (GPUs) are well-suited for such operations. However, the existing family of POMP packages (**pomp**, **panelPomp**, and **spatPomp** [@king2016,@breto2025,@asfaw2024]) only runs on CPUs.
 
-[introducing AD/GPU/JAX + pypomp] As the demand grows for scalable and parallelizable inference algorithms, there is a increasing need for a accelerated POMP modeling framework. Automatic differentiation (AD) is a technique that enables efficient and accurate computation of numerical differentiation by systematically applying the chain rule to fundamental operations within computer programs. While several general-purpose AD libraries are available, we directly integrate AD technique into the inference of generic POMP models, particularly the particle filter. This leads to a novel class of algorithms, which are termed automatic differentiation particle filters (ADPF) for POMP modls. The ADPF and differentiable iterated filtering interfaces enable the gradient-based optimization, effectively resolving the previous numerous inefficiencies in the traditional algorithms. Our approach maintains the plug-and-play property [@ionides2006], allowing users to specify dynamic models solely through simulators that generate latent state trajectories between arbitrary time points. Furthermore, these methods are implemented in JAX, a high-performance numerical computing library that supports hardware acceleration (GPU) and vectorization. JAX's just-in-time (JIT) compilation further accelerates inference. With the combination of ADPF methods, JAX implementation, and GPU hardware supports, instead of merely a port from the `R` package `pomp`, `pypomp` establishes a modern platform for POMP modeling. 
+[introducing AD/GPU/JAX + pypomp] As the demand grows for scalable and parallelizable inference algorithms, there is a increasing need for a accelerated POMP modeling framework. Automatic differentiation (AD) is a technique that enables efficient and accurate computation of numerical differentiation by systematically applying the chain rule to fundamental operations within computer programs. While several general-purpose AD libraries are available, we directly integrate AD technique into the inference of generic POMP models, particularly the particle filter. This leads to a novel class of algorithms, which are termed automatic differentiation particle filters (ADPF) for POMP modls. The ADPF and differentiable iterated filtering interfaces enable the gradient-based optimization, effectively resolving the previous numerous inefficiencies in the traditional algorithms. Our approach maintains the plug-and-play property [@ionides2006], allowing users to specify dynamic models solely through simulators that generate latent state trajectories between arbitrary time points. Furthermore, these methods are implemented in JAX[@bradbury2018], a high-performance numerical computing library that supports hardware acceleration (GPU) and vectorization. JAX's just-in-time (JIT) compilation further accelerates inference. With the combination of ADPF methods, JAX implementation, and GPU hardware supports, instead of merely a port from the `R` package `pomp`, `pypomp`[@abkemeier2024] establishes a modern platform for POMP modeling. 
 
 [structure]
 The remainder of this paper is organized as follows. Section 2 discusses the Motivation for `pypomp` design using specific examples. Section 3 demonstrates the mathematical notation for POMP models and their related implementation in `pypomp`. Section 4 introduces the embedded methodologies. Section 5 presents data analysis workflows and benchmarking results. Section 6 concludes with a discussion of future directions.
@@ -64,9 +68,9 @@ In addition, `pypomp` is gradually including functionality from `panelPomp` and 
 
 ## Summary of key features
 
-The following table summarizes the main differences between `pypomp` and `pomp`, highlighting the new capabilities of `pypomp`. 
+@tbl-feature_comparison summarizes the main differences between `pypomp` and `pomp`, highlighting the new capabilities of `pypomp`. 
 
-::: {#tbl:feature_comparison}
+::: {#tbl-feature_comparison}
 Table: Feature comparison between `pypomp` and `pomp` in R ecosystem.
 
 |Feature|pypomp |pomp|
@@ -77,7 +81,6 @@ Table: Feature comparison between `pypomp` and `pomp` in R ecosystem.
 | Plug-and-Play Property | Yes | Yes |
 | Object Design | In-place updates on current objects, stored in the object attribute `results_history`| Returns new objects|
 :::
-
 
 # POMP Models in pypomp
 This section introduces the structure of POMP models and its implementation in `pypomp`, including both mathematical setup and the package implementation.
@@ -109,9 +112,9 @@ In our software, these model components are specified by user-provided functions
 
 A POMP model in `pypomp` is represented as an object of class `Pomp`, which encapsulates the model components: the initial state distribution, process model, and measurement model. This object-oriented interface allows users to specify by passing components to the constructor, including observations, model parameters, model mechanics such as simulators and the measurement density, covariates, and times. After the components are passed into the constructor, the constructor automatically generates additional internal elements, such as extended observations and covariates required for interpolation
 
-Table @tbl:pomp_comps summarizes the main arguments to the Pomp constructor and their correspondence to mathematical objects
+@tbl-pomp_comps summarizes the main arguments to the Pomp constructor and their correspondence to mathematical objects
 
-::: {#tbl:pomp_comps}
+::: {#tbl-pomp_comps}
 Table: Main arguments to the `Pomp` class and related constructor objects.
 
 | Constructor | Argument   | Type               | Description / Mathematical representation |
@@ -162,7 +165,7 @@ key = jax.random.PRNGKey(1)
 ### Model Components
 We refer to model components describing initialization, transfer, or measurement processes as model mechanisms, including `rinit`, `rproc`, `dmeas`, and `rmeas`. Users must define these processes as Python functions. Specifically, we require users to provide function code to the object constructor, which verifies that all necessary function arguments are included and in the correct order. This requirement stems from `pypomp`'s internal mechanism: it vectorizes component functions using `jax.vmap()` to efficiently run thousands of particles. Since `jax.vmap()` maps functions to input arrays by position rather than keyword, users must strictly adhere to parameter order. While all expected parameters must be included, the function does not need to utilize all of them.
 
-Illustrated in [@tbl:pomp_comps],`pypomp` also includes object constructors for components describing the model mechanics: `RInit`, `RProc`, `DMeas`, and `RMeas`. Some constructors also require additional arguments, such as `t0` for `RInit`. Notably, `RProc` takes `step_type`, `dt`, and `nstep` arguments. `step_type` determines how `RProc` should be run at intermediate steps between two observation times. If we want to model the state process as evolving in continuous time, setting `step_type="euler"`uses an Euler approximation, running `rproc` at intermediate steps based on the time step size, `dt`. The number of steps taken is given by the number of times `dt` divides the difference between two observation times, rounded up, and is consequently dynamic. Otherwise, if we instead want a fixed number of steps for each observation time interval, we can use `step_type="fixedstep"`, in which case `rproc` will run at `nstep` intermediate steps equally spaced between two observation times, starting from the first observation time. Consequently, setting `step_type="fixedstep"` and `nstep=1` only runs `rproc` at the observation times. Here is an example of defining the object constructors for components under the linear gaussian model.In practice, at least one of `dmeas` or `rmeas` must be provided, while the construction of `RInit` and `RProc` are always required.
+Illustrated in @tbl-pomp_comps,`pypomp` also includes object constructors for components describing the model mechanics: `RInit`, `RProc`, `DMeas`, and `RMeas`. Some constructors also require additional arguments, such as `t0` for `RInit`. Notably, `RProc` takes `step_type`, `dt`, and `nstep` arguments. `step_type` determines how `RProc` should be run at intermediate steps between two observation times. If we want to model the state process as evolving in continuous time, setting `step_type="euler"`uses an Euler approximation, running `rproc` at intermediate steps based on the time step size, `dt`. The number of steps taken is given by the number of times `dt` divides the difference between two observation times, rounded up, and is consequently dynamic. Otherwise, if we instead want a fixed number of steps for each observation time interval, we can use `step_type="fixedstep"`, in which case `rproc` will run at `nstep` intermediate steps equally spaced between two observation times, starting from the first observation time. Consequently, setting `step_type="fixedstep"` and `nstep=1` only runs `rproc` at the observation times. Here is an example of defining the object constructors for components under the linear gaussian model.In practice, at least one of `dmeas` or `rmeas` must be provided, while the construction of `RInit` and `RProc` are always required.
 
 ```{python}
 #| label: lg-components
@@ -258,6 +261,9 @@ print("LG_obj created; ys.shape =", ys.shape)
 Each argument to `Pomp` is accessible from the object as an attribute. 
 
 ```{python} 
+#| label: lg-attributes
+#| echo: true
+
 print(LG_obj.rinit) # access POMP model components
 print(LG_obj.rproc)
 print(LG_obj.dmeas)
@@ -311,6 +317,8 @@ In `pypomp`, the plug-and-play design is fully preserved: users only need to pro
 Unlike the R family of POMP packages, some `Pomp` class methods including `pfilter()`, `mif()` and `train()` yield results by modifying the object in place instead of returning new objects. All of results are stored a list under `LG_obj.results_history`, which is an attibute under `Pomp` class object `LG_obj`. Each element in the list correponds to one method call. Each element includes results such as the log-likelihood and parameter estimates when applicable as well as the inputs used for the function call, so it is easy to keep track of how the results were calculated. If multiple parameter sets are supplied in a list as an argument, the method evaluates at each set and the results for each are stored. 
 
 ```{python}
+#| label: lg-output
+#| echo: true
 
 LG_obj.pfilter(J = 100,
                reps = 5, 
@@ -330,7 +338,7 @@ print(LG_obj.results_history)
 
 **NOTE**: 1. purpose/role 2. implementation details in pypomp 3. outputs/results 4. remarks/highlights 
 
-The particle filter algorithm, referred to Algorithm @alg:smc,
+The particle filter algorithm, referred to Algorithm \ref{alg:smc},
 [Introduction (purpose/role) of pfilter]
 
 \begin{algorithm}[H]
@@ -363,6 +371,9 @@ Number of particles $J$.
 In `pypomp`, the `pfilter()` functions is internally run in `pfilter_internal()` but wrapped up into a class method. It returns a `dict` type element updated inside the `LG_obj. result_history` attribute, containing the log-likelihoods, algorithm parameters used, as well as model diagonostic elements (conditional log-likelihood, effective sample size, filtered mean, and prediction mean) at each time included if their respective boolean flags are set to True. For example, suppose we run
 
 ```{python}
+#| label: lg-pfilter
+#| echo: true
+
 LG_obj_2 = pp.Pomp(
     rinit=rinit,
     rproc=rproc,
