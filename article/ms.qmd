@@ -1,9 +1,12 @@
 ---
-title: "pypomp ms draft"
-author: "Jun Chen"
+title: "pypomp: Inference for partially observed Markov process models in Python with JAX \\newline DRAFT IN PROGRESS"
+author: 
+  - "Aaron J. Abkemeier^$\\ast$^, Jun Chen^$\\ast$^, Kevin Tan, Jesse Wheeler, Bo Yang," 
+  - "Kunyang He, Jonathan Terhorst, Aaron A. King and Edward L. Ionides"
+  - "^$\\ast$^\\small These authors contributed equally"
 format:
   pdf:
-    keep-tex: true
+    keep-tex: false
     toc: true
     number-sections: true
     fig-cap-location: top
@@ -26,6 +29,9 @@ os.environ["JAX_PLATFORM_NAME"] = "cpu"
 #| echo: false
 import jax
 ```
+
+
+
 
 
 # Introduction
