@@ -1,3 +1,7 @@
+
+# for article
+article/ms.tex
+
 # For jupyter users
 .ipynb_checkpoints/
 .jupyter/
@@ -25,6 +29,6 @@
 # For Mac users
 .DS_Store
 
-# Extra
+# For Python users
 .venv
 

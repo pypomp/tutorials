@@ -1,17 +1,54 @@
 ---
 title: "pypomp: Inference for partially observed Markov process models in Python with JAX \\newline DRAFT IN PROGRESS"
 author: 
-  - "Aaron J. Abkemeier^$\\ast$^, Jun Chen^$\\ast$^, Kevin Tan, Jesse Wheeler, Bo Yang," 
-  - "Kunyang He, Jonathan Terhorst, Aaron A. King and Edward L. Ionides"
+  - name: "Aaron J. Abkemeier^$\\ast$^"
+    affiliations:
+      - name: University of Michigan
+        department: Department of Statistics
+    email: aaronabk@umich.edu   
+  - name: "Jun Chen^$\\ast$^"
+    affiliations:
+      - name: Duke University
+        department: Department of Statistics
+    email: chenjunc@umich.edu
+  - name: Kevin Tan
+    affiliations:
+      - name: University of Pennsylvania
+        department: Department of Statistics
+    email: kevtan@wharton.upenn.edu
+  - name: Jesse Wheeler
+    affiliations:
+      - name: Idaho State University
+        department: Department of Mathematics
+    email: jessewheeler@isu.edu
+  - name: Bo Yang
+    affiliations:
+      - name: Columbia University 
+        department: Department of Marketing
+    email: ybb@umich.edu
+  - name: Kunyang He
+    affiliations:
+      - name: University of Michigan
+        department: Department of Statistics
+    email: kunyanghe@umich.edu   
+  - name: Jonathan Terhorst
+    affiliations:
+      - name: University of Michigan
+        department: Department of Statistics
+    email: jonth@umich.edu   
+  - name: Aaron A. King
+  - name: Edward L. Ionides
+    affiliations:
+      - name: University of Michigan
+        department: Department of Statistics
+    email: ionides@umich.edu   
   - "^$\\ast$^\\small These authors contributed equally"
 format:
-  pdf:
-    keep-tex: false
-    toc: true
-    number-sections: true
-    fig-cap-location: top
-    tbl-cap-location: top
-    citation-location: block
+  pdf: default
+  jss-pdf:
+    keep-tex: true
+    journal:
+      include-jss-default: false
 bibliography: references.bib
 header-includes:
   - \usepackage{algorithm}
@@ -34,7 +71,7 @@ import jax
 
 
 
-# Introduction
+## Introduction
 [Topic] Partially Observable Markov Process (POMP) models, also known as state-space models or hidden Markov models, provide a flexible and mechanistic framework for modeling time-series dynamic systems, particularly suited for scenarios where latent states are only partially observable. Characterized by transition densities and measurement densities of Markov processes, this framework bridges complex underlying dynamics with limited information in real-world data. Consequently, POMP models find extensive application in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains.
 
 [Existing package discussion] The rich POMP package ecosystem built in `R` has provided a solid, standardized, and extensible framework for modeling time series data using nonlinear, stochastic partially observed mechanism dynamic models. The `R pomp` package has become a well-established tool for fitting POMP models using a general and abstract representation, that supports multiple inference techniques. Its extension packages `panelPomp`, `spatpomp`, and `phyloPomp` further enhance its capabilities for panel, spatio-temporal and phylodynamic data analysis respectively
@@ -340,7 +377,7 @@ print(LG_obj.results_history)
 
 ```
 
-## Particle Filter (`pfilter`)
+## Particle Filter (pfilter)
 
 **NOTE**: 1. purpose/role 2. implementation details in pypomp 3. outputs/results 4. remarks/highlights 
 
