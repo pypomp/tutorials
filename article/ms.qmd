@@ -381,8 +381,7 @@ print(LG_obj.results_history)
 
 **NOTE**: 1. purpose/role 2. implementation details in pypomp 3. outputs/results 4. remarks/highlights 
 
-The particle filter algorithm, referred to Algorithm \ref{alg:smc},
-[Introduction (purpose/role) of pfilter]
+The particle filter algorithm (sequential Monte Carlo, SMC) (@arulampalam2002, @king2016) is the core classical likelihood evaluation tool in POMP model inference. It uses Monte Carlo techniques to sequentially estimate the integrals in the prediction and filtering recursions, and produce an unbiased Monte Carlo estimate of the likelihood of the observed data under a parameter set. The likelihood estimate is essential for other parameter inference algorithms such as iterative filtering. In `pypomp`, the basic particle filter is implemented under `pfilter()`. The algorithm is summarized as Algerithm \ref{alg:smc},
 
 \begin{algorithm}[H]
 \caption{Sequential Monte Carlo (SMC, or particle filter) in pypomp: \texttt{LG\_obj.pfilter(J=J, reps=reps, key=key)}, where \texttt{LG\_obj} is a class \texttt{Pomp} object with definitions for \texttt{rinit}, \texttt{rproc}, \texttt{dmeas}, \texttt{rmeas}, \texttt{ys}, and \texttt{theta}}
@@ -411,7 +410,7 @@ Number of particles $J$.
 \end{algorithmic}
 \end{algorithm}
 
-In `pypomp`, the `pfilter()` functions is internally run in `pfilter_internal()` but wrapped up into a class method. It returns a `dict` type element updated inside the `LG_obj. result_history` attribute, containing the log-likelihoods, algorithm parameters used, as well as model diagonostic elements (conditional log-likelihood, effective sample size, filtered mean, and prediction mean) at each time included if their respective boolean flags are set to True. For example, suppose we run
+In `pypomp`, the `pfilter()` functions is internally run in a compiled JAX routine `pfilter_internal()` but wrapped up into a class method. `_pfilter_internal` is JIT-compiled with static arguments, in which the replicates and parameter sets are vectorized via `jax.vmap`. Both techniques enable execution on CPU/GPU and ensure the computational efficiency. In implementation, the weights and likelihood are stored in a log scale, preventing underflow. There are optional arguments (`CLL`, `ESS`, `filter_mean`, `prediction_mean`) control wheter additional diagnostic arrays are allocated and updated. The algorithm works for flexible and extendable models through the user-specified `Pomp` class components (`rinit`, `rproc`, `dmeas`, `reams`), number of particles `J` as well as other parameters. Each run returns a `dict` type element updated inside the `LG_obj. result_history` attribute, containing the log-likelihoods, algorithm parameters used, as well as model diagonostic elements at each time included if their respective boolean flags are set to True. For example, suppose we run
 
 ```{python}
 #| label: lg-pfilter
@@ -442,57 +441,106 @@ LG_obj_2.pfilter(J = 1000,
 
 ```
 
-where $J$ is the number of particles used and $reps$ is the number of particle filtering replicates to run for each para,eter set provided in the `Pomp` object or as an optional argument to `pfilter()`. Because `LG_obj2.result_history` begins as an empty list here when the model is constructed, the results are appended at `LG_obj_2.results_history[0]` and `LG_obj_2.results_history[1]` respectively. Both of these two dictionaries contain with the following items:
+where $J$ is the number of particles used and $reps$ is the number of particle filtering replicates to run for each parameter set provided in the `Pomp` object or as an optional argument to `pfilter()`. Because `LG_obj2.result_history` begins as an empty list here when the model is constructed, the results are appended at `LG_obj_2.results_history[0]` and `LG_obj_2.results_history[1]` respectively. Both of these two dictionaries contain with the following items:
 
 - `method`: The method that was run. In this case, `pfilter`.
-- `logLiks`: A 
-- `theta`:
-- `J`:
-- `thresh`:
-- `key`: The PRNG key used
+- `logLiks`: An `xarray.DataArray` of particle filter log-likelihood estimates. There is one list for each parameter set given and each list has `reps` log-likglihood estimates. dimensions = (`theta`, `replicate`)
+- `theta`: The list of parameter sets used.
+- `J`: The number of particles used.
+- `thresh`: Threshold value for resampling used, which is 0 by default.
 
-Meanwhile, `LG_obj_2.results_history[1]` also contains the following itesm that are not contained in `LG_obj_2.results_history[0]` :
+Meanwhile, `LG_obj_2.results_history[1]` also contains the following items that are not contained in `LG_obj_2.results_history[0]` :
 
-- `CLL`:
-- `ESS`:
-- `filter_mean`:
-- `predict_mean`:
-
+- `CLL`: An `xarray.DataArray` containing the conditional loglikelihood over observed time steps (`theta`, `replicate`, `time`)
+- `ESS`: An `xarray.DataArray` containing the effective sample size over observed time steps (`theta`, `replicate`, `time`)
+- `filter_mean`: An `xarray.DataArray` containing the filtered mean over observed time steps (`theta`, `replicate`, `time`, `state`)
+- `prediction_mean`: An `xarray.DataArray` containing the prediction mean over observed time steps. (`theta`, `replicate`, `time`, `state`) 
 
 
-## MOP 
+A key design is that all runs across multiple parameter sets and replications are stored in one `results_history` list under the corresponding `Pomp` object. This avoids object duplication, and increases reproducibility by facilitating pickling `Pomp` objects obtained from many different search strategies, loading them into a new Python session, and then comparing the results to see how they vary with different algorithmic parameters.
+
+
+
+## Measurement Off-Parameter (MOP)
+The measurement off-parameter-\alpha paricle filter (MOP-$\alpha$) algorithm [@tan2024].
+
+It is a variant of the standard vanilla particle filter aiming to produce differentiable likelihood estimate with respect to the model parameters. More spcifically, it evaluates the likelihood at the target evaluation parameter $\theta$ and resamples the particles with the indices generated by the vanilla particle filter at another baseline behavior parameter $\phi$. This makes the Monte Carlo resampling process independent of the target evaluation parameter $\theta$, enabling the differentiability of the algorithm, and the further utlization of automatic differentiation and gradient descent. There is a discount factor $\alpha \in [0,1]$, which controls the bias-variance tradeoff of the gradient estimator. The likelihood estimate is essential for other parameter inference algorithms such as iterated filtering with automatic differentiation (IFAD), where it employs stochastic gradient descient to MOP. In `pypomp`, the MOP is implemented under `mop()`. The pseudocode is shown in \ref{alg:mop}. 
+
 
 \begin{algorithm}[H]
-\caption{MOP($\alpha$): Measurement off-policy sequential Monte Carlo}
+\caption{MOP($\alpha$), Measurement off-policy sequential Monte Carlo}
 \label{alg:mop}
 \begin{algorithmic}[1]
-\State Initialize filter particles: simulate $X^{F,\theta}_{0,j} \sim f_{X_0}(\cdot;\theta)$ for $j=1{:}J$.
-\State Initialize relative weights: $w^{F,\theta}_{0,j} = 1$ for $j=1{:}J$.
+\Require Simulator for $f_{X_n \mid X_{n-1}}(x_n \mid x_{n-1}; \theta)$; 
+Evaluator for $f_{Y_n \mid X_n}(y_n \mid x_n; \theta)$; 
+Simulator for $f_{X_0}(x_0;\theta)$; 
+Evaluation Parameter $\theta$; 
+Behavior Parameter $\phi$;
+Data $y^*_{1:N}$; 
+Number of particles $J$.
+\State Pass: Set $\theta = \phi$, yielding $X^{P,\phi}_{n,j}, X^{F,\phi}_{n,j}, g^{\phi}_{n,j}$.
+\State Initialize filter particles: simulate $X^{F,\theta}_{0,j} \sim f_{X_0}(\cdot;\theta)$ and  $w^{F,\theta}_{0,j} = 1$ for $j=1{:}J$.
 \For{$n = 1$ to $N$}
     \State Simulate prediction particles: $X^{P,\theta}_{n,j} \sim f_{X_n \mid X_{n-1}}(\cdot \mid X^{F,\theta}_{n-1,j};\theta)$ for $j=1{:}J$.
-    \State Prediction weights with discounting: $w^{P,\theta}_{n,j} = \left(w^{F,\theta}_{n-1,j}\right)^\alpha$ for $j=1{:}J$.
+    \State Accumulate discounted Prediction weight: $w^{P,\theta}_{n,j} = \left(w^{F,\theta}_{n-1,j}\right)^\alpha$ for $j=1{:}J$.
     \State Evaluate measurement density: $g^\theta_{n,j} = f_{Y_n \mid X_n}(y^*_n \mid X^{P,\theta}_{n,j};\theta)$ for $j=1{:}J$.
-    \State Conditional likelihood: 
+    \State Conditional likelihood under $\theta$ in version $B$: 
     \[
-      L^{\theta,\alpha}_n = \frac{\sum_{j=1}^J g^\theta_{n,j} w^{P,\theta}_{n,j}}{\sum_{j=1}^J w^{P,\theta}_{n,j}}.
+      L^{B, \theta,\alpha}_n = \frac{\sum_{j=1}^J g^\theta_{n,j} w^{P,\theta}_{n,j}}{\sum_{j=1}^J w^{P,\theta}_{n,j}}.
     \]
     \State Conditional likelihood under $\phi$:
     \[
       L^\phi_n = \frac{1}{J}\sum_{m=1}^J g^\phi_{n,m}.
     \]
     \State Normalize weights: $\tilde{g}^\phi_{n,j} = \dfrac{g^\phi_{n,j}}{L^\phi_n}$ for $j=1{:}J$.
-    \State Resample indices $k_{1:J}$ with $\Pr[k_j = m] = \tilde{g}^\phi_{n,m}$.
+    \State Resample indices $k_{1:J}$ with $\mathbb{P}[k_j = m] = \tilde{g}^\phi_{n,m}$.
     \State Resample particles: $X^{F,\theta}_{n,j} = X^{P,\theta}_{n,k_j}$ for $j=1{:}J$.
-    \State Filter weights corrected for resampling:
+    \State Calculate resampled corrected weights:
     \[
-       w^{FC,\theta}_{n,j} = w^{P,\theta}_{n,j} \times \frac{g^\theta_{n,j}}{g^\phi_{n,j}}
+       w^{F,\theta}_{n,j} = w^{P,\theta}_{n,j} \times \frac{g^\theta_{n,j}}{g^\phi_{n,j}}
     \quad \text{for $j=1{:}J$.}
     \]
-    \State Resample filter weights: $w^{F,\theta}_{n,j} = w^{FC,\theta}_{n,k_j}$ for $j=1{:}J$.
+    \State Conditional likelihood under $\theta$ in version $A$:
+    \[
+   L^{A, \theta,\alpha}_n = L^\phi_n \cdot \frac{\sum_{j=1}^{J} w^{F,\theta}_{n,j}}
+          {\sum_{j=1}^{J} w^{P,\theta}_{n,j}}.
+    \]
 \EndFor
-\State Likelihood estimate: $L(\theta) = \prod_{n=1}^N L^{\theta,\alpha}_n$.
+\State Likelihood estimate: $\hat{L}(\theta) = \prod_{n=1}^N L^{A, \theta,\alpha}_n$ or $\hat{L}(\theta) = \prod_{n=1}^N L^{B, \theta,\alpha}_n$.
 \end{algorithmic}
 \end{algorithm}
+
+In `pypomp`, the `mop()` function is internally run in a JAX-compiled function `_mop_internal()` but wrapped up into a class method. Similarly, it also uses static arguments and static array shapes supported by `jax.lax.fori_loop` to enhance efficiency. The weights and likelihood are also stored in a log scale to prevent underflow. Technically, instead of setting two distinct parameters $\theta$ and $\phi$, the algorithm internally uses the `stop_gradient` function in `JAX` to run one particle filter with $\theta = \phi$, and set the particles at $\phi$ to be copies of $\theta$ to avoid propagating gradients on these particles. This design simplifies the algorithm and still ensures the valid likelihood and gradient estimator, while maintaining differentiability with respect to $\theta$. 
+
+In practice, the `mop()` provides an auto-differentiable alternative to `pfilter()`, as a lightweight version. Different from `pfilter()`, `mop()` in `pypomp` focuses purely on producing differentiable likelihood estimates, avoiding extra multiple replicates and diagnostics. This could further support the automatic differentiation and stochastic gradient descent algorithms in accelerated iterated filtering algorithms.  It only requires the number of particles `J`, the evaluation parameter `theta`, a PRNG key, and the cooling factor $\alpha$. The results are stored in the `results_history` attribute as a list of `jax.Array` objects, one for each parameter set, representing the estimated log-likelihood of the observations. For example, we run
+
+```{python}
+#| label: lg-mop
+#| echo: true
+
+LG_obj_3 = pp.Pomp(
+    rinit=rinit,
+    rproc=rproc,
+    dmeas=dmeas,
+    rmeas=rmeas,
+    ys=ys,
+    theta=theta_list,
+    covars=None,
+)
+
+LG_obj_3.mop(J = 1000,
+             key = subkey,
+             alpha = 0.97)
+
+
+```
+
+Generally, the `result_history` only updates: 
+
+- list of `jax.Array`: The estimated log-likelihood(s) of the observed data given the model
+  parameters. Always a list, even if only one theta is provided.
+
+This design highlights `mop()` as a lightweight but essential building block for accelarated gradient-based inference methods within `pypomp`.
 
 
 ## Iterated Filtering
@@ -554,8 +602,7 @@ Meanwhile, `LG_obj_2.results_history[1]` also contains the following itesm that 
 
 
 
-
-# Data Analysis with pypomp
+# Data Analysis with pypomp / Tutorials and data analysis examples
 
 This section demonstrates:
 - Log-likelihood profiling
