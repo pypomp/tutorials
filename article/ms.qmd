@@ -78,13 +78,13 @@ import jax
 
 \note{Existing package discussion} The rich POMP package ecosystem built in `R` has provided a solid, standardized, and extensible framework for modeling time series data using nonlinear, stochastic partially observed mechanism dynamic models. The `R pomp` package has become a well-established tool for fitting POMP models using a general and abstract representation, that supports multiple inference techniques. Its extension packages `panelPomp`, `spatpomp`, and `phyloPomp` further enhance its capabilities for panel, spatio-temporal and phylodynamic data analysis respectively
 
-\note{computational challenges & potential limitations} While conceptually powerful, statistical inference for POMP models using the above `R` packages poses substantial computational challenges. From a methodological perspective, likelihood-based inference for POMP models typically relies on perturbations within iterated filtering (adding ref related to iterative filtering) algorithms. While many of them are stable and effective in locating a neighborhood containing the likelihood maximum, they exhibit numerical inefficiency for obtaining a precise identification of the maximum value. Particularly, when the latent states are high-dimensional or when repeated model evaluations are required, the fitting process could be computationally prohibitive by the constraints. 
+\note{computational challenges + potential limitations} While conceptually powerful, statistical inference for POMP models using the above `R` packages poses substantial computational challenges. From a methodological perspective, likelihood-based inference for POMP models typically relies on perturbations within iterated filtering (adding ref related to iterative filtering) algorithms. While many of them are stable and effective in locating a neighborhood containing the likelihood maximum, they exhibit numerical inefficiency for obtaining a precise identification of the maximum value. Particularly, when the latent states are high-dimensional or when repeated model evaluations are required, the fitting process could be computationally prohibitive by the constraints. 
 
 On the other hand, these POMP models have demonstrated strong potential to be sped up considerably. Many of the processes are embarassingly parallel, such as simulating the state process for each of thousands of particles, running the particle filter multiple times for the same parameter set, and running iterated filtering from multiple starting parameter sets, especially when estimating a profile likelihood to construct a confidence interval as per [@ionides2017]. Graphics Processing Units (GPUs) are well-suited for such operations. However, the existing family of POMP packages (**pomp**, **panelPomp**, and **spatPomp** [@king2016,@breto2025,@asfaw2024]) only runs on CPUs.
 
 \note{introducing AD/JIT/GPU hardware + pypomp} As the demand grows for scalable and parallelizable inference algorithms, there is an increasing need for an accelerated framework for POMP modeling framework. `pypomp`[@abkemeier2024] addresses this by tightly integrating **automatic differentiation (AD)**, **just-in-time (JIT) compilation**, and **GPU/TPU accelaration** through JAX [@bradbury2018], a high-performance numerical computing library that supports hardware accelation and vectorization. AD techniques enable efficient and accurate derivative computation by systematically applying the chain rule to fundamental operations. Recent work has extended AD to the particle filtering, yielding a class of methods termed automatic differetiation particle filters (ADPF). Building on these advancements, `pypomp` provides AD-enabled gradient estimation for likelihood maximization algorithms within a plug-and-play framework [@ionides2006], where users specify dynamic models solely through simulators of latent state trajectories. JAX's JIT compilation further accelerates repeated inference and evaluation by converting Python functions into machine code at runtime. Finally, JAX's GPU/TPU support enables efficient scaling of inference methods. Together, these features make `pypomp` more than a port of the `R` package `pomp`. Instead, it established an independent, modernized platform for fast and flexible POMP modeling in Python.
 
-[structure]
+\note{structure}
 The remainder of this paper is organized as follows. Section 2 discusses the Motivation for `pypomp` design using specific examples. Section 3 demonstrates the mathematical notation for POMP models and their related implementation in `pypomp`. Section 4 introduces the embedded methodologies. Section 5 presents data analysis workflows and benchmarking results. Section 6 concludes with a discussion of future directions.
 
 \note{add discussion of panelpomp into introduction}
@@ -128,10 +128,10 @@ Table: Feature comparison between `pypomp` and `pomp` in R ecosystem.
 | Object Design | In-place updates on current objects, stored in the object attribute `results_history`| Returns new objects|
 :::
 
-# POMP Models in pypomp
+## POMP Models in pypomp
 This section introduces the structure of POMP models and its implementation in `pypomp`, including both mathematical setup and the package implementation.
 
-## Model setup
+### Model setup
 
 A **partially observed Markov process (POMP)** model has two main components: (i) a latent Markov process that evolves over time and (ii) an observation process that links the latent states. Together, these jointly specify the mechanistic model for the observed time series, providing a framework for modeling dynamic systems where measurements are noisy. Formally, suppose we observe the process at discrete time $n=1,\dots,N$, with initial time $0$. Let $Y_{1:N}$ denote the observations and $X_{0:N}$ denote the corresponding latent (unobserved) Markov process at the corresponding time.  A POMP model is defined by three building components, each corresponding to user-supplied Python functions in `pypomp`:
 
@@ -147,8 +147,8 @@ $$
 
 The marginal likelihood of the observations is $\mathcal{L}(\theta) = f_{Y_{1:N}}\!\left(y_{1:N}; \theta\right) = \int f_{X_{0:N}, Y_{1:N}}(x_{0:N}, y_{1:N}; \theta) \, dx_{0:N}$. In practice, this integral is intractable for most nonlinear or non-Gaussian POMP models, motivating the use of simulation-based inference methods such as particle filtering.
 
-## Implementations of POMP models in pypomp
-### Object-oriented interface
+### Implementations of POMP models in pypomp
+#### Object-oriented interface
 
 A POMP model in `pypomp` is represented as an object of class `Pomp`, which encapsulates the model components: the initial state distribution, process model, and measurement model. This object-oriented interface allows users to specify by passing components to the constructor, including observations, model parameters, model mechanics such as simulators and the measurement density, covariates, and times. After the components are passed into the constructor, the constructor automatically generates additional internal elements, such as extended observations and covariates required for interpolation
 
@@ -202,7 +202,7 @@ def transform_thetas(A, C, Q, R):
 key = jax.random.PRNGKey(1)
 ```
 
-### Model Components
+#### Model Components
 We refer to model components describing initialization, transfer, or measurement processes as model mechanisms, including `rinit`, `rproc`, `dmeas`, and `rmeas`. Users must define these processes as Python functions. Specifically, we require users to provide function code to the object constructor, which verifies that all necessary function arguments are included and in the correct order. This requirement stems from `pypomp`'s internal mechanism: it vectorizes component functions using `jax.vmap()` to efficiently run thousands of particles. Since `jax.vmap()` maps functions to input arrays by position rather than keyword, users must strictly adhere to parameter order. While all expected parameters must be included, the function does not need to utilize all of them.
 
 Illustrated in @tbl-pomp_comps,`pypomp` also includes object constructors for components describing the model mechanics: `RInit`, `RProc`, `DMeas`, and `RMeas`. Some constructors also require additional arguments, such as `t0` for `RInit`. Notably, `RProc` takes `step_type`, `dt`, and `nstep` arguments. `step_type` determines how `RProc` should be run at intermediate steps between two observation times. If we want to model the state process as evolving in continuous time, setting `step_type="euler"`uses an Euler approximation, running `rproc` at intermediate steps based on the time step size, `dt`. The number of steps taken is given by the number of times `dt` divides the difference between two observation times, rounded up, and is consequently dynamic. Otherwise, if we instead want a fixed number of steps for each observation time interval, we can use `step_type="fixedstep"`, in which case `rproc` will run at `nstep` intermediate steps equally spaced between two observation times, starting from the first observation time. Consequently, setting `step_type="fixedstep"` and `nstep=1` only runs `rproc` at the observation times. Here is an example of defining the object constructors for components under the linear gaussian model.In practice, at least one of `dmeas` or `rmeas` must be provided, while the construction of `RInit` and `RProc` are always required.
@@ -236,7 +236,7 @@ def rmeas(X_, theta_, key, covars=None, t=None):
 
 ```
 
-### Parameters
+#### Parameters
 
 The `Pomp` constructor also requires model parameters.
 These can be provided either as a dictionary or as a list of dictionaries. Each item in a dictionary should include the parameter name as the key and the parameter value as the dictionary value.  If the parameter sets are provided as a list of dictionaries, methods such as `pfilter()` run on each set of parameters.  Here, we use `Pomp.sample_params()` to sample sets of parameters from uniform distributions with bounds passed as a dictionary of length-2 tuples. `Pomp.sample_params()` returns a ready-to-use list of dictionaries with the sampled parameters. Internally, parameters, even are multi-dimensional, are stored as flat dictionaries to facilitate JAX transformations and compilation.
@@ -261,7 +261,7 @@ theta_list = pp.Pomp.sample_params(param_bounds, n, subkey)
 ### Covariates
 Scientifically, POMP models often involve external time-varying inputs, referred to as covariates, which can influence either the latent process or the measurement model. Examples include seasonality, interventions, or environmental drivers in ecological applications. In `pypomp`, covariates are supplied as a `pandas.DataFrame` indexed by time. The time at which the covariates were observed should be specified in the `ctime` argument. Importantly, the covariate time points may differ from the observation times, necessitating interpolation. Given the observation times, covariate times, and the step type specified in `RProc`, the model automatically aligns and interpolates observations and covariates to ensure consistency with the simulation of the latent and observation processes. The linear gaussian model doesn't involve any covariates, and an example using covariates is given in the Data Analysis Section. 
 
-### POMP Object Construction
+#### POMP Object Construction
 
 We do not have real data in this `LG` example, so we generate our own. To make this example cleaner, we here use the function `LG()` to construct the completed linear Gaussian model object and then generate the data using `simulate()`. Observation times are provided to the `Pomp` constructor via the `pandas.DataFrame` row index. If covariates were provided, the times at which the covariates were observed would also be provided by the `pandas.DataFrame` row index. 
 
@@ -313,7 +313,7 @@ print(LG_obj.ys.head())  # access observations
 
 ```
 
-### Premade models:
+#### Premade models:
 
 Beyond the linear gaussian model, `pypomp` includes several ready‑to‑use model constructors that serve both as examples and as tested templates for custom model development:
 
@@ -324,7 +324,7 @@ Beyond the linear gaussian model, `pypomp` includes several ready‑to‑use mod
 
 These examples show correct component wiring (`rinit`, `rproc`, `dmeas`, `rmeas`), recommended `step_type`/`dt` usage, and typical diagnostics. If a user model errors or runs slowly, compare its components to the matching premade model to find mistakes and performance opportunities. Meanwhile, these premade models can also replicate well-know case studies in the R pomp ecosystem, allowing direct comparison and validation.
 
-### JAX Numerical Backend and Interface Design
+#### JAX Numerical Backend and Interface Design
 
 A key design choice `pypomp` is it relys heavily on the JAX numerical backend. Unlike the R package `pomp`, where users typically provide POMP model components in C Snippets for acceleration, `pypomp` requires model components to be written as JAX-compatible Python functions. These functions are then compiled and vectorized by JAX tools such as `jit` and `vmap`. This design leads to several important interface features:
 
@@ -338,7 +338,7 @@ Later section will demonstrate how the JAX-based design supports further inferen
 
 \note{more introduction to JAX?}
 
-### Panel POMP class
+#### Panel POMP class
 
 
 ## POMP Methods in pypomp
