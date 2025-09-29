@@ -8,7 +8,8 @@ quarto add quarto-journals/jss
 
 The Python environment can be rebuilt with
 ```
-make .venv
+make venv
+source .venv/bin/activate
 ```
 Or it can be built from scratch as follows:
 ```

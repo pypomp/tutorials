@@ -12,6 +12,14 @@ REXE = R --vanilla
 RCMD = $(REXE) CMD
 RSCRIPT = Rscript --vanilla
 
+VENV_DIR = .venv
+PYTHON = python3.12
+PIP = $(VENV_DIR)/bin/pip
+VENV_PYTHON = $(VENV_DIR)/bin/python
+SOURCE = source
+
+.PHONY: venv
+
 %.pdf: %.tex
 	$(PDFLATEX) $*
 	-$(BIBTEX) $*
@@ -19,7 +27,7 @@ RSCRIPT = Rscript --vanilla
 	$(PDFLATEX) $*
 
 %.pdf: %.qmd
-	quarto render "$*.qmd" --to pdf
+	quarto render "$*.qmd" --to jss-pdf
 
 %.tex: %.qmd
 	quarto render "$*.qmd" --to latex
@@ -53,3 +61,17 @@ clean:
 fresh: clean
 	$(RM) *.ps *.bbl *.ind *.dvi 
 	$(RM) -r cache/* figure/*
+
+
+# Create a virtual Python environment
+venv:
+	@echo "Creating virtual environment in $(VENV_DIR)..."
+	$(PYTHON) -m venv $(VENV_DIR)
+	@echo "Virtual environment created."
+	@echo "Installing dependencies..."
+	$(PIP) install --upgrade pip
+	$(PIP) install -r requirements.txt
+	@echo "Dependencies installed."
+
+
+
