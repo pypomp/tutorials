@@ -86,7 +86,7 @@ import jax
 
 On the other hand, these POMP models have demonstrated strong potential to be sped up considerably. Many of the processes are embarassingly parallel, such as simulating the state process for each of thousands of particles, running the particle filter multiple times for the same parameter set, and running iterated filtering from multiple starting parameter sets, especially when estimating a profile likelihood to construct a confidence interval as per [@ionides2017]. Graphics Processing Units (GPUs) are well-suited for such operations. However, the existing family of POMP packages (**pomp**, **panelPomp**, and **spatPomp** [@king2016,@breto2025,@asfaw2024]) only runs on CPUs.
 
-\note{introducing AD/JIT/GPU hardware + pypomp} As the demand grows for scalable and parallelizable inference algorithms, there is an increasing need for an accelerated framework for POMP modeling framework. `pypomp`[@abkemeier2024] addresses this by tightly integrating **automatic differentiation (AD)**, **just-in-time (JIT) compilation**, and **GPU/TPU accelaration** through JAX [@bradbury2018], a high-performance numerical computing library that supports hardware accelation and vectorization. AD techniques enable efficient and accurate derivative computation by systematically applying the chain rule to fundamental operations. Recent work has extended AD to the particle filtering, yielding a class of methods termed automatic differetiation particle filters (ADPF). Building on these advancements, `pypomp` provides AD-enabled gradient estimation for likelihood maximization algorithms within a plug-and-play framework [@ionides2006], where users specify dynamic models solely through simulators of latent state trajectories. JAX's JIT compilation further accelerates repeated inference and evaluation by converting Python functions into machine code at runtime. Finally, JAX's GPU/TPU support enables efficient scaling of inference methods. Together, these features make `pypomp` more than a port of the `R` package `pomp`. Instead, it established an independent, modernized platform for fast and flexible POMP modeling in Python.
+\note{introducing AD/JIT/GPU hardware + pypomp} As the demand grows for scalable and parallelizable inference algorithms, there is an increasing need for an accelerated framework for POMP modeling framework. `pypomp`[@abkemeier2024] addresses this by tightly integrating **automatic differentiation (AD)**, **just-in-time (JIT) compilation**, and **GPU/TPU accelaration** through JAX [@bradbury2018], a high-performance numerical computing library that supports hardware accelation and vectorization. AD techniques enable efficient and accurate derivative computation by systematically applying the chain rule to fundamental operations. Recent works have extended AD for gradient estimation using the particle filtering, yielding a class of methods termed automatic differetiation particle filters (ADPF). Building on these advancements, `pypomp` provides AD-enabled gradient estimation for inference for POMP models within a plug-and-play framework [@ionides2006], where users specify dynamic models solely through simulators of latent state trajectories, rather than evaluating the transition density of the latent Markov process. JAX's JIT compilation further accelerates repeated inference and evaluation by converting Python functions into machine code at runtime. Finally, JAX's GPU/TPU support enables efficient scaling of inference methods. Together, these features make `pypomp` more than a port of the `R` package `pomp`. Instead, it established an independent, modernized platform for fast and flexible POMP modeling in Python.
 
 \note{structure}
 The remainder of this paper is organized as follows. Section 2 discusses the Motivation for `pypomp` design using specific examples. Section 3 demonstrates the mathematical notation for POMP models and their related implementation in `pypomp`. Section 4 introduces the embedded methodologies. Section 5 presents data analysis workflows and benchmarking results. Section 6 concludes with a discussion of future directions.
@@ -156,7 +156,7 @@ The marginal likelihood of the observations is $\mathcal{L}(\theta) = f_{Y_{1:N}
 
 A POMP model in `pypomp` is represented as an object of class `Pomp`, which encapsulates the model components: the initial state distribution, process model, and measurement model. This object-oriented interface allows users to specify by passing components to the constructor, including observations, model parameters, model mechanics such as simulators and the measurement density, covariates, and times. After the components are passed into the constructor, the constructor automatically generates additional internal elements, such as extended observations and covariates required for interpolation
 
-@tbl-pomp_comps summarizes the main arguments to the Pomp constructor and their correspondence to mathematical objects. `RInit`, `RProc` and `RMeas` are the subconstructors, where they specify the stochastic mechanisms that definie a `Pomp` model, and their objects are passed as arguments when initializing a mian `Pomp` class. 
+@tbl-pomp_comps summarizes the main arguments to the Pomp constructor and their correspondence to mathematical objects. `RInit`, `RProc` and `RMeas` are the subconstructors, where they specify the stochastic mechanisms that define a `Pomp` model, and their objects are passed as arguments when initializing a main `Pomp` class. 
 
 ::: {#tbl-pomp_comps}
 Table: Main arguments to the `Pomp` class and related constructor objects.
@@ -349,7 +349,7 @@ Later section will demonstrate how the JAX-based design supports further inferen
 In this section, we describe the core inference methods currently implemented in `pypomp`, including : 
 
 - `Paricle Filter` (Sequential Monte Carlo, written in `pfilter()`): A standard sequential Monte Carlo algorithm for likelihood evaluation and state estimation, forming the basis for most inference methods in POMP models.
-- `Measurement-off-policy` Particle Filter (MOP($\alpha$), written in `mop()`): A recently proposed SMC method [@tan2024] that evaluates the likelihood at one parameter value while obtaining resampling decisions from another, adjusting via discounted off-parameter measurement weights.
+- `Differentiated Measurement-off-policy` Particle Filter (MOP($\alpha$), written in `mop()`): A recently proposed SMC method [@tan2024] that evaluates the likelihood at one parameter value while obtaining resampling decisions from another, adjusting via discounted off-parameter measurement weights.
 - `Iterated Filtering` (IF2, `mif()`): A classical IF2 algorithm [@ionides2015] for likelihood-based parameter inference that maximizes the likelihood via particle filtering.
 - `Iterated Filtering with Automatic Differentiation` (`train()`): A recently proposed AD-based algorithm [@tan2024] that incorporates MOP($\alpha$), the differentiable particle filter, to enable efficient gradient-based parameter inference for maximum likelihood estimation.
 
@@ -381,33 +381,30 @@ print(LG_obj.results_history)
 
 \note{outline: 1. purpose/role 2. implementation details in pypomp 3. outputs/results 4. remarks/highlights}
 
-The particle filter algorithm (sequential Monte Carlo, SMC) (@arulampalam2002, @king2016) is the core classical likelihood evaluation tool in POMP model inference. It uses Monte Carlo techniques to sequentially estimate the integrals in the prediction and filtering recursions, and produce an unbiased Monte Carlo estimate of the likelihood of the observed data under a parameter set. The likelihood estimate is essential for other parameter inference algorithms such as iterative filtering. In `pypomp`, the basic particle filter is implemented under `pfilter()`. The algorithm is summarized as Algerithm \ref{alg:smc},
+The particle filter algorithm (sequential Monte Carlo, SMC) (@arulampalam2002, @king2016) is the core classical likelihood evaluation tool in POMP model inference. It uses Monte Carlo techniques to sequentially estimate the integrals in the prediction and filtering recursions, and produce an unbiased Monte Carlo estimate of the likelihood of the observed data under a parameter set. The likelihood estimate is essential for other parameter inference algorithms such as iterative filtering. In `pypomp`, the basic particle filter is implemented under `pfilter()`. The algorithm is summarized as Algorithm \ref{alg:smc},
 
 \begin{algorithm}[H]
-\caption{Sequential Monte Carlo (SMC, or particle filter) in pypomp: \texttt{LG\_obj.pfilter(J=J, reps=reps, key=key)}, where \texttt{LG\_obj} is a class \texttt{Pomp} object with definitions for \texttt{rinit}, \texttt{rproc}, \texttt{dmeas}, \texttt{rmeas}, \texttt{ys}, and \texttt{theta}}
+\caption{Sequential Monte Carlo (SMC, or particle filter) in 、、、texttt{pypomp}: \texttt{LG\_obj.pfilter(J=J, reps=reps, key=key)}, where \texttt{LG\_obj} is a class \texttt{Pomp} object with components \texttt{rinit}, \texttt{rproc}, \texttt{dmeas}, \texttt{rmeas}, \texttt{ys}, and \texttt{theta}}
 \label{alg:smc}
-\begin{algorithmic}[1]
-\Require Simulator for $f_{X_n \mid X_{n-1}}(x_n \mid x_{n-1}; \theta)$; 
+\textbf{Require} Simulator for $\process_n(\cdot|x_n; \theta)$; 
 Evaluator for $f_{Y_n \mid X_n}(y_n \mid x_n; \theta)$; 
 Simulator for $f_{X_0}(x_0;\theta)$; 
 Parameter $\theta$; 
 Data $y^*_{1:N}$; 
-Number of particles $J$.
-\State Initialize filter particles: simulate $X^F_{0,j} \sim f_{X_0}(\cdot;\theta)$ for $j=1{:}J$.
-\For{$n = 1$ to $N$}
-    \State Simulate prediction particles: $X^P_{n,j} \sim f_{X_n \mid X_{n-1}}(\cdot \mid X^F_{n-1,j};\theta)$ for $j=1{:}J$.
-    \State Evaluate weights: $w(n,j) = f_{Y_n \mid X_n}(y^*_n \mid X^P_{n,j};\theta)$ for $j=1{:}J$.
-    \State Normalize weights: $\tilde{w}(n,j) = \dfrac{w(n,j)}{\sum_{m=1}^J w(n,m)}$.
-    \State Resample indices $k_{1:J}$ with $\Pr[k_j=m] = \tilde{w}(n,m)$.
-    \State Set $X^F_{n,j} = X^P_{n,k_j}$ for $j=1{:}J$.
-    \State Compute conditional log likelihood:
+Number of particles $J$. \newline
+\textbf{Initialize} particles: $X^{F,\theta}_{0,j} \sim f_{X_0}(\cdot;\theta)$ for $j=1{:}J$. \newline
+\textbf{For} $n=1,...,N$: \newline
+    \hspace*{4mm} Simulate prediction particles: $X^{P, \theta}_{n,j} \sim \process_n(\cdot |x_n; \theta)$  for $j=1{:}J$. \newline
+    \hspace*{4mm} Evaluate weights and measurement density: $w(n,j) = f_{Y_n \mid X_n}(y^*_n \mid X^{P,\theta}_{n,j};\theta)$ for $j=1{:}J$.\newline
+    \hspace*{4mm} Normalize weights $\tilde{w}(n,j) = \dfrac{w(n,j)}{\sum_{m=1}^J w(n,m)}$ for $j=1:J$.\newline
+    \hspace*{4mm} Select resample indices $k_{1:J}$ with $\prob\big(k_j=m\big) = \tilde{w}(n,m)$. \newline
+    \hspace*{4mm} Obtain resampled particles $X^{F,\theta}_{n,j} = X^{P,\theta}_{n,k_j}$ for $j=1{:}J$.\newline
+    \hspace*{4mm} Compute conditional log likelihood:
     \[
         \hat{\ell}_{n \mid 1:n-1} = \log \left(\frac{1}{J} \sum_{m=1}^J w(n,m)\right).
     \]
-\EndFor
-\Ensure Log likelihood estimate $\hat{\ell}(\theta) = \sum_{n=1}^N \hat{\ell}_{n \mid 1:n-1}$; filter samples $X^F_{n,1:J}$ for $n=1{:}N$. 
-\State Complexity: $\mathcal{O}(J)$ 
-\end{algorithmic}
+\textbf{Return} Log likelihood estimate $\hat{\ell}(\theta) = \sum_{n=1}^N \hat{\ell}_{n \mid 1:n-1}$; filter samples $X^{F,\theta}_{n,1:J}$ for $n=1{:}N$. 
+\textbf{Complexity: }$\mathcal{O}(J)$ 
 \end{algorithm}
 
 In `pypomp`, the `pfilter()` functions is internally run in a compiled JAX routine `pfilter_internal()` but wrapped up into a class method. `_pfilter_internal` is JIT-compiled with static arguments, in which the replicates and parameter sets are vectorized via `jax.vmap`. Both techniques enable execution on CPU/GPU and ensure the computational efficiency. In implementation, the weights and likelihood are stored in a log scale, preventing underflow. There are optional arguments (`CLL`, `ESS`, `filter_mean`, `prediction_mean`) control wheter additional diagnostic arrays are allocated and updated. The algorithm works for flexible and extendable models through the user-specified `Pomp` class components (`rinit`, `rproc`, `dmeas`, `reams`), number of particles `J` as well as other parameters. Each run returns a `dict` type element updated inside the `LG_obj. result_history` attribute, containing the log-likelihoods, algorithm parameters used, as well as model diagonostic elements at each time included if their respective boolean flags are set to True. For example, suppose we run
@@ -460,91 +457,93 @@ A key design is that all runs across multiple parameter sets and replications ar
 
 
 
-### Measurement Off-Parameter (MOP)
+### Differentiated Measurement Off-Parameter (DMOP) particle filter
 
 \eic{TO BE REWRITTEN, FOLLOWING ISSUE 2}
-
-The measurement off-parameter-$\alpha$ paricle filter (MOP-$\alpha$) algorithm [@tan2024].
-It is a variant of the standard vanilla particle filter aiming to produce differentiable likelihood estimate with respect to the model parameters.
-To solve the issue that random resampling of particles in the classical particle filtering is normally discontinuous with respect to $\theta$, it evaluates the likelihood at the target evaluation parameter $\theta$ and resamples the particles with the indices generated by the vanilla particle filter at another baseline behavior parameter $\phi$.
-This makes the Monte Carlo resampling process independent of the target evaluation parameter $\theta$, enabling the differentiability of the algorithm, and the further utlization of automatic differentiation and gradient descent.
-There is a discount factor $\alpha \in [0,1]$, which controls the bias-variance tradeoff of the gradient estimator.
-The likelihood estimate is essential for other parameter inference algorithms such as iterated filtering with automatic differentiation (IFAD), where it employs stochastic gradient descient to MOP.
-In `pypomp`, the MOP is implemented under `mop()`. The pseudocode is shown in \ref{alg:mop}. 
-
+\note{Motivation for DMOP} Traditional standard particle filtering algorithms for POMP models provide unbiased Monte Carlo estimates, but they are non-differentiable with respect to model parameters, due to the discrete random sampling of particles. 
+This prevents the AD and gradient-based optimization methods to be widely used in POMP dynamical systems. 
+The differentiable measurement off-parameter particle filter (DMOP) [@tan2024], embedded in `pypomp`, provides a solution: it builds on a variant of the standard particle filter, called Measurement off-parameter-$\alpha$ (MOP-$\alpha$), which is a *differentiable* likelihood estimator. 
+By using AD for obtaining the derivative, it doesn't necessarily require the final full likelihood estimate from MOP. 
+There is a tunning dicount factor $\alpha \in [0,1]$ controlling the bias-variance trade-off of the gradient estimator. 
+The derivative estimate from DMOP is essential for further stochastic gradient inference methods, such as iterated filtering with automatic differentiation (IFAD), where it employs stochastic gradient descent using DMOP. The pseudocode is shown in \ref{alg:dmop} 
 
 \begin{algorithm}[H]
-\caption{MOP($\alpha$), Measurement off-policy sequential Monte Carlo}
-\label{alg:mop}
-\begin{algorithmic}[1]
-\Require Simulator for $f_{X_n \mid X_{n-1}}(x_n \mid x_{n-1}; \theta)$; 
-Evaluator for $f_{Y_n \mid X_n}(y_n \mid x_n; \theta)$; 
-Simulator for $f_{X_0}(x_0;\theta)$; 
-Evaluation Parameter $\theta$; 
-Behavior Parameter $\phi$;
-Data $y^*_{1:N}$; 
-Number of particles $J$.
-\State Pass: Set $\theta = \phi$, yielding $X^{P,\phi}_{n,j}, X^{F,\phi}_{n,j}, g^{\phi}_{n,j}$.
-\State Initialize filter particles: simulate $X^{F,\theta}_{0,j} \sim f_{X_0}(\cdot;\theta)$ and  $w^{F,\theta}_{0,j} = 1$ for $j=1{:}J$.
-\For{$n = 1$ to $N$}
-    \State Simulate prediction particles: $X^{P,\theta}_{n,j} \sim f_{X_n \mid X_{n-1}}(\cdot \mid X^{F,\theta}_{n-1,j};\theta)$ for $j=1{:}J$.
-    \State Accumulate discounted Prediction weight: $w^{P,\theta}_{n,j} = \left(w^{F,\theta}_{n-1,j}\right)^\alpha$ for $j=1{:}J$.
-    \State Evaluate measurement density: $g^\theta_{n,j} = f_{Y_n \mid X_n}(y^*_n \mid X^{P,\theta}_{n,j};\theta)$ for $j=1{:}J$.
-    \State Conditional likelihood under $\theta$ in version $B$: 
-    \[
-      L^{B, \theta,\alpha}_n = \frac{\sum_{j=1}^J g^\theta_{n,j} w^{P,\theta}_{n,j}}{\sum_{j=1}^J w^{P,\theta}_{n,j}}.
-    \]
-    \State Conditional likelihood under $\phi$:
-    \[
-      L^\phi_n = \frac{1}{J}\sum_{m=1}^J g^\phi_{n,m}.
-    \]
-    \State Normalize weights: $\tilde{g}^\phi_{n,j} = \dfrac{g^\phi_{n,j}}{L^\phi_n}$ for $j=1{:}J$.
-    \State Resample indices $k_{1:J}$ with $\mathbb{P}[k_j = m] = \tilde{g}^\phi_{n,m}$.
-    \State Resample particles: $X^{F,\theta}_{n,j} = X^{P,\theta}_{n,k_j}$ for $j=1{:}J$.
-    \State Calculate resampled corrected weights:
-    \[
-       w^{F,\theta}_{n,j} = w^{P,\theta}_{n,j} \times \frac{g^\theta_{n,j}}{g^\phi_{n,j}}
-    \quad \text{for $j=1{:}J$.}
-    \]
-    \State Conditional likelihood under $\theta$ in version $A$:
-    \[
-   L^{A, \theta,\alpha}_n = L^\phi_n \cdot \frac{\sum_{j=1}^{J} w^{F,\theta}_{n,j}}
-          {\sum_{j=1}^{J} w^{P,\theta}_{n,j}}.
-    \]
-\EndFor
-\State Likelihood estimate: $\hat{L}(\theta) = \prod_{n=1}^N L^{A, \theta,\alpha}_n$ or $\hat{L}(\theta) = \prod_{n=1}^N L^{B, \theta,\alpha}_n$.
-\end{algorithmic}
-\end{algorithm}
-
-\begin{algorithm}[htbp!]
-	\caption{DMOP-$\alpha$. \eic{THIS IS COPIED OVER FROM THE DMOP MS, AND IT NEEDS MODIFICATION FOR THE CURRENT LOCATION.}}
-    \label{alg:dmop}
-	     \textbf{Input:} Number of particles $J$, timesteps $N$, measurement model $f_{Y_n|X_n}(y_n^*|x_n, \theta)$, simulator $\process_n(\cdot|x_n; \theta)$, evaluation parameter $\theta$, baseline parameter $\phi$, seed $\omega$.
-      
-             \textbf{Forward pass:} AD constructs a computation graph for the likelihood estimate, $\hat{L}^A(\theta) = \prod_{n=1}^N L_n^{A,\theta,\alpha}$ or $\hat{L}^B(\theta) = \prod_{n=1}^N L_n^{B,\theta,\alpha}$. 
-            
-        \textbf{Backward pass:} AD evaluates the gradient estimate, $\hat{\mathcal{D}}^A(\theta)$ or  $\hat{\mathcal{D}}^B(\theta)$.
-            
-		\textbf{Initialize } particles ${X}_{0,j}^{F,\theta}\sim {f}_{{X}_{0}}\left(\cdot\giventh{\theta}\right)$, weights $w^{F,\theta}_{0,j}= 1$. \newline
+\caption{DMOP-$\alpha$ in \texttt{pypomp}: 
+\texttt{jax.value\_and\_grad(LG\_obj.mop(J=J, reps=reps, key=key, alpha=alpha))}.
+\texttt{LG\_obj} is a \texttt{Pomp} object with components 
+\texttt{rinit}, \texttt{rproc}, \texttt{dmeas}, \texttt{ys}, \texttt{theta}.}
+\label{alg:dmop}
+\textbf{Require} Simulator $\process_n(\cdot|x_n; \theta)$; Evaluator for $f_{Y_n|X_n}(y_n^*|x_n, \theta)$;
+Simulator for $f_{X_0}(\cdot;\theta)$; 
+Evaluation parameter $\theta$; 
+Data $y^{*}_{1:N}$; 
+Number of particles J; 
+Discount factor $\alpha$. \newline
+\textbf{Initialize} particles ${X}_{0,j}^{F,\theta}\sim {f}_{{X}_{0}}\left(\cdot\giventh{\theta}\right)$, weights $w^{F,\theta}_{0,j}= 1$ for $j = 1:J$. \newline
 		\textbf{For} $n=1,...,N$: \newline
-            \hspace*{4mm} Accumulate discounted weights, $w_{n,j}^{P,\theta} = \big(w_{n-1,j}^{F,\theta}\big)^\alpha$.\newline
-            \hspace*{4mm} Simulate process model,
-            ${X}_{n,j}^{P,\theta}\sim \process_n\big(\cdot|{X}_{n-1,j}^{F, \theta};{\theta}\big)$. \newline
-            \hspace*{4mm} Measurement density,
-            $g^{\theta}_{n,j}={f}_{{Y}_{n}|{X}_{n}}(y_{n}^{*}|{X}_{n,j}^{P,\theta}\giventh{\theta})$. \newline
-            \hspace*{4mm} Compute $L_n^{B,\theta,\alpha} ={\sum_{j=1}^Jg^\theta_{n,j} \, w^{P,\theta}_{n,j}}\, \big/\, {\sum_{j=1}^J  w^{P,\theta}_{n,j}}$. \newline
+            \hspace*{4mm} Simulate prediction particles,
+            ${X}_{n,j}^{P,\theta}\sim \process_n\big(\cdot|{X}_{n-1,j}^{F, \theta};{\theta}\big)$ for $j = 1:J$. \newline
+            \hspace*{4mm} Accumulate discounted prediction weights, $w_{n,j}^{P,\theta} = \big(w_{n-1,j}^{F,\theta}\big)^\alpha$.\newline
+            \hspace*{4mm} Evaluate measurement density,
+            $g^{\theta}_{n,j}={f}_{{Y}_{n}|{X}_{n}}(y_{n}^{*}|{X}_{n,j}^{P,\theta}\giventh{\theta})$ for $j = 1:J$. \newline
+            \hspace*{4mm} Compute conditional likelihood in version B: $L_n^{B,\theta,\alpha} ={\sum_{j=1}^Jg^\theta_{n,j} \, w^{P,\theta}_{n,j}}\, \big/\, {\sum_{j=1}^J  w^{P,\theta}_{n,j}}$. \newline
 %            \hspace*{4mm} Conditional likelihood under $\phi$,
 %            $L_n^{\phi} = \frac{1}{J}\sum_{m=1}^{J}g^{\phi}_{n,m}$.\newline
             \hspace*{4mm} Select resampling indices $k_{1:J}$ with $\prob\big(k_{j}=m\big) \propto g^{\theta}_{n,m}$. \newline
             \hspace*{4mm} Obtain resampled particles ${X}_{n,j}^{F,\theta}={X}_{n,k_{j}}^{P,\theta}$. \newline
             \hspace*{4mm} Calculate corrected weights
             $w_{n,j}^{F,\theta}= w^{P,\theta}_{n,k_j} \, g^{\theta}_{n,k_j} \, \big/ \, { \mathtt{stop\_gradient}(g^{\theta}_{n,k_j})}$.\newline
-            \hspace*{4mm} Compute $ L_n^{A,\theta,\alpha} = L_n^\phi\cdot {\sum_{j=1}^J w^{F,\theta}_{n,j}} \, \big/ \, {\sum_{j=1}^J  w^{P,\theta}_{n,j}}$.\newline
-	    \textbf{Return:} likelihood estimate $\hat{L}^A(\theta) = \prod_{n=1}^N L_n^{A,\theta,\alpha}$ or $\hat{L}^B(\theta) = \prod_{n=1}^N L_n^{B,\theta,\alpha}$, and gradient estimate $\hat{\mathcal{D}}^A(\theta)$ or $\hat{\mathcal{D}}^B(\theta)$.
+            \hspace*{4mm} Compute considtional likelihood in version A: $L_n^{A,\theta,\alpha} = L_n^\phi\cdot {\sum_{j=1}^J w^{F,\theta}_{n,j}} \, \big/ \, {\sum_{j=1}^J  w^{P,\theta}_{n,j}}$.\newline
+\textbf{Forward Pass: } AD constructs a computation graph to evaluate the likelihood estimate $\hat{L}^A(\theta) = \prod_{n=1}^N L_n^{A,\theta,\alpha}$ or $\hat{L}^B(\theta) = \prod_{n=1}^N L_n^{B,\theta,\alpha}$. \newline
+\textbf{Backward Pass: } AD propagates gradients through the computation graph and evaluates gradient estimate $\hat{\mathcal{D}}^A(\theta)$ or $\hat{\mathcal{D}}^B(\theta)$ \newline
+\textbf{Return:} likelihood estimate $\hat{L}^A(\theta)$ or $\hat{L}^B(\theta)$, and gradient estimate $\hat{\mathcal{D}}^A(\theta)$ or $\hat{\mathcal{D}}^B(\theta)$.
 \end{algorithm}
 
+The key building block of the DMOP method is the MOP-$\alpha$ algorithm.
+It is a variant of the standard particle filter, making the final likelihood estimate differentiable with respect to the target parameter. 
+To solve the issue that random resampling of particles in the classical particle filtering is normally discontinuous with respect to $\theta$, it evaluates the likelihood at the target evaluation parameter $\theta$ and resamples the particles with the indices generated by the standard particle filter at another baseline behavior parameter $\phi$.
+This makes the Monte Carlo resampling process independent of the target evaluation parameter $\theta$, enabling the differentiability of the algorithm, and the further utlization of automatic differentiation and gradient descent.
+The discount factor $\alpha \in [0,1]$, which controls the bias-variance tradeoff of the gradient estimator.
+MOP-$\alpha$ returns the likelihood estimate. 
+However, its significance lies not in its contribution to the likelihood estimate itself, but in collecting results that are differentiable with respect to the target parameters and then can be utilized by DMOP-$\alpha$. 
+That is, DMOP computes the derivative of the likelihood estimate obtained by MOP when $\theta = \phi$.
+The pseudocode of MOP is shown in \ref{alg:mop}. 
 
-In `pypomp`, the `mop()` function is internally run in a JAX-compiled function `_mop_internal()` but wrapped up into a class method. Similarly, it also uses static arguments and static array shapes supported by `jax.lax.fori_loop` to enhance efficiency. The weights and likelihood are also stored in a log scale to prevent underflow. Technically, instead of setting two distinct parameters $\theta$ and $\phi$, the algorithm internally uses the `stop_gradient` function in `JAX` to run one particle filter with $\theta = \phi$, and set the particles at $\phi$ to be copies of $\theta$ to avoid propagating gradients on these particles. This design simplifies the algorithm and still ensures the valid likelihood and gradient estimator, while maintaining differentiability with respect to $\theta$. 
+\begin{algorithm}[H]
+\caption{MOP($\alpha$), Measurement off-policy sequential Monte Carlo}
+\label{alg:mop}
+\textbf{Require} Simulator for $\process_n(\cdot|x_n; \theta)$; 
+Evaluator for $f_{Y_n \mid X_n}(y_n \mid x_n; \theta)$; 
+Simulator for $f_{X_0}(x_0;\theta)$; 
+Evaluation Parameter $\theta$; 
+Behavior Parameter $\phi$;
+Data $y^*_{1:N}$; 
+Number of particles $J$.\newline
+\textbf{Initialize} filter particles $X^{F,\theta}_{0,j} \sim f_{X_0}(\cdot;\theta)$ and  $w^{F,\theta}_{0,j} = 1$ for $j=1{:}J$.\newline
+\textbf{For }$n=1,...,N$: \newline 
+    \hspace*{4mm} Simulate prediction particles: $X^{P,\theta}_{n,j} \sim f_{X_n \mid X_{n-1}}(\cdot \mid X^{F,\theta}_{n-1,j};\theta)$ for $j=1{:}J$. \newline
+    \hspace*{4mm} Accumulate discounted Prediction weight: $w^{P,\theta}_{n,j} = \left(w^{F,\theta}_{n-1,j}\right)^\alpha$ for $j=1{:}J$. \newline
+    \hspace*{4mm} Evaluate measurement density: $g^\theta_{n,j} = f_{Y_n \mid X_n}(y^*_n \mid X^{P,\theta}_{n,j};\theta)$ for $j=1{:}J$. \newline
+    \hspace*{4mm} Compute conditional likelihood under $\theta$ in version $B$: $ L^{B, \theta,\alpha}_n = \sum_{j=1}^J g^\theta_{n,j} w^{P,\theta}_{n,j} \big/ \sum_{j=1}^J w^{P,\theta}_{n,j}$.\newline
+    \hspace*{4mm} Compute conditional likelihood under $\phi$:$L^\phi_n = \frac{1}{J}\sum_{m=1}^J g^\phi_{n,m}$.\newline
+%    \State Normalize weights: 
+%    $\tilde{g}^\phi_{n,j} = \dfrac{g^\phi_{n,j}}{L^\phi_n}$ for 
+%    $j=1{:}J$. \newline
+    \hspace*{4mm} Select resample indices $k_{1:J}$ with $\prob \big(k_j = m\big) \propto \tilde{g}^\phi_{n,m}$. \newline
+    \hspace*{4mm} Obtain resampled particles $X^{F,\theta}_{n,j} = X^{P,\theta}_{n,k_j}$ for $j=1{:}J$. \newline
+    \hspace*{4mm} Calculate resampled corrected weights:$w^{F,\theta}_{n,j} = w^{P,\theta}_{n,j} \times \frac{g^\theta_{n,j}}{g^\phi_{n,j}} \quad \text{for $j=1{:}J$}$. \newline
+    \hspace*{4mm} Compute conditional likelihood under $\theta$ in version $A$: $ L^{A, \theta,\alpha}_n = L^\phi_n \cdot \sum_{j=1}^{J} w^{F,\theta}_{n,j} \big/ \sum_{j=1}^{J} w^{P,\theta}_{n,j}.$ \newline
+\textbf{Return: }Likelihood estimate: $\hat{L}(\theta) = \prod_{n=1}^N L^{A, \theta,\alpha}_n$ or $\hat{L}(\theta) = \prod_{n=1}^N L^{B, \theta,\alpha}_n$.
+\end{algorithm}
+
+In `pypomp`, the DMOP is implemented by wrapping the JAX-compiled `mop()` function inside `jax.value_and_grad()`. 
+This allows direct gradient computaiton with respect to $\theta$. 
+The `mop()` function is internally run in a JAX-compiled function `_mop_internal()` but wrapped up into a class method. 
+Similar to `pfilter`, it also uses static arguments and static array shapes supported by `jax.lax.fori_loop` to enhance efficiency. 
+The weights and likelihood are also stored in a log scale to prevent underflow. 
+Compared to MOP algoirthm, for DMOP and implementation, instead of setting two distinct parameters $\theta$ and $\phi$, the DMOP algorithm internally uses the `stop_gradient` function in `JAX` to prevent its input to be taken into the account for computing gradients. 
+It also run the particle filter with $\theta = \phi$, and set the particles at $\phi$ to be copies of $\theta$ to avoid introducing new parameter values. 
+This design simplifies the algorithm and still ensures the valid likelihood and gradient estimator, while maintaining differentiability with respect to $\theta$. 
 
 In practice, the `mop()` provides an auto-differentiable alternative to `pfilter()`, as a lightweight version. Different from `pfilter()`, `mop()` in `pypomp` focuses purely on producing differentiable likelihood estimates, avoiding extra multiple replicates and diagnostics. This could further support the automatic differentiation and stochastic gradient descent algorithms in accelerated iterated filtering algorithms.  It only requires the number of particles `J`, the evaluation parameter `theta`, a PRNG key, and the cooling factor $\alpha$. The results are stored in the `results_history` attribute as a list of `jax.Array` objects, one for each parameter set, representing the estimated log-likelihood of the observations. For example, we run
 
@@ -574,7 +573,6 @@ Generally, the `result_history` only updates:
 - log-likelihood(s): a list of `jax.Array` containing the estimated log-likelihood(s) of the observed data given the model parameters. Always a list, even if only one theta is provided.
 
 This design highlights `mop()` as a lightweight but essential building block for accelarated gradient-based inference methods within `pypomp`.
-
 
 ### Iterated Filtering
 
