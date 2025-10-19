@@ -465,7 +465,7 @@ This prevents the wide use of AD and gradient-based optimization in POMP dynamic
 The differentiable measurement off-parameter particle filter (DMOP-$\alpha$, @tan2024) provides a solution: it treats a *differentiable* likelihood estimator produced by a variant of the standard particle filter as an objective and apply AD to obtain $\nabla_\theta \hat{\ell}(\theta)$ for likelihood-based optimal parameter search. 
 The derivative estimate from DMOP-$\alpha$ is essential for further stochastic gradient inference methods, such as iterated filtering with automatic differentiation (IFAD), where it employs stochastic gradient descent using DMOP-$\alpha$. 
 A tunning dicount factor $\alpha \in [0,1]$ controls the bias-variance trade-off of the gradient estimator: larger $\alpha$ may result in lower bias and higher variance, while smaller $\alpha$ can reduce the variance with the cost of  increasing bias.
-In implementation, DMOP-$\alpha$ does not require heavy diagnostics or multiple replicates. It only needs a stable ,differentiable of the (log-) likelihood to feed into `jax.grad` and `jax.value_and_grad`. 
+In implementation, DMOP-$\alpha$ does not require heavy diagnostics or multiple replicates. It only needs a stable, differentiable of the (log-) likelihood to feed into `jax.grad` and `jax.value_and_grad`. 
 The pseudocode is shown in \ref{alg:dmop} 
 
 \begin{algorithm}[H]
@@ -500,15 +500,19 @@ Discount factor $\alpha$. \newline
 \textbf{Return:} likelihood estimate $\hat{L}^A(\theta)$ or $\hat{L}^B(\theta)$, and gradient estimate $\hat{\mathcal{D}}^A(\theta)$ or $\hat{\mathcal{D}}^B(\theta)$.
 \end{algorithm}
 
-The key building block of the DMOP-$\alpha$ is the MOP-$\alpha$ algorithm, which obtains such stable and differentiable (log-)likelihood estimates discussed above.
-It is a variant of the standard particle filter designed to make the discontinuous Monte Carlo resampling process independent of the target parameter $\theta$.
-The algorithm evaluates the likelihood at the evaluation parameter $\theta$ but draws resampling indices using weights computed at another baseline behavior parameter $\phi$.
+The key building block of the DMOP-$\alpha$ is the MOP-$\alpha$ algorithm, a variant of the standard particle filter designed to make the discontinuous Monte Carlo resampling process independent of the target parameter $\theta$.
+It evaluates the likelihood at the evaluation parameter $\theta$ but draws resampling indices using weights computed at another baseline behavior parameter $\phi$.
 This renders the likelihood estimates differentiable w.r.t. $\theta$, further enabling AD.
-In DMOP, MOP is run but by algebraically equivalently setting $\phi \equiv \texttt{stop\_gradient}(\theta)$ in JAX. 
-MOP-$\alpha$ returns the likelihood estimate. 
-Its significance lies not in its contribution to the likelihood estimate itself, but in creating a computational graph which is differentiable in target parameters and DMOP then differentiates to obtain the gradient estimate. 
+
+In DMOP-$\alpha$, the same idea is implemented equivalently by setting $\phi \equiv \texttt{stop\_gradient}(\theta)$ in JAX. 
+This prevent its input from being differentiated. 
+The filtering process therefore runs $\theta = \phi$, assuming the evaluation parameter and the bahavior parameters have identical values.
+This avoids the need to explicitly introduce new parameters while preserving the differentiable property. 
+Consequently, the likelihood evaluation of DMOP is identical to that of the standard particle filter, and it does not require implement a fully separate MOP-$\alpha$ procedure.
+This design simplifies the algorithm and still ensures the valid likelihood and gradient estimator, while maintaining differentiability with respect to $\theta$. 
 That is, DMOP computes the derivative of the likelihood estimate obtained by MOP when $\theta = \phi$.
 The pseudocode of MOP is shown in \ref{alg:mop}. 
+
 
 \begin{algorithm}[H]
 \caption{MOP($\alpha$), Measurement off-policy sequential Monte Carlo}
@@ -537,24 +541,16 @@ Number of particles $J$.\newline
 \textbf{Return: }Likelihood estimate: $\hat{L}(\theta) = \prod_{n=1}^N L^{A, \theta,\alpha}_n$ or $\hat{L}(\theta) = \prod_{n=1}^N L^{B, \theta,\alpha}_n$.
 \end{algorithm}
 
-In `pypomp`, DMOP-$\alpha$ is realized by wrapping the JAX-compiled `mop()` function inside JAX AD.
-It is a `Pomp` class method calling an internal `_mop_internal()`, which uses static arguments and static array shapes supported by `jax.lax.fori_loop`, and keeps weights and likelihoods stored in log scale to prevent underflow. 
-System sampling is involved for the resampling process. 
-Users call `jax.grad` and `jax.value_and_grad` on `mop()` to obtain gradients. 
-
-It is crucial to clarify how DMOP-$\alpha$ relates MOP-$\alpha$. 
-The implementation of MOP algorithm alignes well with the likelihood evaluation in DMOP algorithm. 
-Rather than defining another parameter to avoid gradient propagation, the DMOP algorithm internally calls JAX's `stop_gradient` to prevent its input to be differentiated. 
-The particle filter runs $\theta = \phi$ by assuming the evaluation parameter and the bahavior parameter have the same values.
-This avoids the need to explicitly introduce new parameters while preserving the differentiable property. 
-Consequently, the likelihood evaluation of DMOP is identical to standard particle filter, and it does not require implement a fully separate MOP-$\alpha$ procedure.
-This design simplifies the algorithm and still ensures the valid likelihood and gradient estimator, while maintaining differentiability with respect to $\theta$. 
+In `pypomp`, DMOP-$\alpha$ is implemented by wrapping the JAX-compiled `mop()` function inside JAX AD.
+It is a `Pomp` class method calling an internal `_mop_internal()`, which uses static arguments and `jax.lax.fori_loop` for efficiency, and stores weights and likelihoods in log scale to prevent underflow. 
+Systematic sampling is involved for the resampling process. 
+Users can directly apply `jax.grad` and `jax.value_and_grad` to `mop()` to obtain gradients. 
 
 In practice, the `mop()` provides an auto-differentiable alternative to `pfilter()`, as a lightweight version. 
-Unlike `pfilter()`, which provides the choice of mutiple replicates and diagnostic summaries, `mop()` in `pypomp` focuses purely on producing differentiable likelihood estimates.
+Unlike `pfilter()`, which provides the choice of multiple replicates and diagnostic summaries, `mop()` in `pypomp` focuses purely on producing differentiable likelihood estimates.
 This makes the algorithm suitable for AD and stochastic gradient descent algorithms in accelerated iterated filtering algorithms by setting the function as input of `jax.value_and_grad()` and `jax.grad()`. 
-Besides a well-constructed `Pomp` object, the method requires only the number of particles `J`, the evaluation parameter `theta`, a PRNG key, and the cooling factor $\alpha$. 
-The results are stored in the `results_history` attribute as a list of `jax.Array` objects, one for each parameter set, representing the estimated log-likelihood of the observations. For example, we run
+Beyond a well-constructed `Pomp` object, the method requires only the number of particles `J`, the evaluation parameter `theta`, a PRNG key, and the cooling factor $\alpha$. 
+Results are stored in the `results_history` attribute as a list of `jax.Array` objects, one for each parameter set, representing the estimated log-likelihood of the observations. For example, we run
 
 ```{python}
 #| label: lg-mop
