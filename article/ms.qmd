@@ -54,6 +54,7 @@ header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
   - \usepackage{xcolor}
+  - \input{custom_commands.tex}
   - \newcommand{\note}[1]{\textcolor{blue}{\textsf{[#1]}}}
   - \newcommand{\process}{{\mathrm{process}}}
   - \newcommand{\eic}[1]{\textcolor{orange}([#1])}
@@ -78,18 +79,46 @@ import jax
 
 
 ## Introduction
-\note{Topic} Partially Observable Markov Process (POMP) models, also known as state-space models or hidden Markov models, provide a flexible and mechanistic framework for modeling time-series dynamic systems, particularly suited for scenarios where latent states are only partially observable. Characterized by transition densities and measurement densities of Markov processes, this framework bridges complex underlying dynamics with limited information in real-world data. Consequently, POMP models find extensive application in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains.
+\note{Topic} 
+Partially Observable Markov Process (POMP) models, also known as state-space models or hidden Markov models, provide a flexible and mechanistic framework for modeling time-series dynamic systems, particularly suited for scenarios where latent states are only partially observable. 
+Characterized by transition densities and measurement densities of Markov processes, this framework bridges complex underlying dynamics with limited information in real-world data. 
+Consequently, POMP models find extensive application in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains.
 
-\note{Existing package discussion} The rich POMP package ecosystem built in `R` has provided a solid, standardized, and extensible framework for modeling time series data using nonlinear, stochastic partially observed mechanism dynamic models. The `R pomp` package has become a well-established tool for fitting POMP models using a general and abstract representation, that supports multiple inference techniques. Its extension packages `panelPomp`, `spatpomp`, and `phyloPomp` further enhance its capabilities for panel, spatio-temporal and phylodynamic data analysis respectively
+\note{Existing package discussion} 
+The POMP package ecosystem in `R` has provided a solid, standardized, and extensible framework for modeling time series data using nonlinear, stochastic partially observed mechanism dynamic models. 
+The `R pomp` package has become a well-established tool for fitting POMP models using a general and abstract representation, that supports multiple inference techniques. 
+Its extension packages `panelPomp`, `spatpomp`, and `phyloPomp` further enhance its capabilities for panel, spatio-temporal, and phylodynamic data analysis, respectively.
 
-\note{computational challenges + potential limitations} While conceptually powerful, statistical inference for POMP models using the above `R` packages poses substantial computational challenges. From a methodological perspective, likelihood-based inference for POMP models typically relies on perturbations within iterated filtering (adding ref related to iterative filtering) algorithms. While many of them are stable and effective in locating a neighborhood containing the likelihood maximum, they exhibit numerical inefficiency for obtaining a precise identification of the maximum value. Particularly, when the latent states are high-dimensional or when repeated model evaluations are required, the fitting process could be computationally prohibitive by the constraints. 
+\note{computational challenges + potential limitations} 
+While conceptually powerful, statistical inference for POMP models using the above `R` packages poses substantial computational challenges. 
+From a methodological perspective, likelihood-based inference for POMP models typically relies on perturbations within iterated filtering (adding ref related to iterative filtering) algorithms. 
+While many of them are stable and effective in locating a neighborhood containing the likelihood maximum, they exhibit numerical inefficiency for obtaining a precise identification of the maximum value. 
+Particularly, when the latent states are high-dimensional or when repeated model evaluations are required, the fitting process could be computationally prohibitive by the constraints. 
 
-On the other hand, these POMP models have demonstrated strong potential to be sped up considerably. Many of the processes are embarassingly parallel, such as simulating the state process for each of thousands of particles, running the particle filter multiple times for the same parameter set, and running iterated filtering from multiple starting parameter sets, especially when estimating a profile likelihood to construct a confidence interval as per [@ionides2017]. Graphics Processing Units (GPUs) are well-suited for such operations. However, the existing family of POMP packages (**pomp**, **panelPomp**, and **spatPomp** [@king2016,@breto2025,@asfaw2024]) only runs on CPUs.
+As it turns out, POMP methods can be sped up considerably. 
+Many of the processes involved in POMP methods are embarassingly parallel, such as simulating the state process for each of thousands of particles, running the particle filter multiple times for the same parameter set, and running iterated filtering from multiple starting parameter sets, especially when estimating a profile likelihood to construct a confidence interval as per [@ionides2017]. 
+Graphics Processing Units (GPUs) are well-suited for such operations. 
+However, the existing family of POMP packages (**pomp**, **panelPomp**, and **spatPomp** [@king2016, @breto2025, @asfaw2024]) only runs on CPUs.
 
-\note{introducing AD/JIT/GPU hardware + pypomp} As the demand grows for scalable and parallelizable inference algorithms, there is an increasing need for an accelerated framework for POMP modeling framework. `pypomp`[@abkemeier2024] addresses this by tightly integrating **automatic differentiation (AD)**, **just-in-time (JIT) compilation**, and **GPU/TPU accelaration** through JAX [@bradbury2018], a high-performance numerical computing library that supports hardware accelation and vectorization. AD techniques enable efficient and accurate derivative computation by systematically applying the chain rule to fundamental operations. Recent works have extended AD for gradient estimation using the particle filtering, yielding a class of methods termed automatic differetiation particle filters (ADPF). Building on these advancements, `pypomp` provides AD-enabled gradient estimation for inference for POMP models within a plug-and-play framework [@ionides2006], where users specify dynamic models solely through simulators of latent state trajectories, rather than evaluating the transition density of the latent Markov process. JAX's JIT compilation further accelerates repeated inference and evaluation by converting Python functions into machine code at runtime. Finally, JAX's GPU/TPU support enables efficient scaling of inference methods. Together, these features make `pypomp` more than a port of the `R` package `pomp`. Instead, it established an independent, modernized platform for fast and flexible POMP modeling in Python.
+\note{introducing AD/JIT/GPU hardware + pypomp} 
+As the demand grows for scalable and parallelizable inference algorithms, there is an increasing need for an accelerated framework for POMP modeling framework. 
+The Python package `pypomp` [@abkemeier2024] addresses this by integrating **automatic differentiation (AD)**, **just-in-time (JIT) compilation**, and **GPU acceleration** through JAX [@bradbury2018], a high-performance numerical computing library that supports hardware acceleration and vectorization. 
+AD techniques enable efficient and accurate derivative computation by systematically applying the chain rule to fundamental operations. 
+Recent works have extended AD for gradient estimation using particle filtering, yielding a class of methods termed automatic differetiation particle filters (ADPF). 
+Building on these advancements, `pypomp` provides AD-enabled gradient estimation for inference for POMP models within a plug-and-play framework [@ionides2006], where users specify dynamic models solely through simulators of latent state trajectories, rather than evaluating the transition density of the latent Markov process. 
+JAX's JIT compilation further accelerates repeated inference and evaluation by converting Python functions into machine code at runtime. 
+Finally, JAX's GPU support enables efficient scaling of inference methods. 
+Together, these features make `pypomp` more than a port of the `R` package `pomp`. 
+Instead, it establishes an independent, modernized platform for fast and flexible POMP modeling in Python.
+
 
 \note{structure}
-The remainder of this paper is organized as follows. Section 2 discusses the Motivation for `pypomp` design using specific examples. Section 3 demonstrates the mathematical notation for POMP models and their related implementation in `pypomp`. Section 4 introduces the embedded methodologies. Section 5 presents data analysis workflows and benchmarking results. Section 6 concludes with a discussion of future directions.
+The remainder of this paper is organized as follows. 
+Section 2 discusses the motivation for `pypomp` design using specific examples. 
+Section 3 demonstrates the mathematical notation for POMP models and their related implementation in `pypomp`. 
+Section 4 introduces the embedded methodologies. 
+Section 5 presents data analysis workflows and benchmarking results. 
+Section 6 concludes with a discussion of future directions.
 
 \note{add discussion of panelpomp into introduction}
 
@@ -182,13 +211,14 @@ Table: Main arguments to the `Pomp` class and related constructor objects.
 We demonstrate here how to create a `Pomp` object. Specifically, we show how to create the linear Gaussian model included in the package as `LG()`. We begin by importing necessary packages and defining helper functions for handling the parameters. Because `pypomp` will run our defined model components within JAX JIT-compiled code, it is necessary to write the components to be JAX-compliant. Naturally, the JAX package has many useful functions for this purpose. We also generate a pseudorandom number generation (PRNG) key to be used with JAX random number generators. All stochastic simulations in `pypomp` are controlled via JAX PRNG keys, ensuring full reproducibility when using the same seed.
 
 ```{python}
-#| label: lg-setup
-#| echo: true
+# | label: lg-setup
+# | echo: true
 import pypomp as pp
 import pandas as pd
 import jax
 import jax.numpy as jnp
 from functools import partial
+
 
 def get_thetas(theta):
     theta = jnp.asarray(theta)
@@ -202,8 +232,8 @@ def get_thetas(theta):
 def transform_thetas(A, C, Q, R):
     return jnp.concatenate([A.ravel(), C.ravel(), Q.ravel(), R.ravel()])
 
-# create PRNG key correctly
-key = jax.random.PRNGKey(1)
+
+key = jax.random.key(1)
 ```
 
 #### Model Components

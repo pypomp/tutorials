@@ -62,6 +62,8 @@ fresh: clean
 	$(RM) *.ps *.bbl *.ind *.dvi 
 	$(RM) -r cache/* figure/*
 
+skip_code:
+	quarto render ms.qmd --to jss-pdf --no-execute
 
 # Create a virtual Python environment
 venv:
