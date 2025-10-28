@@ -6,6 +6,9 @@ install_pypi: install_requirements
 install_git: install_requirements
 	pip install git+https://github.com/pypomp/pypomp.git
 
+install_git_latest: install_requirements
+	pip install git+https://github.com/pypomp/pypomp.git --force-reinstall --no-deps
+
 install_requirements: .venv
 	pip install -r requirements.txt
 

@@ -221,17 +221,38 @@ from functools import partial
 
 
 def get_thetas(theta):
-    theta = jnp.asarray(theta)
-    A = theta[0:4].reshape((2, 2))
-    C = theta[4:8].reshape((2, 2))
-    Q = theta[8:12].reshape((2, 2))
-    R = theta[12:16].reshape((2, 2))
+    A = jnp.array(
+      [theta["A11"], theta["A12"], theta["A21"], theta["A22"]]
+    ).reshape(2, 2)
+    C = jnp.array(
+      [theta["C11"], theta["C12"], theta["C21"], theta["C22"]]
+    ).reshape(2, 2)
+    Q = jnp.array(
+      [theta["Q11"], theta["Q12"], theta["Q21"], theta["Q22"]]
+    ).reshape(2, 2)
+    R = jnp.array(
+      [theta["R11"], theta["R12"], theta["R21"], theta["R22"]]
+    ).reshape(2, 2)
     return A, C, Q, R
 
 
 def transform_thetas(A, C, Q, R):
-    return jnp.concatenate([A.ravel(), C.ravel(), Q.ravel(), R.ravel()])
+    return jnp.concatenate([A.flatten(), C.flatten(), Q.flatten(), R.flatten()])
 
+
+rw_sd = pp.RWSigma(
+  sigmas={
+    "A11": 0.02, "A12": 0.02,
+    "A21": 0.02, "A22": 0.02,
+    "C11": 0.02, "C12": 0.02,
+    "C21": 0.02, "C22": 0.02,
+    "Q11": 0.02, "Q12": 0.02,
+    "Q21": 0.02, "Q22": 0.02,
+    "R11": 0.02, "R12": 0.02,
+    "R21": 0.02, "R22": 0.02,
+  },
+  init_names=[],
+)
 
 key = jax.random.key(1)
 ```
@@ -242,31 +263,37 @@ We refer to model components describing initialization, transfer, or measurement
 Illustrated in @tbl-pomp_comps,`pypomp` also includes object constructors for components describing the model mechanics: `RInit`, `RProc`, `DMeas`, and `RMeas`. Some constructors also require additional arguments, such as `t0` for `RInit`. Notably, `RProc` takes `step_type`, `dt`, and `nstep` arguments. `step_type` determines how `RProc` should be run at intermediate steps between two observation times. If we want to model the state process as evolving in continuous time, setting `step_type="euler"`uses an Euler approximation, running `rproc` at intermediate steps based on the time step size, `dt`. The number of steps taken is given by the number of times `dt` divides the difference between two observation times, rounded up, and is consequently dynamic. Otherwise, if we instead want a fixed number of steps for each observation time interval, we can use `step_type="fixedstep"`, in which case `rproc` will run at `nstep` intermediate steps equally spaced between two observation times, starting from the first observation time. Consequently, setting `step_type="fixedstep"` and `nstep=1` only runs `rproc` at the observation times. Here is an example of defining the object constructors for components under the linear gaussian model.In practice, at least one of `dmeas` or `rmeas` must be provided, while the construction of `RInit` and `RProc` are always required.
 
 ```{python}
-#| label: lg-components
-#| echo: true
+# | label: lg-components
+# | echo: true
 
-import pypomp as pp
 
-@partial(pp.RInit, t0=0.0)
 def rinit(theta_, key, covars=None, t0=None):
+    """Initial state process simulator for the linear Gaussian model"""
     A, C, Q, R = get_thetas(theta_)
-    return jax.random.multivariate_normal(key=key, mean=jnp.array([0.0, 0.0]), cov=Q)
+    result = jax.random.multivariate_normal(key=key, mean=jnp.array([0, 0]), cov=Q)
+    return {"X1": result[0], "X2": result[1]}
 
-@partial(pp.RProc, step_type="fixedstep", nstep=1)
+
 def rproc(X_, theta_, key, covars=None, t=None, dt=None):
+    """Process simulator for the linear Gaussian model"""
     A, C, Q, R = get_thetas(theta_)
-    return jax.random.multivariate_normal(key=key, mean=A @ X_, cov=Q)
+    X_array = jnp.array([X_["X1"], X_["X2"]])
+    result = jax.random.multivariate_normal(key=key, mean=A @ X_array, cov=Q)
+    return {"X1": result[0], "X2": result[1]}
 
-@pp.DMeas
+
 def dmeas(Y_, X_, theta_, covars=None, t=None):
+    """Measurement model distribution for the linear Gaussian model"""
     A, C, Q, R = get_thetas(theta_)
-    # return logpdf of Y given X (mean = C @ X_, cov = R)
-    return jax.scipy.stats.multivariate_normal.logpdf(Y_, mean=C @ X_, cov=R)
+    X_array = jnp.array([X_["X1"], X_["X2"]])
+    return jax.scipy.stats.multivariate_normal.logpdf(Y_, X_array, R)
 
-@partial(pp.RMeas, ydim=2)
+
 def rmeas(X_, theta_, key, covars=None, t=None):
+    """Measurement simulator for the linear Gaussian model"""
     A, C, Q, R = get_thetas(theta_)
-    return jax.random.multivariate_normal(key=key, mean=C @ X_, cov=R)
+    X_array = jnp.array([X_["X1"], X_["X2"]])
+    return jax.random.multivariate_normal(key=key, mean=C @ X_array, cov=R)
 
 ```
 
@@ -281,52 +308,58 @@ These can be provided either as a dictionary or as a list of dictionaries. Each 
 theta = {
     "A11": jnp.cos(0.2), "A12": -jnp.sin(0.2),
     "A21": jnp.sin(0.2), "A22": jnp.cos(0.2),
-    "C11": 1.0, "C12": 0.0, "C21": 0.0, "C22": 1.0,
-    "Q11": 0.01, "Q12": 1e-6, "Q21": 1e-6, "Q22": 0.01,
-    "R11": 0.1, "R12": 0.01, "R21": 0.01, "R22": 0.1,
+    "C11": 1.0,          "C12": 0.0, 
+    "C21": 0.0,          "C22": 1.0,
+    "Q11": 0.01,         "Q12": 1e-6, 
+    "Q21": 1e-6,         "Q22": 0.01,
+    "R11": 0.1,          "R12": 0.01, 
+    "R21": 0.01,         "R22": 0.1,
 }
 param_bounds = {k: (v * 0.9, v * 1.1) for k, v in theta.items()}
 n = 5
-key = jax.random.PRNGKey(1)
+key = jax.random.key(1)
 key, subkey = jax.random.split(key)
 theta_list = pp.Pomp.sample_params(param_bounds, n, subkey)
 ```
 
 ### Covariates
-Scientifically, POMP models often involve external time-varying inputs, referred to as covariates, which can influence either the latent process or the measurement model. Examples include seasonality, interventions, or environmental drivers in ecological applications. In `pypomp`, covariates are supplied as a `pandas.DataFrame` indexed by time. The time at which the covariates were observed should be specified in the `ctime` argument. Importantly, the covariate time points may differ from the observation times, necessitating interpolation. Given the observation times, covariate times, and the step type specified in `RProc`, the model automatically aligns and interpolates observations and covariates to ensure consistency with the simulation of the latent and observation processes. The linear gaussian model doesn't involve any covariates, and an example using covariates is given in the Data Analysis Section. 
+Scientifically, POMP models often involve external time-varying inputs, referred to as covariates, which can influence either the latent process or the measurement model. 
+Examples include seasonality, interventions, or environmental drivers in ecological applications. 
+In `pypomp`, covariates are supplied as a `pandas.DataFrame` indexed by time. 
+The time at which the covariates were observed should be specified in the `ctime` argument. 
+Importantly, the covariate time points may differ from the observation times, necessitating interpolation. 
+Given the observation times, covariate times, and the step type specified in `RProc`, the model automatically aligns and interpolates observations and covariates to ensure consistency with the simulation of the latent and observation processes. 
+The linear gaussian model does not involve any covariates, and an example using covariates is given in the Data Analysis Section. 
 
 #### POMP Object Construction
 
 We do not have real data in this `LG` example, so we generate our own. To make this example cleaner, we here use the function `LG()` to construct the completed linear Gaussian model object and then generate the data using `simulate()`. Observation times are provided to the `Pomp` constructor via the `pandas.DataFrame` row index. If covariates were provided, the times at which the covariates were observed would also be provided by the `pandas.DataFrame` row index. 
 
 ```{python}
-#| label: lg-sim
-#| echo: true
-import jax, jax.numpy as jnp
-import pandas as pd
-import pypomp as pp
+# | label: lg-sim
+# | echo: true
 
 T = 100
 # ensure `key` exists; if not, uncomment the next line
 # key = jax.random.PRNGKey(1)
 
 key, subkey = jax.random.split(key)
-sims = pp.LG(T=T).simulate(key=subkey)
-
-ys = pd.DataFrame(
-    sims[0]["Y_sims"].squeeze(),
-    index=range(1, T + 1),
-    columns=["Y1", "Y2"],
-)
+_, ys = pp.LG(T=T).simulate(key=subkey)
+ys = ys.rename(columns={"obs_0": "Y1", "obs_1": "Y2"})
+ys = ys[["time", "Y1", "Y2"]]
+ys.set_index("time", inplace=True)
 
 LG_obj = pp.Pomp(
     rinit=rinit,
     rproc=rproc,
     dmeas=dmeas,
     rmeas=rmeas,
+    t0=0.0,
+    nstep=1,
+    ydim=2,
     ys=ys,
     theta=theta_list,
-    covars=None,
+    statenames=["X1", "X2"],
 )
 
 print("LG_obj created; ys.shape =", ys.shape)
@@ -364,7 +397,10 @@ A key design choice `pypomp` is it relys heavily on the JAX numerical backend. U
 
 - **Strict argument requirements for compilation and vectorization:** JAX's `jit` compiler transforms the user-supplied component functions (`rinit`, `rproc`, `dmeas`, `rmeas`) into efficient machine code, while `vmap` efficiently run them over thousands of particles via vectorization of arguments. To ensure the compatibility with JAX's compilation and vectorization system, each component function must follow the expected input types and order, otherwise compilation would fail.  
 
-- **PRNG random key policy**: To ensure the reproducibility of randomness in POMP models under `pypomp`, the public API accept an optional `jax.random.PRNGkay`, which is explicityly passed through constructors and methods. Keys are internally split when it is needed. Unlike the R setting, where randomness can be controlled globally or by seed chunks, in JAX, random keys only be explicitly passed through funcitons
+- **PRNG random key policy**: 
+To ensure the reproducibility of randomness in POMP models under `pypomp`, the public API accept an optional `jax.random.key`, which is explicitly passed through constructors and methods. 
+Keys are internally split when it is needed. 
+Unlike the R setting, where randomness can be controlled globally or by seed chunks, in JAX, random keys only be explicitly passed through funcitons
 
 - **Consistent shapes and sizes handling**:  model parameters, even multidimensional, are stored as flattened dictionaries. Consequently, JAX can uniformly process parameters, thereby maintaining consistency in particle propagation.
 
@@ -390,18 +426,11 @@ In `pypomp`, the plug-and-play design is fully preserved: users only need to pro
 Unlike the R family of POMP packages, some `Pomp` class methods including `pfilter()`, `mif()` and `train()` yield results by modifying the object in place instead of returning new objects. All of results are stored a list under `LG_obj.results_history`, which is an attibute under `Pomp` class object `LG_obj`. Each element in the list correponds to one method call. Each element includes results such as the log-likelihood and parameter estimates when applicable as well as the inputs used for the function call, so it is easy to keep track of how the results were calculated. If multiple parameter sets are supplied in a list as an argument, the method evaluates at each set and the results for each are stored. Meanwhile, each following method in `pypomp` that takes a key as an argument stores an unused child key under `LG_obj.fresh_key` that later method calls can use by default when a key argument is not given. This design prevents repeated use of the same key across a sequence of method calls and ensures proper randomness.
 
 ```{python}
-#| label: lg-output
-#| echo: true
+# | label: lg-output
+# | echo: true
 
-LG_obj.pfilter(J = 100,
-               reps = 5, 
-               key = subkey)
-LG_obj.mif(sigmas = 0.02, 
-           sigmas_init = 0.1, 
-           M = 2, 
-           a = 0.5, 
-           J = 100, 
-           key = subkey)
+LG_obj.pfilter(J=100, reps=5, key=subkey)
+LG_obj.mif(rw_sd=rw_sd, M=2, a=0.5, J=100, key=subkey)
 
 print(LG_obj.results_history)
 
@@ -440,30 +469,33 @@ Number of particles $J$. \newline
 In `pypomp`, the `pfilter()` functions is internally run in a compiled JAX routine `pfilter_internal()` but wrapped up into a class method. `_pfilter_internal` is JIT-compiled with static arguments, in which the replicates and parameter sets are vectorized via `jax.vmap`. Both techniques enable execution on CPU/GPU and ensure the computational efficiency. In implementation, the weights and likelihood are stored in a log scale, preventing underflow. There are optional arguments (`CLL`, `ESS`, `filter_mean`, `prediction_mean`) control wheter additional diagnostic arrays are allocated and updated. The algorithm works for flexible and extendable models through the user-specified `Pomp` class components (`rinit`, `rproc`, `dmeas`, `reams`), number of particles `J` as well as other parameters. Each run returns a `dict` type element updated inside the `LG_obj. result_history` attribute, containing the log-likelihoods, algorithm parameters used, as well as model diagonostic elements at each time included if their respective boolean flags are set to True. For example, suppose we run
 
 ```{python}
-#| label: lg-pfilter
-#| echo: true
+# | label: lg-pfilter
+# | echo: true
 
 LG_obj_2 = pp.Pomp(
     rinit=rinit,
     rproc=rproc,
     dmeas=dmeas,
     rmeas=rmeas,
+    t0=0.0,
+    nstep=1,
+    ydim=2,
     ys=ys,
     theta=theta_list,
-    covars=None,
+    statenames=["X1", "X2"],
 )
 
-LG_obj_2.pfilter(J = 1000,
-                 reps = 10, 
-                 key = subkey)
+LG_obj_2.pfilter(J=1000, reps=10, key=subkey)
 
-LG_obj_2.pfilter(J = 1000,
-                 reps = 10, 
-                 key = subkey,
-                 CLL = True,
-                 ESS = True,
-                 filter_mean = True,
-                 prediction_mean = True)
+LG_obj_2.pfilter(
+    J=1000,
+    reps=10,
+    key=subkey,
+    CLL=True,
+    ESS=True,
+    filter_mean=True,
+    prediction_mean=True,
+)
 
 
 ```
@@ -583,22 +615,23 @@ Beyond a well-constructed `Pomp` object, the method requires only the number of 
 Results are stored in the `results_history` attribute as a list of `jax.Array` objects, one for each parameter set, representing the estimated log-likelihood of the observations. For example, we run
 
 ```{python}
-#| label: lg-mop
-#| echo: true
+# | label: lg-mop
+# | echo: true
 
 LG_obj_3 = pp.Pomp(
     rinit=rinit,
     rproc=rproc,
     dmeas=dmeas,
     rmeas=rmeas,
+    t0=0.0,
+    nstep=1,
+    ydim=2,
     ys=ys,
     theta=theta_list,
-    covars=None,
+    statenames=["X1", "X2"],
 )
 
-LG_obj_3.mop(J = 1000,
-             key = subkey,
-             alpha = 0.97)
+LG_obj_3.mop(J=1000, key=subkey, alpha=0.97)
 
 ```
 
