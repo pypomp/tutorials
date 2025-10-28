@@ -258,9 +258,14 @@ key = jax.random.key(1)
 ```
 
 #### Model Components
-We refer to model components describing initialization, transfer, or measurement processes as model mechanisms, including `rinit`, `rproc`, `dmeas`, and `rmeas`. Users must define these processes as Python functions. Specifically, we require users to provide function code to the object constructor, which verifies that all necessary function arguments are included and in the correct order. This requirement stems from `pypomp`'s internal mechanism: it vectorizes component functions using `jax.vmap()` to efficiently run thousands of particles. Since `jax.vmap()` maps functions to input arrays by position rather than keyword, users must strictly adhere to parameter order. While all expected parameters must be included, the function does not need to utilize all of them.
-
-Illustrated in @tbl-pomp_comps,`pypomp` also includes object constructors for components describing the model mechanics: `RInit`, `RProc`, `DMeas`, and `RMeas`. Some constructors also require additional arguments, such as `t0` for `RInit`. Notably, `RProc` takes `step_type`, `dt`, and `nstep` arguments. `step_type` determines how `RProc` should be run at intermediate steps between two observation times. If we want to model the state process as evolving in continuous time, setting `step_type="euler"`uses an Euler approximation, running `rproc` at intermediate steps based on the time step size, `dt`. The number of steps taken is given by the number of times `dt` divides the difference between two observation times, rounded up, and is consequently dynamic. Otherwise, if we instead want a fixed number of steps for each observation time interval, we can use `step_type="fixedstep"`, in which case `rproc` will run at `nstep` intermediate steps equally spaced between two observation times, starting from the first observation time. Consequently, setting `step_type="fixedstep"` and `nstep=1` only runs `rproc` at the observation times. Here is an example of defining the object constructors for components under the linear gaussian model.In practice, at least one of `dmeas` or `rmeas` must be provided, while the construction of `RInit` and `RProc` are always required.
+We refer to model components describing initialization, transfer, or measurement processes as the model mechanics, including `rinit`, `rproc`, `dmeas`, and `rmeas`. 
+Users must define these mechanics as Python functions. 
+Specifically, we require users to provide function code to the object constructor, which verifies that all necessary function arguments are included and in the correct order. 
+This requirement stems from `pypomp`'s internal mechanism: it vectorizes component functions using `jax.vmap()` to efficiently run thousands of particles. 
+Since `jax.vmap()` maps functions to input arrays by position rather than keyword, users must strictly adhere to parameter order. 
+While all expected arguments must be included, the function does not need to utilize all of them.
+We include here an example defining the model mechanics for the linear gaussian model.
+In practice, at least one of `dmeas` or `rmeas` must be provided, while definitions for `rinit` and `rproc` are always required.
 
 ```{python}
 # | label: lg-components
@@ -300,7 +305,11 @@ def rmeas(X_, theta_, key, covars=None, t=None):
 #### Parameters
 
 The `Pomp` constructor also requires model parameters.
-These can be provided either as a dictionary or as a list of dictionaries. Each item in a dictionary should include the parameter name as the key and the parameter value as the dictionary value.  If the parameter sets are provided as a list of dictionaries, methods such as `pfilter()` run on each set of parameters.  Here, we use `Pomp.sample_params()` to sample sets of parameters from uniform distributions with bounds passed as a dictionary of length-2 tuples. `Pomp.sample_params()` returns a ready-to-use list of dictionaries with the sampled parameters. Internally, parameters, even are multi-dimensional, are stored as flat dictionaries to facilitate JAX transformations and compilation.
+These can be provided either as a dictionary or as a list of dictionaries. 
+Each item in a dictionary should include the parameter name as the key and the parameter value as the dictionary value.  
+If the parameter sets are provided as a list of dictionaries, methods such as `pfilter()` run on each set of parameters. 
+Here, we use `Pomp.sample_params()` to sample sets of parameters from uniform distributions with bounds passed as a dictionary of length-2 tuples. 
+`Pomp.sample_params()` returns a ready-to-use list of dictionaries with the sampled parameters. 
 
 ```{python}
 #| label: lg-params
@@ -323,17 +332,18 @@ theta_list = pp.Pomp.sample_params(param_bounds, n, subkey)
 ```
 
 ### Covariates
-Scientifically, POMP models often involve external time-varying inputs, referred to as covariates, which can influence either the latent process or the measurement model. 
+POMP models often involve external time-varying inputs, referred to as covariates, which can influence either the latent process or the measurement model. 
 Examples include seasonality, interventions, or environmental drivers in ecological applications. 
 In `pypomp`, covariates are supplied as a `pandas.DataFrame` indexed by time. 
-The time at which the covariates were observed should be specified in the `ctime` argument. 
-Importantly, the covariate time points may differ from the observation times, necessitating interpolation. 
-Given the observation times, covariate times, and the step type specified in `RProc`, the model automatically aligns and interpolates observations and covariates to ensure consistency with the simulation of the latent and observation processes. 
+The covariate time points may differ from the observation times, so the `Pomp` object automatically interpolates covariate values at the observation times. 
 The linear gaussian model does not involve any covariates, and an example using covariates is given in the Data Analysis Section. 
 
 #### POMP Object Construction
 
-We do not have real data in this `LG` example, so we generate our own. To make this example cleaner, we here use the function `LG()` to construct the completed linear Gaussian model object and then generate the data using `simulate()`. Observation times are provided to the `Pomp` constructor via the `pandas.DataFrame` row index. If covariates were provided, the times at which the covariates were observed would also be provided by the `pandas.DataFrame` row index. 
+We do not have real data in this `LG` example, so we generate our own. 
+To make this example cleaner, we use the function `LG()` to construct the completed linear Gaussian model object and then generate the data using `simulate()`. 
+Observation times are provided to the `Pomp` constructor via the `pandas.DataFrame` row index. 
+If covariates were provided, the times at which the covariates were observed would also be provided by the `pandas.DataFrame` row index. 
 
 ```{python}
 # | label: lg-sim
@@ -382,27 +392,36 @@ print(LG_obj.ys.head())  # access observations
 
 #### Premade models:
 
-Beyond the linear gaussian model, `pypomp` includes several ready‑to‑use model constructors that serve both as examples and as tested templates for custom model development:
+Beyond the linear gaussian model, `pypomp` includes several ready‑to‑use model constructors that serve as examples for what users can do:
 
 1. `LG()` — a simple linear‑Gaussian model with 2‑dimensional latent and observed states; useful to validate API usage and diagnostics.
 2. `spx()` — the S&P500 log‑return model from Sun et al. [@sun2024].
 3. `dacca()` — the cholera transmission model from King et al. [@king2008].
-4. `UKMeasles.Pomp()` — the measles district model from He et al. [@he2010], wired to the Korevaar et al. dataset [@korevaar2020]. Panel and spatial variants (PanelPOMP/SpatPOMP style) are planned.
+4. `UKMeasles.Pomp()` — the measles district model from He et al. [@he2010], extended to the Korevaar et al. dataset [@korevaar2020]. Panel and spatial variants (PanelPOMP/SpatPOMP style) are planned.
 
-These examples show correct component wiring (`rinit`, `rproc`, `dmeas`, `rmeas`), recommended `step_type`/`dt` usage, and typical diagnostics. If a user model errors or runs slowly, compare its components to the matching premade model to find mistakes and performance opportunities. Meanwhile, these premade models can also replicate well-know case studies in the R pomp ecosystem, allowing direct comparison and validation.
+These examples demonstrate correct model specification. 
+If a user's model throws an error or runs slowly, they may compare its components to a premade model to make improvements. 
 
 #### JAX Numerical Backend and Interface Design
 
-A key design choice `pypomp` is it relys heavily on the JAX numerical backend. Unlike the R package `pomp`, where users typically provide POMP model components in C Snippets for acceleration, `pypomp` requires model components to be written as JAX-compatible Python functions. These functions are then compiled and vectorized by JAX tools such as `jit` and `vmap`. This design leads to several important interface features:
+A key design choice in `pypomp` is its usage of JAX as a numerical backend. 
+Unlike the R package `pomp`, where users typically provide POMP model components in C Snippets for acceleration, `pypomp` requires model components to be written as JAX-compatible Python functions. 
+These functions are then compiled and vectorized by JAX tools such as `jit` and `vmap`. 
+This design leads to several important interface features:
 
-- **Strict argument requirements for compilation and vectorization:** JAX's `jit` compiler transforms the user-supplied component functions (`rinit`, `rproc`, `dmeas`, `rmeas`) into efficient machine code, while `vmap` efficiently run them over thousands of particles via vectorization of arguments. To ensure the compatibility with JAX's compilation and vectorization system, each component function must follow the expected input types and order, otherwise compilation would fail.  
+\AAnote{How necessary is it to mention this restriction?}
+- **Strict argument requirements for compilation and vectorization:** JAX's `jit` compiler transforms the user-supplied model mechanics functions into efficient machine code, while `vmap` efficiently run them over thousands of particles via vectorization of arguments. 
+To ensure the compatibility with JAX's compilation and vectorization system, each component function must follow the expected input types and order, otherwise compilation would fail.  
 
+\AAnote{Is this necessary?}
 - **PRNG random key policy**: 
-To ensure the reproducibility of randomness in POMP models under `pypomp`, the public API accept an optional `jax.random.key`, which is explicitly passed through constructors and methods. 
-Keys are internally split when it is needed. 
+To ensure reproducibility of random methods in `pypomp`, public API methods accept an optional `jax.random.key`, which is explicitly passed through constructors and methods. 
 Unlike the R setting, where randomness can be controlled globally or by seed chunks, in JAX, random keys only be explicitly passed through funcitons
 
-- **Consistent shapes and sizes handling**:  model parameters, even multidimensional, are stored as flattened dictionaries. Consequently, JAX can uniformly process parameters, thereby maintaining consistency in particle propagation.
+\AAnote{Is this necessary? In general, I think the internal details in this section aren't very important. We should go over internal details that lead to some advantage over other packages or which constrain what we can do.}
+- **Consistent shapes and sizes handling**: 
+Model parameters, even multidimensional, are stored as flattened dictionaries. 
+Consequently, JAX can uniformly process parameters, thereby maintaining consistency in particle propagation.
 
 Later section will demonstrate how the JAX-based design supports further inference methods.
 
@@ -412,18 +431,26 @@ Later section will demonstrate how the JAX-based design supports further inferen
 
 
 ## POMP Methods in pypomp
-In this section, we describe the core inference methods currently implemented in `pypomp`, including : 
+In this section, we describe the core inference methods currently implemented in `pypomp`, including: 
 
 - `Paricle Filter` (Sequential Monte Carlo, written in `pfilter()`): A standard sequential Monte Carlo algorithm for likelihood evaluation and state estimation, forming the basis for most inference methods in POMP models.
-- `Differentiated Measurement-off-policy` Particle Filter (MOP($\alpha$), written in `mop()`): A recently proposed SMC method [@tan2024] that evaluates the likelihood at one parameter value while obtaining resampling decisions from another, adjusting via discounted off-parameter measurement weights.
+- `Differentiated Measurement-off-policy` Particle Filter (DMOP($\alpha$), written in `mop()`): A recently proposed SMC method [@tan2024] that evaluates the likelihood at one parameter value while obtaining resampling decisions from another, adjusting via discounted off-parameter measurement weights.
 - `Iterated Filtering` (IF2, `mif()`): A classical IF2 algorithm [@ionides2015] for likelihood-based parameter inference that maximizes the likelihood via particle filtering.
-- `Iterated Filtering with Automatic Differentiation` (`train()`): A recently proposed AD-based algorithm [@tan2024] that incorporates MOP($\alpha$), the differentiable particle filter, to enable efficient gradient-based parameter inference for maximum likelihood estimation.
+- `Iterated Filtering with Automatic Differentiation` (`train()`): A recently proposed AD-based algorithm [@tan2024] that leverages DMOP($\alpha$) perform maximum likelihood estimation with gradient descent methods.
 
-A key feature of the above POMP inference methods lies in the **plug-and-play property** [@ionides2006], meaning that inference algorithms can be implemented without requiring explicit evaluation of the transition density of the latent process. Instead, it suffices for the user to provide a simulator of the latent process (`rproc`), initial state distribution (`rinit`), and observation measurement model (`dmeas`, `rmeas`). This property enables POMP methods to be widely applied to complex mechanistic models where transition densities are intractable. 
+A key feature of the above POMP inference methods lies in the **plug-and-play property** [@ionides2006], meaning that inference algorithms can be implemented without requiring explicit evaluation of the transition density of the latent process. 
+Instead, it suffices for the user to provide a the latent process simulator (`rproc`), the initial state simulator (`rinit`), and the observation density (`dmeas`). 
+This property enables POMP methods to be widely applied to complex mechanistic models where transition densities are intractable. 
 
 In `pypomp`, the plug-and-play design is fully preserved: users only need to provide component functions compliant with JAX requirements, which can be directly plugged in inference methods like`pfilter()`, `mop()`, `mif()`, and `train()`. The package combines the generality of plug-and-play modeling with the efficiency of JAX compilation and vectorization.
 
-Unlike the R family of POMP packages, some `Pomp` class methods including `pfilter()`, `mif()` and `train()` yield results by modifying the object in place instead of returning new objects. All of results are stored a list under `LG_obj.results_history`, which is an attibute under `Pomp` class object `LG_obj`. Each element in the list correponds to one method call. Each element includes results such as the log-likelihood and parameter estimates when applicable as well as the inputs used for the function call, so it is easy to keep track of how the results were calculated. If multiple parameter sets are supplied in a list as an argument, the method evaluates at each set and the results for each are stored. Meanwhile, each following method in `pypomp` that takes a key as an argument stores an unused child key under `LG_obj.fresh_key` that later method calls can use by default when a key argument is not given. This design prevents repeated use of the same key across a sequence of method calls and ensures proper randomness.
+Unlike the R family of POMP packages, some `Pomp` class methods including `pfilter()`, `mif()` and `train()` yield results by modifying the object in place instead of returning new objects. 
+All of the results are stored a list under `LG_obj.results_history`, which is an attibute under `Pomp` class object `LG_obj`. 
+Each element in the list correponds to one method call. 
+Each element includes results such as the log-likelihood and parameter estimates when applicable as well as the inputs used for the function call, so it is easy to keep track of how the results were calculated. 
+If multiple parameter sets are supplied in a list as an argument, the method evaluates at each set and the results for each are stored. 
+Meanwhile, each following method in `pypomp` that takes a key as an argument stores an unused child key under `LG_obj.fresh_key` that later method calls can use by default when a key argument is not given. 
+This design prevents repeated use of the same key across a sequence of method calls and ensures proper randomness.
 
 ```{python}
 # | label: lg-output
@@ -440,7 +467,10 @@ print(LG_obj.results_history)
 
 \note{outline: 1. purpose/role 2. implementation details in pypomp 3. outputs/results 4. remarks/highlights}
 
-The particle filter algorithm (sequential Monte Carlo, SMC) (@arulampalam2002, @king2016) is the core classical likelihood evaluation tool in POMP model inference. It uses Monte Carlo techniques to sequentially estimate the integrals in the prediction and filtering recursions, and produce an unbiased Monte Carlo estimate of the likelihood of the observed data under a parameter set. The likelihood estimate is essential for other parameter inference algorithms such as iterative filtering. In `pypomp`, the basic particle filter is implemented under `pfilter()`. The algorithm is summarized as Algorithm \ref{alg:smc},
+The particle filter algorithm (sequential Monte Carlo, SMC) (@arulampalam2002, @king2016) is the core classical likelihood evaluation tool in POMP model inference. 
+It uses Monte Carlo techniques to sequentially estimate the integrals in the prediction and filtering recursions, and produce an unbiased Monte Carlo estimate of the likelihood of the observed data under a parameter set. 
+The likelihood estimate is essential for other parameter inference algorithms such as iterative filtering. 
+In `pypomp`, the basic particle filter is implemented under `pfilter()`. The algorithm is summarized as Algorithm \ref{alg:smc},
 
 \begin{algorithm}[H]
 \caption{Sequential Monte Carlo (SMC, or particle filter) in 、、、texttt{pypomp}: \texttt{LG\_obj.pfilter(J=J, reps=reps, key=key)}, where \texttt{LG\_obj} is a class \texttt{Pomp} object with components \texttt{rinit}, \texttt{rproc}, \texttt{dmeas}, \texttt{rmeas}, \texttt{ys}, and \texttt{theta}}
@@ -500,7 +530,9 @@ LG_obj_2.pfilter(
 
 ```
 
-where $J$ is the number of particles used and $reps$ is the number of particle filtering replicates to run for each parameter set provided in the `Pomp` object or as an optional argument to `pfilter()`. Because `LG_obj2.result_history` begins as an empty list here when the model is constructed, the results are appended at `LG_obj_2.results_history[0]` and `LG_obj_2.results_history[1]` respectively. Both of these two dictionaries contain with the following items:
+where $J$ is the number of particles used and $reps$ is the number of particle filtering replicates to run for each parameter set provided in the `Pomp` object or as an optional argument to `pfilter()`. 
+Because `LG_obj2.result_history` begins as an empty list here when the model is constructed, the results are appended at `LG_obj_2.results_history[0]` and `LG_obj_2.results_history[1]` respectively. 
+Both of these two dictionaries contain the following items:
 
 - `method`: The method that was run. In this case, `pfilter`.
 - `logLiks`: An `xarray.DataArray` of particle filter log-likelihood estimates. There is one list for each parameter set given and each list has `reps` log-likglihood estimates. dimensions = (`theta`, `replicate`)
