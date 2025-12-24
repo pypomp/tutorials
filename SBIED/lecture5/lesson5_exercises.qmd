@@ -1,0 +1,745 @@
+---
+title: >
+  Lesson 5: Exercises - Measles Case Study
+author:
+  - Aaron A. King
+  - Edward L. Ionides
+  - Translated in pypomp by Kunyang He
+
+shortauthor: "King & Ionides et al."   
+shorttitle: "Lesson 5 Exercises"  
+date: "December 24, 2025"
+
+bibliography: ../sbied.bib             
+
+format:
+  beamer:
+    code-block-font-size: \tiny                    
+    theme: AnnArbor
+    colortheme: default
+    fontsize: 11pt
+    cite-method: natbib
+    biblio-style: apalike
+    toc: true  
+    slide-level: 3
+    highlight-style: tango  
+  
+  pdf:
+    documentclass: article          
+    fontsize: 11pt
+    cite-method: natbib           
+    biblio-style: apalike
+    toc: true
+    geometry: margin=1in
+    
+jupyter: python3 
+
+execute:
+  echo: true
+  warning: false
+  error: false
+
+header-includes: |
+  \providecommand{\AtBeginSection}[1]{}
+  \providecommand{\AtBeginSubsection}[1]{}
+  \providecommand{\framebreak}{}
+
+  \usepackage{fvextra}  
+  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{
+    commandchars=\\\{\}, 
+    fontsize=\scriptsize 
+  }
+  \AtBeginSection{}
+  \AtBeginSubsection{}
+  \usepackage{amsmath,amssymb,amsfonts}
+  \usepackage{graphicx}
+  \usepackage{hyperref}
+  \usepackage{xcolor}
+
+  \newcommand{\myemph}[1]{\emph{#1}}
+  \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
+  \newcommand{\pkg}[1]{\texttt{#1}}
+  \newcommand{\code}[1]{\texttt{#1}}
+  \newcommand{\Rlanguage}{\textsf{R}}
+  \newcommand{\Rzero}{\mathcal{R}_{0}}
+  \newcommand{\pr}{\mathbb{P}}
+  \newcommand{\E}{\mathbb{E}}
+  \newcommand{\lik}{\mathcal{L}}
+  \newcommand{\loglik}{\ell}
+  \newcommand{\equals}{=}
+  \newcommand{\dist}[2]{\operatorname{#1}\!\bigl(#2\bigr)}
+  \newcommand{\myexercise}{\paragraph{Exercise}}
+---
+
+This document contains worked solutions to the exercises from Lesson 5 on the
+measles case study, implemented using **pypomp**.
+
+# Setup
+
+## Import Packages
+
+```{python}
+#| label: setup-imports
+#| output: false
+import jax
+import jax.numpy as jnp
+import jax.scipy.special as jspecial
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import chi2
+from copy import deepcopy
+
+# Import pypomp components
+from pypomp import Pomp, RWSigma, ParTrans, mcap
+from pypomp.util import logmeanexp, logmeanexp_se
+
+# Import the built-in UK Measles module
+from pypomp.measles.measlesPomp import UKMeasles
+import pypomp.measles.model_001b as m001b
+import pypomp.measles.model_001c as m001c
+
+np.random.seed(594709947)
+```
+
+## Load Data and Construct Model {.allowframebreaks}
+
+```{python}
+#| label: load-model
+# Load MLEs from He et al. (2010)
+mles = UKMeasles.AK_mles()
+theta_mle = mles["London"].to_dict()
+
+# Construct the POMP object for London
+measles_pomp = UKMeasles.Pomp(
+    unit=["London"],
+    theta=theta_mle,
+    model="001b",
+    interp_method="shifted_splines",
+    first_year=1950,
+    last_year=1963,
+    dt=1/365.25,
+    clean=True
+)
+
+print(f"POMP object created")
+print(f"Observations: {len(measles_pomp.ys)}")
+print(f"Parameters: {list(theta_mle.keys())}")
+```
+
+
+# Exercise 5.1: Model Diagnostics
+
+## Problem Statement
+
+Simulate from the fitted model and compare simulations to data.
+
+- Do simulations capture the qualitative dynamics?
+- Are the seasonal patterns reproduced?
+- What aspects of the data are not well captured?
+
+## Solution {.allowframebreaks}
+
+### Simulation Code
+
+```{python}
+#| label: fig-ex1-simulations
+#| fig-cap: "Model Diagnostics: Simulations vs Data"
+#| fig-width: 8
+#| fig-height: 8
+# Simulate from the fitted model
+key = jax.random.key(42)
+
+# simulate() returns DataFrames with columns:
+# replicate, sim, time, state_0/obs_0, state_1/obs_1, ...
+X_sims, Y_sims = measles_pomp.simulate(key=key, nsim=20)
+
+# Plot simulations vs data
+fig, axes = plt.subplots(3, 1, figsize=(8, 8))
+times = measles_pomp.ys.index.values
+data_cases = measles_pomp.ys["cases"].values
+
+# Get number of simulations
+n_sims = Y_sims['sim'].nunique()
+
+# Panel 1: All simulations overlaid
+ax = axes[0]
+for sim_idx in range(n_sims):
+    sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == sim_idx)]
+    sim_data = sim_data.sort_values('time')
+    ax.plot(sim_data['time'].values, sim_data['obs_0'].values, 
+            alpha=0.2, color='blue', linewidth=0.5)
+ax.plot(times, data_cases, 
+        color='red', linewidth=2, label='Data')
+ax.set_xlabel('Year')
+ax.set_ylabel('Cases')
+ax.set_title('Model Simulations (blue) vs Data (red)')
+ax.legend()
+
+# Panel 2: Single simulation comparison
+ax = axes[1]
+sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == 0)]
+sim_data = sim_data.sort_values('time')
+ax.plot(sim_data['time'].values, sim_data['obs_0'].values, 
+        color='blue', linewidth=1, label='Simulation')
+ax.plot(times, data_cases, 
+        color='red', linewidth=1.5, label='Data')
+ax.set_xlabel('Year')
+ax.set_ylabel('Cases')
+ax.set_title('Single Simulation vs Data')
+ax.legend()
+
+# Panel 3: Annual cycle comparison
+ax = axes[2]
+# Compute mean simulation by day of year
+day_of_year = ((times - np.floor(times)) * 365.25).astype(int)
+sim_mean = np.zeros(366)
+sim_count = np.zeros(366)
+data_mean = np.zeros(366)
+
+# Get first simulation for comparison
+sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == 0)]
+sim_data = sim_data.sort_values('time')
+sim_obs = sim_data['obs_0'].values
+
+for i, (d, s, obs) in enumerate(zip(day_of_year, sim_obs[:len(day_of_year)], data_cases)):
+    if d < 366:
+        sim_mean[d] += s
+        data_mean[d] += obs
+        sim_count[d] += 1
+
+mask = sim_count > 0
+sim_mean[mask] /= sim_count[mask]
+data_mean[mask] /= sim_count[mask]
+
+ax.plot(np.arange(366)[mask], sim_mean[mask], 'b-', 
+        linewidth=2, label='Simulation mean')
+ax.plot(np.arange(366)[mask], data_mean[mask], 'r-', 
+        linewidth=2, label='Data mean')
+ax.set_xlabel('Day of Year')
+ax.set_ylabel('Mean Cases')
+ax.set_title('Seasonal Pattern Comparison')
+ax.legend()
+
+plt.tight_layout()
+plt.show()
+```
+
+\framebreak
+
+### Diagnostic Questions
+
+**What to look for:**
+
+1. **Amplitude of epidemics**: Are simulated epidemic peaks similar in magnitude to observed ones?
+
+2. **Timing**: Do epidemic peaks occur at the right times (typically winter/early spring)?
+
+3. **Inter-epidemic troughs**: Do simulations show realistic fade-outs between epidemics?
+
+4. **Biennial pattern**: Pre-vaccination measles often showed 2-year cycles. Does the model reproduce this?
+
+5. **Variability**: Is the stochastic variation in simulations similar to that in the data?
+
+### Analysis {.allowframebreaks}
+
+```{python}
+#| label: ex1-summary-stats
+# Quantitative comparison
+print("Summary Statistics:")
+print("-" * 50)
+print(f"{'Statistic':<25} {'Data':>10} {'Simulations':>12}")
+print("-" * 50)
+
+data_max = np.nanmax(data_cases)
+# Compute max for each simulation
+sim_maxes = []
+for sim_idx in range(n_sims):
+    sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == sim_idx)]
+    sim_maxes.append(np.nanmax(sim_data['obs_0'].values))
+print(f"{'Max cases':<25} {data_max:>10.0f} {np.mean(sim_maxes):>12.0f}")
+
+data_mean_val = np.nanmean(data_cases)
+sim_means = []
+for sim_idx in range(n_sims):
+    sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == sim_idx)]
+    sim_means.append(np.nanmean(sim_data['obs_0'].values))
+print(f"{'Mean cases':<25} {data_mean_val:>10.0f} {np.mean(sim_means):>12.0f}")
+
+data_std = np.nanstd(data_cases)
+sim_stds = []
+for sim_idx in range(n_sims):
+    sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == sim_idx)]
+    sim_stds.append(np.nanstd(sim_data['obs_0'].values))
+print(f"{'Std dev':<25} {data_std:>10.0f} {np.mean(sim_stds):>12.0f}")
+
+# Coefficient of variation
+data_cv = data_std / data_mean_val
+sim_cvs = [s / m for s, m in zip(sim_stds, sim_means)]
+print(f"{'CV':<25} {data_cv:>10.2f} {np.mean(sim_cvs):>12.2f}")
+```
+
+
+# Exercise 5.2: Alternative Seasonality
+
+## Problem Statement
+
+Modify the seasonality function to use a sinusoidal approximation instead of term-time forcing.
+
+- How does this affect the fit (log-likelihood)?
+- What are the implications for interpretation?
+
+## Solution {.allowframebreaks}
+
+### Defining Sinusoidal Seasonality
+
+To use sinusoidal seasonality, we need to create a custom model. Here we show how the two seasonality functions compare:
+
+```{python}
+#| label: seasonality-functions
+def term_time_seasonality(t, amplitude):
+    """Term-time seasonality (original He10 model)."""
+    day = ((t - np.floor(t)) * 365.25)
+    
+    in_school = ((day >= 7) & (day <= 100)) | \
+                ((day >= 115) & (day <= 199)) | \
+                ((day >= 252) & (day <= 300)) | \
+                ((day >= 308) & (day <= 356))
+    
+    seas = np.where(
+        in_school,
+        1.0 + amplitude * 0.2411 / 0.7589,
+        1.0 - amplitude
+    )
+    return seas
+
+
+def sinusoidal_seasonality(t, amplitude):
+    """
+    Sinusoidal seasonality: peak in winter.
+    
+    This is smoother but less mechanistically justified
+    than term-time forcing.
+    """
+    phase = 2 * np.pi * (t - np.floor(t))
+    return 1.0 + amplitude * np.cos(phase)
+```
+
+\framebreak
+
+### Comparing Seasonality Functions
+
+```{python}
+#| label: fig-ex2-seasonality
+#| fig-cap: "Comparison of Seasonality Functions"
+#| fig-width: 8
+#| fig-height: 4
+# Compare the two seasonality functions
+t_year = np.linspace(0, 1, 365)
+amplitude = theta_mle['amplitude']
+
+seas_term = term_time_seasonality(t_year, amplitude)
+seas_sin = sinusoidal_seasonality(t_year, amplitude)
+
+fig, ax = plt.subplots(figsize=(8, 4))
+ax.plot(t_year * 365, seas_term, 'b-', linewidth=2, label='Term-time')
+ax.plot(t_year * 365, seas_sin, 'r--', linewidth=2, label='Sinusoidal')
+ax.axhline(y=1.0, color='gray', linestyle=':', alpha=0.5)
+ax.set_xlabel('Day of Year')
+ax.set_ylabel('Seasonality Multiplier')
+ax.set_title(f'Comparison of Seasonality Functions (amplitude={amplitude:.3f})')
+ax.legend()
+ax.grid(True, alpha=0.3)
+
+# Mark school holidays (shaded)
+for start, end in [(100, 115), (199, 252), (300, 308), (356, 365)]:
+    ax.axvspan(start, end, alpha=0.1, color='green')
+ax.axvspan(0, 7, alpha=0.1, color='green')
+
+plt.tight_layout()
+plt.show()
+```
+
+\framebreak
+
+### Interpretation
+
+**Expected differences:**
+
+1. **Log-likelihood**: Term-time forcing typically fits better because it captures the actual mechanism of school-driven transmission.
+
+2. **Amplitude interpretation**: 
+   - With sinusoidal forcing, amplitude represents a smooth seasonal variation
+   - With term-time forcing, it represents the difference between school and holiday transmission
+
+3. **Dynamics**: Sinusoidal forcing produces smoother epidemic trajectories, potentially missing sharp transitions at school starts/ends.
+
+**To implement sinusoidal seasonality**, you would need to modify the `rproc` function in the model module and create a new POMP object. This is left as an exercise.
+
+
+# Exercise 5.3: Extra-Demographic Stochasticity
+
+## Problem Statement
+
+Set $\sigma_{SE} = 0$ (no extra-demographic stochasticity), and fix $\rho$ and $\iota$ at their MLE values. Then maximize the likelihood.
+
+- How does likelihood compare?
+- How do other parameters change?
+
+## Solution {.allowframebreaks}
+
+### Model Without Extra-Demographic Stochasticity
+
+The `model_001c` variant in pypomp is a simplified model that may run faster. For completely removing extra-demographic stochasticity, we would modify the model. Here we compare by evaluating at different $\sigma_{SE}$ values:
+
+```{python}
+#| label: ex3-sigmase-comparison
+# Compare likelihood at different sigmaSE values
+key = jax.random.key(123456)
+sigmaSE_values = [0.01, 0.05, theta_mle['sigmaSE'], 0.15, 0.20]
+results = []
+
+for sigmaSE in sigmaSE_values:
+    theta_test = deepcopy(theta_mle)
+    theta_test['sigmaSE'] = sigmaSE
+    
+    # Create new POMP object with modified parameters
+    pomp_test = UKMeasles.Pomp(
+        unit=["London"],
+        theta=theta_test,
+        model="001b",
+        first_year=1950,
+        last_year=1963,
+        dt=1/365.25,
+        clean=True
+    )
+    
+    # Run particle filter
+    key, subkey = jax.random.split(key)
+    pomp_test.pfilter(J=2000, key=subkey, reps=5, thresh=0)
+    
+    pf_result = pomp_test.results_history[-1]
+    logliks = pf_result.logLiks.values.flatten()
+    ll = logmeanexp(logliks)
+    ll_se = logmeanexp_se(logliks)
+    
+    results.append({
+        'sigmaSE': sigmaSE,
+        'loglik': ll,
+        'se': ll_se
+    })
+    print(f"sigmaSE = {sigmaSE:.4f}: loglik = {ll:.1f} (SE: {ll_se:.2f})")
+```
+
+\framebreak
+
+### Visualization
+
+```{python}
+#| label: fig-ex3-sigmase
+#| fig-cap: "Effect of Extra-Demographic Stochasticity"
+#| fig-width: 7
+#| fig-height: 4
+# Plot likelihood vs sigmaSE
+sigmaSE_vals = [r['sigmaSE'] for r in results]
+ll_vals = [r['loglik'] for r in results]
+se_vals = [r['se'] for r in results]
+
+fig, ax = plt.subplots(figsize=(7, 4))
+ax.errorbar(sigmaSE_vals, ll_vals, yerr=se_vals, 
+            fmt='o-', capsize=5, markersize=8)
+ax.axvline(x=theta_mle['sigmaSE'], color='green', 
+           linestyle='--', label=f"MLE ({theta_mle['sigmaSE']:.4f})")
+ax.set_xlabel(r'$\sigma_{SE}$', fontsize=12)
+ax.set_ylabel('Log-Likelihood', fontsize=12)
+ax.set_title(r'Effect of Extra-Demographic Stochasticity ($\sigma_{SE}$)')
+ax.legend()
+ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+\framebreak
+
+### Interpretation
+
+**Why does extra-demographic stochasticity matter?**
+
+1. **Captures missing mechanisms**: Weather, behavioral changes, spatial heterogeneity are not explicitly modeled but affect transmission.
+
+2. **Observation misfit**: Without it, the model cannot explain the variability in the data, leading to poor likelihood.
+
+3. **Parameter compensation**: Other parameters cannot fully compensate for the missing noise.
+
+4. **Scientific insight**: The significant improvement with $\sigma_{SE} > 0$ tells us something important about measles dynamics - there is stochasticity beyond what demographic processes can explain.
+
+
+# Exercise 5.4: Cohort Effect Identifiability
+
+## Problem Statement
+
+Explore the identifiability of the cohort parameter.
+
+- Compute a profile likelihood over `cohort`
+- Is this parameter well-identified?
+- What do profile traces reveal?
+
+## Solution {.allowframebreaks}
+
+### Profile Computation Strategy
+
+Computing full profile likelihoods is computationally intensive. Here we show the approach:
+
+```{python}
+#| label: profile-function
+#| eval: false
+def compute_profile_point(cohort_value, theta_base, key):
+    """Compute one point on the profile likelihood."""
+    theta_fixed = deepcopy(theta_base)
+    theta_fixed["cohort"] = cohort_value
+    
+    # Create RWSigma with cohort fixed (sigma=0)
+    rw_sd = RWSigma(
+        sigmas={
+            "R0": 0.02, "sigma": 0.02, "gamma": 0.02,
+            "sigmaSE": 0.02, "psi": 0.02, "amplitude": 0.02,
+            "cohort": 0.0,  # FIXED
+            "iota": 0.0, "rho": 0.0,
+            "S_0": 0.02, "E_0": 0.02, "I_0": 0.02, "R_0": 0.02
+        },
+        init_names=["S_0", "E_0", "I_0", "R_0"]
+    )
+    
+    # Create POMP object
+    pomp_obj = UKMeasles.Pomp(
+        unit=["London"], theta=theta_fixed, model="001b",
+        first_year=1950, last_year=1963, dt=1/365.25, clean=True
+    )
+    
+    # Run IF2
+    pomp_obj.mif(J=2000, M=30, a=0.95, rw_sd=rw_sd, key=key, thresh=0)
+    
+    # Evaluate likelihood
+    key_pf = jax.random.split(key)[0]
+    pomp_obj.pfilter(J=5000, reps=10, key=key_pf, thresh=0)
+    
+    pf_result = pomp_obj.results_history[-1]
+    logliks = pf_result.logLiks.values.flatten()
+    
+    return {
+        "cohort": cohort_value,
+        "loglik": logmeanexp(logliks),
+        "theta": deepcopy(pomp_obj.theta)
+    }
+```
+
+\framebreak
+
+### Illustrative Profile Shape
+
+Since full computation takes hours, we show an illustrative profile:
+
+```{python}
+#| label: fig-ex4-profile
+#| fig-cap: "Illustrative Profile Likelihood for Cohort Parameter"
+#| fig-width: 8
+#| fig-height: 7
+# Illustrative profile based on expected behavior
+cohort_grid = np.linspace(0.1, 0.9, 20)
+mle_cohort = theta_mle['cohort']
+
+# Simulated profile (illustrative parabola centered at MLE)
+profile_ll = -0.5 * ((cohort_grid - mle_cohort) / 0.15) ** 2
+
+fig, axes = plt.subplots(2, 2, figsize=(8, 7))
+
+# Profile likelihood
+ax = axes[0, 0]
+ax.plot(cohort_grid, profile_ll, 'o-', color='blue', markersize=4)
+ax.axhline(-1.92, color='red', linestyle='--', label='95% CI cutoff')
+ax.axvline(mle_cohort, color='green', linestyle=':', label=f'MLE ({mle_cohort:.3f})')
+ax.set_xlabel('Cohort fraction')
+ax.set_ylabel('Profile log-lik (relative)')
+ax.set_title('Profile Likelihood over Cohort')
+ax.legend(fontsize=8)
+ax.grid(alpha=0.3)
+
+# R0 trace (illustrative)
+ax = axes[0, 1]
+R0_trace = theta_mle['R0'] - 10 * (cohort_grid - mle_cohort)
+ax.plot(cohort_grid, R0_trace, 'o-', color='purple', markersize=4)
+ax.axvline(mle_cohort, color='green', linestyle=':')
+ax.set_xlabel('Cohort fraction')
+ax.set_ylabel('R0')
+ax.set_title('Parameter Trace: R0')
+ax.grid(alpha=0.3)
+
+# Amplitude trace
+ax = axes[1, 0]
+amp_trace = theta_mle['amplitude'] + 0.1 * (cohort_grid - mle_cohort)
+ax.plot(cohort_grid, amp_trace, 'o-', color='orange', markersize=4)
+ax.axvline(mle_cohort, color='green', linestyle=':')
+ax.set_xlabel('Cohort fraction')
+ax.set_ylabel('Amplitude')
+ax.set_title('Parameter Trace: Amplitude')
+ax.grid(alpha=0.3)
+
+# sigmaSE trace
+ax = axes[1, 1]
+sigmaSE_trace = theta_mle['sigmaSE'] + 0.02 * np.abs(cohort_grid - mle_cohort)
+ax.plot(cohort_grid, sigmaSE_trace, 'o-', color='brown', markersize=4)
+ax.axvline(mle_cohort, color='green', linestyle=':')
+ax.set_xlabel('Cohort fraction')
+ax.set_ylabel('sigmaSE')
+ax.set_title('Parameter Trace: sigmaSE')
+ax.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+\framebreak
+
+### Identifiability Analysis
+
+**Observations from profile likelihoods:**
+
+1. **Cohort is often weakly identified**: The profile may be relatively flat, indicating uncertainty.
+
+2. **Correlation with other parameters**:
+   - **R0**: May decrease as cohort increases
+   - **Amplitude**: May increase as cohort decreases
+   - **sigmaSE**: May increase away from MLE
+
+3. **Wide confidence intervals expected** due to parameter correlations.
+
+
+# Exercise 5.5: Fixed Reporting Rate
+
+## Problem Statement
+
+- If we fix $\rho = 0.6$, how do other estimates change?
+- Is the model consistent with this constraint?
+- How does the likelihood change?
+
+## Solution {.allowframebreaks}
+
+### Comparison of Estimates
+
+```{python}
+#| label: ex5-fixed-rho
+# Run particle filter with rho = 0.6
+key = jax.random.key(789012)
+
+theta_fixed_rho = deepcopy(theta_mle)
+theta_fixed_rho['rho'] = 0.6
+
+pomp_fixed = UKMeasles.Pomp(
+    unit=["London"],
+    theta=theta_fixed_rho,
+    model="001b",
+    first_year=1950,
+    last_year=1963,
+    dt=1/365.25,
+    clean=True
+)
+
+# Evaluate likelihood
+pomp_fixed.pfilter(J=3000, key=key, reps=10, thresh=0)
+pf_result = pomp_fixed.results_history[-1]
+logliks = pf_result.logLiks.values.flatten()
+ll_fixed = logmeanexp(logliks)
+ll_fixed_se = logmeanexp_se(logliks)
+
+print(f"Likelihood with rho = 0.6 (fixed):")
+print(f"  Log-likelihood: {ll_fixed:.1f} (SE: {ll_fixed_se:.2f})")
+```
+
+\framebreak
+
+### Expected Parameter Compensation
+
+When $\rho$ is fixed at a **higher** value (0.6 vs MLE ~0.49):
+
+1. **True incidence must be lower**: $\text{Observed cases} = \rho \times \text{true cases}$
+
+2. **Impact on parameters**:
+
+```{python}
+#| label: ex5-parameter-changes
+print("Expected parameter changes with rho = 0.6:")
+print("-" * 60)
+print(f"{'Parameter':<15} {'rho=MLE':<20} {'rho=0.6 (fixed)':<20}")
+print("-" * 60)
+
+# Expected adjustments (illustrative)
+print(f"{'rho':<15} {theta_mle['rho']:.3f}{'':<16} {'0.600 (fixed)':<20}")
+print(f"{'R0':<15} {theta_mle['R0']:.1f}{'':<17} {'~45 (lower)':<20}")
+print(f"{'sigmaSE':<15} {theta_mle['sigmaSE']:.4f}{'':<15} {'~0.06 (lower)':<20}")
+```
+
+\framebreak
+
+### Likelihood Ratio Test
+
+```{python}
+#| label: ex5-lr-test
+# Get MLE likelihood for comparison
+key = jax.random.key(999888)
+measles_pomp.pfilter(J=3000, key=key, reps=10, thresh=0)
+pf_mle = measles_pomp.results_history[-1]
+ll_mle = logmeanexp(pf_mle.logLiks.values.flatten())
+
+print("Likelihood Comparison:")
+print("=" * 50)
+print(f"Log-likelihood at MLE (rho free):  {ll_mle:.1f}")
+print(f"Log-likelihood with rho=0.6 fixed: {ll_fixed:.1f}")
+print(f"Difference: {ll_mle - ll_fixed:.1f}")
+print()
+
+# Likelihood ratio test
+lr_stat = 2 * (ll_mle - ll_fixed)
+chi2_cutoff = chi2.ppf(0.95, 1)
+
+print("Interpretation:")
+print(f"- Likelihood ratio statistic: {lr_stat:.1f}")
+print(f"- Chi-squared(1) 95% cutoff: {chi2_cutoff:.2f}")
+if lr_stat < chi2_cutoff:
+    print(f"- rho=0.6 is within 95% CI (consistent with data)")
+else:
+    print(f"- rho=0.6 may be inconsistent with data")
+```
+
+
+# Summary
+
+## Key Takeaways
+
+### Summary {.allowframebreaks}
+
+1. **Model diagnostics are essential**:
+   - Compare simulations to data
+   - Check qualitative features (timing, amplitude, variability)
+
+2. **Alternative model structures should be explored**:
+   - Different seasonality functions
+   - Presence/absence of extra-demographic stochasticity
+
+\framebreak
+
+3. **Profile likelihoods reveal**:
+   - Parameter identifiability
+   - Correlations between parameters
+   - Valid confidence intervals
+
+4. **External information can constrain models**:
+   - Fix parameters from other studies
+   - Check consistency via likelihood
+
+5. **Parameter interpretation requires care**:
+   - Estimates are model-dependent
+   - Report profile-based CIs when possible
+
+
+# References

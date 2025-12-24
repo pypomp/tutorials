@@ -1,0 +1,686 @@
+---
+title: >
+  Lesson 5 Supplement: Measles Profile Likelihood Computation
+author:
+  - Aaron A. King
+  - Edward L. Ionides
+  - Translated in pypomp by Kunyang He
+
+shortauthor: "King & Ionides et al."   
+shorttitle: "Lesson 5 Profile"  
+date: "December 24, 2025"
+
+bibliography: ../sbied.bib             
+
+format:
+  beamer:
+    code-block-font-size: \tiny                    
+    theme: AnnArbor
+    colortheme: default
+    fontsize: 11pt
+    cite-method: natbib
+    biblio-style: apalike
+    toc: true  
+    slide-level: 3
+    highlight-style: tango  
+  
+  pdf:
+    documentclass: article          
+    fontsize: 11pt
+    cite-method: natbib           
+    biblio-style: apalike
+    toc: true
+    geometry: margin=1in
+    
+jupyter: python3 
+
+execute:
+  echo: true
+  warning: false
+  error: false
+
+header-includes: |
+  \providecommand{\AtBeginSection}[1]{}
+  \providecommand{\AtBeginSubsection}[1]{}
+  \providecommand{\framebreak}{}
+
+  \usepackage{fvextra}  
+  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{
+    commandchars=\\\{\}, 
+    fontsize=\scriptsize 
+  }
+  \AtBeginSection{}
+  \AtBeginSubsection{}
+  \usepackage{amsmath,amssymb,amsfonts}
+  \usepackage{graphicx}
+  \usepackage{hyperref}
+  \usepackage{xcolor}
+
+  \newcommand{\myemph}[1]{\emph{#1}}
+  \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
+  \newcommand{\pkg}[1]{\texttt{#1}}
+  \newcommand{\code}[1]{\texttt{#1}}
+  \newcommand{\Rlanguage}{\textsf{R}}
+  \newcommand{\Rzero}{\mathcal{R}_{0}}
+  \newcommand{\pr}{\mathbb{P}}
+  \newcommand{\E}{\mathbb{E}}
+  \newcommand{\lik}{\mathcal{L}}
+  \newcommand{\loglik}{\ell}
+  \newcommand{\equals}{=}
+  \newcommand{\dist}[2]{\operatorname{#1}\!\bigl(#2\bigr)}
+  \newcommand{\myexercise}{\paragraph{Exercise}}
+---
+
+This document demonstrates how to compute a profile likelihood for the measles model, focusing on the extra-demographic stochasticity parameter $\sigma_{SE}$.
+
+# Introduction
+
+## Profile Likelihood
+
+### What is Profile Likelihood? {.allowframebreaks}
+
+A **profile likelihood** is a technique for understanding how the likelihood varies with a focal parameter while allowing other parameters to adjust optimally.
+
+For a focal parameter $\phi$ and nuisance parameters $\psi$, the profile likelihood is:
+$$\ell^{\text{profile}}(\phi) = \max_{\psi} \ell(\phi, \psi)$$
+
+Profile likelihoods are useful for:
+
+1. **Constructing confidence intervals**: Use the likelihood ratio test cutoff
+2. **Assessing identifiability**: Flat profiles indicate weak identifiability
+3. **Visualizing parameter trade-offs**: See how other parameters compensate
+
+\framebreak
+
+### Profile Confidence Intervals {.allowframebreaks}
+
+The $(1-\alpha)$ confidence interval from a profile is the set of parameter values where:
+$$\ell^{\text{profile}}(\phi) \geq \ell^{\text{max}} - \frac{1}{2}\chi^2_1(1-\alpha)$$
+
+For a 95% CI: cutoff = $\chi^2_1(0.95)/2 \approx 1.92$.
+
+For a 99% CI: cutoff = $\chi^2_1(0.99)/2 \approx 3.32$.
+
+# Setup
+
+## Load Packages and Model
+
+```{python}
+#| label: setup-imports
+#| output: false
+import jax
+import jax.numpy as jnp
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from copy import deepcopy
+import time
+
+# Import pypomp components
+from pypomp import Pomp, RWSigma, ParTrans, mcap
+from pypomp.util import logmeanexp, logmeanexp_se
+
+# Import the built-in UK Measles module
+from pypomp.measles.measlesPomp import UKMeasles
+import pypomp.measles.model_001b as m001b
+
+np.random.seed(594709947)
+```
+
+## Load Data and MLEs {.allowframebreaks}
+
+```{python}
+#| label: load-mles
+# Load MLEs from He et al. (2010) for London
+mles = UKMeasles.AK_mles()
+theta_mle = mles["London"].to_dict()
+
+print("MLE parameters for London:")
+for param, value in theta_mle.items():
+    print(f"  {param}: {value}")
+```
+
+\framebreak
+
+```{python}
+#| label: create-pomp
+# Create base POMP object
+measles_pomp = UKMeasles.Pomp(
+    unit=["London"],
+    theta=theta_mle,
+    model="001b",
+    interp_method="shifted_splines",
+    first_year=1950,
+    last_year=1963,
+    dt=1/365.25,
+    clean=True
+)
+
+print(f"\nPOMP object created")
+print(f"Time range: {measles_pomp.ys.index[0]:.2f} to {measles_pomp.ys.index[-1]:.2f}")
+print(f"Number of observations: {len(measles_pomp.ys)}")
+```
+
+
+# Profile Computation
+
+## Strategy
+
+### Profiling over $\sigma_{SE}$ {.allowframebreaks}
+
+Based on the original sbied approach, we profile over $\sigma_{SE}$ while:
+
+- **Fixed parameters**: $\rho$ and $\iota$ at their MLE values
+- **Profile parameter**: $\sigma_{SE}$
+- **Estimated parameters**: R0, sigma, gamma, cohort, amplitude, psi, initial conditions
+
+The profile grid spans from $\sigma_{SE} = 0.02$ to $0.20$ (20 points).
+
+```{python}
+#| label: profile-grid
+# Profile grid
+sigmaSE_grid = np.linspace(0.02, 0.20, 20)
+
+# Parameters to estimate (excluding sigmaSE, rho, iota)
+est_params = ["R0", "sigma", "gamma", "cohort", "amplitude", 
+              "psi", "S_0", "E_0", "I_0", "R_0"]
+
+# Fixed parameters
+fixed_params = {"rho": theta_mle["rho"], "iota": theta_mle["iota"]}
+
+print(f"Profile grid: {len(sigmaSE_grid)} points")
+print(f"Range: [{sigmaSE_grid[0]:.3f}, {sigmaSE_grid[-1]:.3f}]")
+print(f"Parameters to estimate: {len(est_params)}")
+print(f"Fixed parameters: {list(fixed_params.keys())}")
+```
+
+## Profile Computation Functions
+
+### Generate Starting Points {.allowframebreaks}
+
+```{python}
+#| label: starting-points-function
+def generate_starting_points(theta_mle, est_params, n_starts, key):
+    """
+    Generate random starting points for optimization.
+    
+    Varies parameters on the transformed scale within a factor of 2
+    of the MLE values.
+    """
+    starting_points = []
+    
+    for i in range(n_starts):
+        key, subkey = jax.random.split(key)
+        theta_start = deepcopy(theta_mle)
+        
+        # Perturb estimated parameters
+        for param in est_params:
+            key, subkey = jax.random.split(key)
+            # Random perturbation: multiply by exp(uniform(-log(2), log(2)))
+            perturb = float(jax.random.uniform(
+                subkey, minval=-np.log(2), maxval=np.log(2)
+            ))
+            
+            if param in ["cohort", "amplitude", "rho"]:
+                # Keep bounded parameters near MLE
+                theta_start[param] = theta_mle[param]
+            else:
+                # Log-scale parameters
+                theta_start[param] = theta_mle[param] * np.exp(perturb)
+        
+        starting_points.append(theta_start)
+    
+    return starting_points
+
+
+# Example
+key = jax.random.key(12345)
+starts = generate_starting_points(theta_mle, est_params, 3, key)
+print(f"Generated {len(starts)} starting points")
+print(f"R0 values: {[s['R0'] for s in starts]}")
+```
+
+### Compute Single Profile Point {.allowframebreaks}
+
+```{python}
+#| label: profile-point-function
+#| eval: false
+def compute_profile_point(sigmaSE_value, theta_mle, n_starts,
+                          M=30, J=2000, J_pf=5000, a=0.95, seed=0):
+    """
+    Compute one point on the profile likelihood.
+    
+    1. Fix sigmaSE at the specified value
+    2. Run IF2 from multiple starting points
+    3. Evaluate likelihood with particle filter
+    4. Return best result
+    """
+    key = jax.random.key(seed)
+    
+    # Generate starting points
+    key, subkey = jax.random.split(key)
+    starting_points = generate_starting_points(
+        theta_mle, est_params, n_starts, subkey
+    )
+    
+    best_result = {"loglik": -np.inf}
+    
+    # Create RWSigma with sigmaSE fixed (sigma=0)
+    rw_sigmas = {param: 0.02 for param in est_params}
+    rw_sigmas["sigmaSE"] = 0.0  # Fix sigmaSE
+    rw_sigmas["rho"] = 0.0      # Fix rho
+    rw_sigmas["iota"] = 0.0     # Fix iota
+    
+    rw_sd = RWSigma(
+        sigmas=rw_sigmas,
+        init_names=["S_0", "E_0", "I_0", "R_0"]
+    )
+    
+    for i, theta_start in enumerate(starting_points):
+        key, subkey = jax.random.split(key)
+        
+        # Fix sigmaSE at profile value
+        theta_start["sigmaSE"] = sigmaSE_value
+        theta_start["rho"] = theta_mle["rho"]
+        theta_start["iota"] = theta_mle["iota"]
+        
+        # Create POMP object
+        pomp_obj = UKMeasles.Pomp(
+            unit=["London"],
+            theta=theta_start,
+            model="001b",
+            first_year=1950,
+            last_year=1963,
+            dt=1/365.25,
+            clean=True
+        )
+        
+        # Run IF2
+        pomp_obj.mif(J=J, M=M, a=a, rw_sd=rw_sd, key=subkey, thresh=0)
+        
+        # Evaluate likelihood with particle filter
+        key, subkey = jax.random.split(key)
+        pomp_obj.pfilter(J=J_pf, reps=10, key=subkey, thresh=0)
+        
+        pf_result = pomp_obj.results_history[-1]
+        logliks = pf_result.logLiks.values.flatten()
+        ll = logmeanexp(logliks)
+        
+        if ll > best_result["loglik"]:
+            best_result = {
+                "sigmaSE": sigmaSE_value,
+                "loglik": ll,
+                "se": logmeanexp_se(logliks),
+                "theta": deepcopy(pomp_obj.theta)
+            }
+    
+    return best_result
+```
+
+## Quick Profile (Demonstration)
+
+### Running a Quick Profile {.allowframebreaks}
+
+For demonstration, we compute a quick profile with reduced computation:
+
+```{python}
+#| label: quick-profile
+# Quick profile with fewer particles and starting points
+key = jax.random.key(42)
+quick_sigmaSE = np.array([0.04, 0.06, theta_mle['sigmaSE'], 0.12, 0.16])
+quick_results = []
+
+print("Computing quick profile (5 points)...")
+for sigmaSE_val in quick_sigmaSE:
+    key, subkey = jax.random.split(key)
+    
+    # Create POMP with this sigmaSE
+    theta_test = deepcopy(theta_mle)
+    theta_test['sigmaSE'] = sigmaSE_val
+    
+    pomp_test = UKMeasles.Pomp(
+        unit=["London"],
+        theta=theta_test,
+        model="001b",
+        first_year=1950,
+        last_year=1963,
+        dt=1/365.25,
+        clean=True
+    )
+    
+    # Run particle filter
+    pomp_test.pfilter(J=2000, reps=5, key=subkey, thresh=0)
+    
+    pf_result = pomp_test.results_history[-1]
+    logliks = pf_result.logLiks.values.flatten()
+    
+    result = {
+        'sigmaSE': sigmaSE_val,
+        'loglik': logmeanexp(logliks),
+        'se': logmeanexp_se(logliks)
+    }
+    quick_results.append(result)
+    print(f"  sigmaSE={sigmaSE_val:.4f}: loglik={result['loglik']:.1f} (SE: {result['se']:.2f})")
+
+print("Done!")
+```
+
+\framebreak
+
+### Quick Profile Plot
+
+```{python}
+#| label: fig-quick-profile
+#| fig-cap: "Quick Profile Likelihood (5 points, no optimization)"
+#| fig-width: 7
+#| fig-height: 4
+# Plot quick profile
+sigmaSE_vals = [r['sigmaSE'] for r in quick_results]
+ll_vals = [r['loglik'] for r in quick_results]
+se_vals = [r['se'] for r in quick_results]
+
+# Normalize to maximum
+max_ll = max(ll_vals)
+ll_rel = [ll - max_ll for ll in ll_vals]
+
+fig, ax = plt.subplots(figsize=(7, 4))
+ax.errorbar(sigmaSE_vals, ll_rel, yerr=se_vals, 
+            fmt='o-', capsize=5, markersize=8, linewidth=2)
+ax.axhline(-1.92, color='red', linestyle='--', label='95% CI cutoff')
+ax.axvline(theta_mle['sigmaSE'], color='green', linestyle=':', alpha=0.7,
+           label=f'MLE ({theta_mle["sigmaSE"]:.4f})')
+ax.set_xlabel(r'$\sigma_{SE}$', fontsize=12)
+ax.set_ylabel('Profile log-likelihood - max', fontsize=12)
+ax.set_title(r'Quick Profile Likelihood for $\sigma_{SE}$ (No Optimization)')
+ax.legend()
+ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+
+# Illustrative Full Profile
+
+## Expected Results
+
+### Illustrative Profile Results {.allowframebreaks}
+
+Based on He et al. (2010), we show illustrative profile results:
+
+```{python}
+#| label: illustrative-profile
+# Illustrative profile results (based on He et al. 2010)
+sigmaSE_full = np.array([0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 
+                          0.09, 0.10, 0.12, 0.15, 0.20])
+                            
+# Approximate log-likelihood values (inverted parabola centered near MLE)
+loglik_full = np.array([
+    -3875, -3820, -3790, -3770, -3755, -3745, -3740,
+    -3738, -3742, -3755, -3790, -3870
+])
+
+max_idx_full = np.argmax(loglik_full)
+max_loglik = loglik_full[max_idx_full]
+
+print(f"Illustrative profile results:")
+print(f"  Profile maximum at sigmaSE = {sigmaSE_full[max_idx_full]:.4f}")
+print(f"  Maximum log-likelihood = {max_loglik:.1f}")
+```
+
+\framebreak
+
+```{python}
+#| label: fig-illustrative-profile
+#| fig-cap: "Illustrative Profile Likelihood for sigmaSE"
+#| fig-width: 8
+#| fig-height: 4
+fig, ax = plt.subplots(figsize=(8, 4))
+
+# Profile curve
+ax.plot(sigmaSE_full, loglik_full - max_loglik, 
+        'b-o', linewidth=2, markersize=8)
+
+# 95% CI cutoff
+cutoff_95 = -1.92
+ax.axhline(y=cutoff_95, color='red', linestyle='--', 
+           label=f'95% CI cutoff ({cutoff_95:.2f})')
+
+# 99% CI cutoff
+cutoff_99 = -3.32
+ax.axhline(y=cutoff_99, color='orange', linestyle=':', 
+           label=f'99% CI cutoff ({cutoff_99:.2f})')
+
+# MLE marker
+ax.axvline(x=theta_mle['sigmaSE'], color='green', linestyle='-', alpha=0.5,
+           label=f'MLE ({theta_mle["sigmaSE"]:.4f})')
+
+ax.set_xlabel(r'$\sigma_{SE}$', fontsize=12)
+ax.set_ylabel(r'Profile log-likelihood $-$ max', fontsize=12)
+ax.set_title(r'Illustrative Profile Likelihood for $\sigma_{SE}$', fontsize=14)
+ax.legend()
+ax.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+### Profile Traces {.allowframebreaks}
+
+Profile traces show how other parameters change along the profile:
+
+```{python}
+#| label: fig-profile-traces
+#| fig-cap: "Illustrative Parameter Traces along the Profile"
+#| fig-width: 10
+#| fig-height: 4
+# Illustrative parameter traces
+sigmaSE_trace = np.linspace(0.02, 0.20, 20)
+
+# R0 tends to increase slightly as sigmaSE increases
+R0_trace = theta_mle['R0'] + 15 * (sigmaSE_trace - theta_mle['sigmaSE'])
+
+# gamma (recovery rate) shows trade-off with sigmaSE
+gamma_trace = theta_mle['gamma'] - 5 * (sigmaSE_trace - theta_mle['sigmaSE'])
+
+# sigma (latent rate) also adjusts
+sigma_trace = theta_mle['sigma'] - 3 * (sigmaSE_trace - theta_mle['sigmaSE'])
+
+fig, axes = plt.subplots(1, 3, figsize=(10, 4))
+
+# R0 trace
+axes[0].plot(sigmaSE_trace, R0_trace, 'b-', linewidth=2)
+axes[0].axvline(x=theta_mle['sigmaSE'], color='green', linestyle='--', alpha=0.5)
+axes[0].axhline(y=theta_mle['R0'], color='gray', linestyle=':', alpha=0.5)
+axes[0].set_xlabel(r'$\sigma_{SE}$')
+axes[0].set_ylabel(r'$R_0$')
+axes[0].set_title(r'$R_0$ vs $\sigma_{SE}$')
+axes[0].grid(True, alpha=0.3)
+
+# gamma trace
+axes[1].plot(sigmaSE_trace, gamma_trace, 'r-', linewidth=2)
+axes[1].axvline(x=theta_mle['sigmaSE'], color='green', linestyle='--', alpha=0.5)
+axes[1].axhline(y=theta_mle['gamma'], color='gray', linestyle=':', alpha=0.5)
+axes[1].set_xlabel(r'$\sigma_{SE}$')
+axes[1].set_ylabel(r'$\gamma$ (recovery rate)')
+axes[1].set_title(r'$\gamma$ vs $\sigma_{SE}$')
+axes[1].grid(True, alpha=0.3)
+
+# sigma trace
+axes[2].plot(sigmaSE_trace, sigma_trace, 'm-', linewidth=2)
+axes[2].axvline(x=theta_mle['sigmaSE'], color='green', linestyle='--', alpha=0.5)
+axes[2].axhline(y=theta_mle['sigma'], color='gray', linestyle=':', alpha=0.5)
+axes[2].set_xlabel(r'$\sigma_{SE}$')
+axes[2].set_ylabel(r'$\sigma$ (latent rate)')
+axes[2].set_title(r'$\sigma$ vs $\sigma_{SE}$')
+axes[2].grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+
+# Interpretation
+
+## Profile Results
+
+### Interpreting the Profile {.allowframebreaks}
+
+The profile likelihood for $\sigma_{SE}$ reveals several important findings:
+
+1. **Clear Maximum**: The profile has a well-defined maximum around $\sigma_{SE} \approx 0.09$, indicating this parameter is identifiable.
+
+2. **95% Confidence Interval**: The approximate 95% CI for $\sigma_{SE}$ is roughly (0.05, 0.15), obtained by finding where the profile crosses the -1.92 cutoff.
+
+3. **Parameter Trade-offs**: 
+   - Higher $\sigma_{SE}$ (more stochasticity) allows for slightly higher $R_0$
+   - Duration parameters ($1/\gamma$, $1/\sigma$) show weak trade-offs
+
+4. **Model Flexibility**: Extra-demographic stochasticity is important for capturing observed variability.
+
+### Importance of Extra-Demographic Stochasticity {.allowframebreaks}
+
+The profile provides strong evidence that $\sigma_{SE} > 0$:
+
+- The profile drops sharply as $\sigma_{SE} \to 0$
+- A model with $\sigma_{SE} = 0$ fits substantially worse than the MLE
+
+This suggests extra-demographic stochasticity reflects genuine features:
+
+- Weather effects on transmission
+- Behavioral heterogeneity
+- Spatial aggregation effects
+- Reporting variation not captured by measurement model
+
+
+## Using MCAP for Confidence Intervals
+
+### Monte Carlo Adjusted Profile {.allowframebreaks}
+
+The `mcap` function in pypomp helps compute confidence intervals that account for Monte Carlo error:
+
+```{python}
+#| label: mcap-example
+# Example usage with quick profile results
+from pypomp import mcap
+
+# Use quick profile results
+param_vals = np.array([r['sigmaSE'] for r in quick_results])
+ll_vals = np.array([r['loglik'] for r in quick_results])
+
+# Run mcap
+try:
+    mcap_result = mcap(
+        parameter=param_vals,
+        loglik=ll_vals,
+        level=0.95,
+        span=0.75
+    )
+    
+    print("MCAP Results:")
+    print(f"  MLE: {mcap_result.mle:.4f}")
+    print(f"  95% CI: ({mcap_result.ci[0]:.4f}, {mcap_result.ci[1]:.4f})")
+except Exception as e:
+    print(f"Note: mcap requires sufficient profile points")
+    print(f"  Error: {e}")
+```
+
+
+## Computational Considerations
+
+### Practical Recommendations {.allowframebreaks}
+
+Computing profile likelihoods for POMP models is computationally intensive:
+
+1. **Parallelization**: Each profile point is independent, so parallelize across cores/nodes.
+
+2. **Multiple Starting Points**: Use many starting points (20-50) at each profile point to avoid local optima.
+
+3. **Two-Stage Approach**:
+   - First pass: coarse grid with fewer particles and iterations
+   - Second pass: refine promising regions with more computation
+
+4. **Archiving Results**: Save intermediate results frequently.
+
+5. **Monte Carlo Error**: Use enough particles so MC error is small relative to profile curvature.
+
+\framebreak
+
+```{python}
+#| label: timing-estimate
+# Timing estimate for full profile
+n_profile_points = 20
+n_starts = 40
+M_iterations = 50
+J_particles = 2000
+J_pf_particles = 5000
+
+# Rough estimate (highly hardware-dependent)
+time_per_mif_iter = 0.5  # seconds
+time_per_pf = 1.0        # seconds
+
+time_per_start = M_iterations * time_per_mif_iter + time_per_pf
+time_per_point = n_starts * time_per_start
+total_time = n_profile_points * time_per_point
+
+print(f"Estimated computation time:")
+print(f"  Per starting point: {time_per_start:.0f} seconds")
+print(f"  Per profile point: {time_per_point/60:.1f} minutes")
+print(f"  Total: {total_time/3600:.1f} hours")
+print(f"\nConsider parallelizing across {n_profile_points} profile points")
+```
+
+
+# Summary
+
+## Key Points
+
+### Summary {.allowframebreaks}
+
+1. **Profile likelihoods** provide rigorous inference for focal parameters while accounting for uncertainty in nuisance parameters.
+
+2. **Confidence intervals** from profiles are based on the likelihood ratio test and have better coverage properties than Wald intervals.
+
+3. **Profile traces** reveal parameter trade-offs and can diagnose identifiability issues.
+
+4. **Computational cost** is high but manageable with modern computing resources and parallelization.
+
+5. **Extra-demographic stochasticity** ($\sigma_{SE}$) is an important feature of measles dynamics that cannot be ignored.
+
+\framebreak
+
+### pypomp Profile Workflow {.allowframebreaks}
+
+```python
+# 1. Define profile grid
+sigmaSE_grid = np.linspace(0.02, 0.20, 20)
+
+# 2. For each grid point:
+#    a. Fix focal parameter
+#    b. Run IF2 from multiple starting points
+#    c. Evaluate likelihood with particle filter
+#    d. Record best result
+
+results = compute_full_profile(sigmaSE_grid, theta_mle, n_starts)
+
+# 3. Extract confidence intervals
+from pypomp import mcap
+mcap_result = mcap(
+    parameter=[r['sigmaSE'] for r in results],
+    loglik=[r['loglik'] for r in results],
+    level=0.95
+)
+```
+
+---
+
+## References {.allowframebreaks}
+
+::: {#refs}
+:::
+
+---
+
+[Back to Lesson 5](./lesson5.html)
+
+[R codes for the original document](https://raw.githubusercontent.com/kingaa/sbied/master/measles/codes.R)

@@ -1,0 +1,874 @@
+---
+title: >
+  Lesson 4: Exercises on Iterated Filtering
+author:
+  - Aaron A. King
+  - Edward L. Ionides
+  - Translated in pypomp by Kunyang He
+
+shortauthor: "King & Ionides et al."   
+shorttitle: "Lesson 4 Exercises"  
+date: "December 23, 2025"
+
+bibliography: ../sbied.bib             
+
+format:
+  beamer:
+    code-block-font-size: \tiny                    
+    theme: AnnArbor
+    colortheme: default
+    fontsize: 11pt
+    cite-method: natbib
+    biblio-style: apalike
+    toc: true  
+    slide-level: 3
+    highlight-style: tango  
+  
+  pdf:
+    documentclass: article          
+    fontsize: 11pt
+    cite-method: natbib           
+    biblio-style: apalike
+    toc: true
+    geometry: margin=1in
+    
+jupyter: python3 
+
+
+header-includes: |
+  \providecommand{\AtBeginSection}[1]{}
+  \providecommand{\AtBeginSubsection}[1]{}
+  \providecommand{\framebreak}{}
+
+  \usepackage{fvextra}  
+  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{
+    commandchars=\\\{\}, 
+    fontsize=\scriptsize 
+  }
+  \AtBeginSection{}
+  \AtBeginSubsection{}
+  \usepackage{amsmath,amssymb,amsfonts}
+  \usepackage{graphicx}
+  \usepackage{hyperref}
+  \usepackage{xcolor}
+
+  \newcommand{\myemph}[1]{\emph{#1}}
+  \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
+  \newcommand{\pkg}[1]{\texttt{#1}}
+  \newcommand{\code}[1]{\texttt{#1}}
+  \newcommand{\Rlanguage}{\textsf{R}}
+  \newcommand{\Rzero}{\mathcal{R}_{0}}
+  \newcommand{\pr}{\mathbb{P}}
+  \newcommand{\E}{\mathbb{E}}
+  \newcommand{\lik}{\mathcal{L}}
+  \newcommand{\loglik}{\ell}
+  \newcommand{\equals}{=}
+  \newcommand{\dist}[2]{\operatorname{#1}\!\bigl(#2\bigr)}
+  \newcommand{\myexercise}{\paragraph{Exercise}}
+---
+
+This document contains worked solutions to the exercises from Lesson 4 on 
+iterated filtering (IF2) for POMP models, implemented using pypomp.
+
+# Setup
+
+## Import Required Packages
+
+```{python}
+#| echo: true
+import jax.numpy as jnp
+import jax
+import pandas as pd
+import numpy as np
+from pypomp import Pomp, RWSigma
+from pypomp.util import logmeanexp, logmeanexp_se
+import matplotlib.pyplot as plt
+import time
+from scipy.stats import chi2
+```
+
+## Load Data and Define Models
+
+```{python}
+#| echo: true
+# Download and prepare data
+meas = (pd.read_csv(
+          "https://kingaa.github.io/sbied/stochsim/Measles_Consett_1948.csv")
+          .loc[:, ["week", "cases"]]
+          .rename(columns={"week": "time", "cases": "reports"})
+          .set_index("time")
+          .astype(float))
+
+ys = meas.copy()
+ys.columns = pd.Index(["reports"])
+print(f"Data loaded: {len(ys)} observations")
+```
+
+## Helper Functions
+
+```{python}
+#| echo: true
+def nbinom_logpmf(x, k, mu):
+    """Log PMF of NegBin(k, mu) that is robust when mu == 0."""
+    x = jnp.asarray(x)
+    k = jnp.asarray(k)
+    mu = jnp.asarray(mu)
+    logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
+    safe_mu = jnp.where(mu == 0.0, 1.0, mu)
+    core = (jax.scipy.special.gammaln(k + x) 
+            - jax.scipy.special.gammaln(k)
+            - jax.scipy.special.gammaln(x + 1)
+            + k * jnp.log(k / (k + safe_mu))
+            + x * jnp.log(safe_mu / (k + safe_mu)))
+    return jnp.where(mu == 0.0, logp_zero, core)
+
+def rnbinom(key, k, mu):
+    """Sample from NegBin(k, mu) via Gamma-Poisson mixture."""
+    key_g, key_p = jax.random.split(key)
+    safe_mu = jnp.maximum(mu, 1e-10)
+    lam = jax.random.gamma(key_g, k) * (safe_mu / k)
+    return jax.random.poisson(key_p, lam)
+```
+
+## SIR Model
+
+```{python}
+#| echo: true
+def rinit_sir(theta_, key, covars, t0):
+    """Initialize SIR state."""
+    N = theta_["N"]
+    eta = theta_["eta"]
+    S0 = jnp.round(N * eta)
+    I0 = 1.0
+    R0 = jnp.round(N * (1 - eta)) - 1.0   
+    H0 = 0.0                           
+    return {"S": S0, "I": I0, "R": R0, "H": H0}
+
+def rproc_sir(X_, theta_, key, covars, t, dt):
+    """SIR process model."""
+    S, I, R, H = X_["S"], X_["I"], X_["R"], X_["H"]
+    Beta = theta_["Beta"]
+    mu_IR = theta_["mu_IR"]
+    N = theta_["N"]
+
+    p_SI = 1.0 - jnp.exp(-Beta * I / N * dt)
+    p_IR = 1.0 - jnp.exp(-mu_IR * dt)
+
+    key_SI, key_IR = jax.random.split(key)
+    dN_SI = jax.random.binomial(key_SI, n=jnp.int32(S), p=p_SI)
+    dN_IR = jax.random.binomial(key_IR, n=jnp.int32(I), p=p_IR)
+
+    return {"S": S - dN_SI, "I": I + dN_SI - dN_IR, 
+            "R": R + dN_IR, "H": H + dN_IR}
+
+def dmeas_sir(Y_, X_, theta_, covars, t):
+    """SIR measurement density."""
+    rho = theta_["rho"]
+    k = theta_["k"]
+    H = X_["H"]
+    mu = rho * H
+    return nbinom_logpmf(Y_["reports"], k, mu)
+
+def rmeas_sir(X_, theta_, key, covars, t):
+    """SIR measurement simulator.
+    
+    Note: rmeas should return a JAX array with shape (ydim,).
+    """
+    rho = theta_["rho"]
+    k = theta_["k"]
+    H = X_["H"]
+    mu = rho * H
+    reports = rnbinom(key, k, mu)
+    # Return as array with shape (ydim,) = (1,)
+    return jnp.array([jnp.where(reports > 0, reports, 0.0)])
+```
+
+## SEIR Model
+
+```{python}
+#| echo: true
+def rinit_seir(theta_, key, covars, t0):
+    """Initialize SEIR state."""
+    N = theta_["N"]
+    eta = theta_["eta"]
+    S0 = jnp.round(N * eta)
+    E0 = 0.0
+    I0 = 1.0
+    R0 = jnp.round(N * (1 - eta)) - 1.0   
+    H0 = 0.0                           
+    return {"S": S0, "E": E0, "I": I0, "R": R0, "H": H0}
+
+def rproc_seir(X_, theta_, key, covars, t, dt):
+    """SEIR process model."""
+    S, E, I, R, H = X_["S"], X_["E"], X_["I"], X_["R"], X_["H"]
+    Beta = theta_["Beta"]
+    mu_EI = theta_["mu_EI"]
+    mu_IR = theta_["mu_IR"]
+    N = theta_["N"]
+
+    p_SE = 1.0 - jnp.exp(-Beta * I / N * dt)
+    p_EI = 1.0 - jnp.exp(-mu_EI * dt)
+    p_IR = 1.0 - jnp.exp(-mu_IR * dt)
+
+    key_SE, key_EI, key_IR = jax.random.split(key, 3)
+    dN_SE = jax.random.binomial(key_SE, n=jnp.int32(S), p=p_SE)
+    dN_EI = jax.random.binomial(key_EI, n=jnp.int32(E), p=p_EI)
+    dN_IR = jax.random.binomial(key_IR, n=jnp.int32(I), p=p_IR)
+
+    return {"S": S - dN_SE, "E": E + dN_SE - dN_EI,
+            "I": I + dN_EI - dN_IR, "R": R + dN_IR, "H": H + dN_IR}
+
+def dmeas_seir(Y_, X_, theta_, covars, t):
+    """SEIR measurement density."""
+    rho = theta_["rho"]
+    k = theta_["k"]
+    H = X_["H"]
+    mu = rho * H
+    return nbinom_logpmf(Y_["reports"], k, mu)
+
+def rmeas_seir(X_, theta_, key, covars, t):
+    """SEIR measurement simulator.
+    
+    Note: rmeas should return a JAX array with shape (ydim,).
+    """
+    rho = theta_["rho"]
+    k = theta_["k"]
+    H = X_["H"]
+    mu = rho * H
+    reports = rnbinom(key, k, mu)
+    # Return as array with shape (ydim,) = (1,)
+    return jnp.array([jnp.where(reports > 0, reports, 0.0)])
+```
+
+
+# Exercise 4.1: Fitting the SEIR Model
+
+## Problem Statement {.allowframebreaks}
+
+Estimate parameters and likelihood of the SEIR model using IF2.
+
+**Tasks:**
+
+(A) Conduct a local search and track computation time per IF2 iteration
+
+(B) Run-level 1: Quick calculation to verify codes work (2-3 minutes)
+
+(C) Run-level 2: Preliminary results in about 1 hour
+
+(D) Run-level 3: Thorough global search with available compute time
+
+(E) Compare SEIR and SIR model fits
+
+## Solution Part A: Local Search {.allowframebreaks}
+
+```{python}
+#| echo: true
+# SEIR parameters
+theta_seir = {
+    "Beta": 15.0,
+    "mu_EI": 2.0,    # Rate of E->I transition
+    "mu_IR": 2.0,    # Fixed
+    "N": 38000.0,    # Fixed
+    "eta": 0.06,
+    "rho": 0.5,
+    "k": 10.0        # Fixed
+}
+
+# statenames: ["S", "E", "I", "R", "H"] - H is at index 4
+statenames_seir = ["S", "E", "I", "R", "H"]
+
+# Create SEIR POMP object
+# IMPORTANT: accumvars must be a tuple of integer indices, not a list of strings
+# H is at index 4 in statenames_seir
+measSEIR = Pomp(
+    rinit=rinit_seir,
+    rproc=rproc_seir,
+    dmeas=dmeas_seir,
+    rmeas=rmeas_seir,
+    ys=ys,
+    theta=theta_seir,
+    statenames=statenames_seir,
+    t0=0.0,
+    dt=1/7,           # Time step
+    accumvars=(4,),   # H is at index 4, must be tuple of integers
+    ydim=1            # Dimension of observations
+)
+
+# Define random walk SDs for SEIR
+# IMPORTANT: ALL parameters must be listed, use 0.0 for fixed params
+rw_sd_seir = RWSigma(
+    sigmas={
+        "Beta": 0.02,
+        "mu_EI": 0.02,
+        "mu_IR": 0.0,    # Fixed
+        "N": 0.0,        # Fixed
+        "rho": 0.02,
+        "eta": 0.02,
+        "k": 0.0         # Fixed
+    },
+    init_names=["eta"]  # eta is an initial value parameter
+)
+```
+
+\framebreak
+
+```{python}
+#| echo: true
+# Run local search and track time
+key = jax.random.key(12345)
+
+start_time = time.time()
+measSEIR.mif(
+    J=1000,
+    M=50,
+    rw_sd=rw_sd_seir,
+    a=0.5,
+    key=key
+)
+elapsed = time.time() - start_time
+
+mif_result = measSEIR.results_history[-1]  # Use [-1] to get last result
+print(f"Total time: {elapsed:.1f} seconds")
+print(f"Time per iteration: {elapsed/50:.2f} seconds")
+```
+
+\framebreak
+
+```{python}
+#| echo: true
+#| fig-width: 8
+#| fig-height: 5
+# Plot SEIR traces
+# traces_da has dimensions: ('replicate', 'iteration', 'variable')
+traces_da = mif_result.traces_da
+
+# Select the first replicate (index 0)
+traces_rep0 = traces_da.isel(replicate=0)
+
+iterations = traces_rep0.coords['iteration'].values
+variables = traces_rep0.coords['variable'].values
+
+fig, axes = plt.subplots(2, 3, figsize=(10, 6))
+params_to_plot = ['logLik', 'Beta', 'mu_EI', 'rho', 'eta']
+
+for ax, param in zip(axes.flatten(), params_to_plot):
+    if param in variables:
+        ax.plot(iterations, traces_rep0.sel(variable=param).values)
+        ax.set(xlabel='Iteration', ylabel=param)
+        ax.grid(alpha=0.3)
+
+axes.flatten()[-1].axis('off')
+plt.tight_layout()
+plt.show()
+```
+
+## Solution Part B-D: Run Levels {.allowframebreaks}
+
+```{python}
+#| echo: true
+# Run level settings
+run_level = 1  # Change to 2 or 3 for more intensive computation
+
+# Algorithmic parameters by run level
+Np = [500, 2000, 5000][run_level - 1]
+Nmif = [20, 100, 200][run_level - 1]
+Nreps_local = [5, 20, 40][run_level - 1]
+Nreps_global = [5, 20, 100][run_level - 1]
+Nreps_eval = [3, 10, 20][run_level - 1]
+
+print(f"Run level {run_level}:")
+print(f"  Np = {Np}, Nmif = {Nmif}")
+print(f"  Nreps_local = {Nreps_local}, Nreps_global = {Nreps_global}")
+```
+
+\framebreak
+
+```{python}
+#| echo: true
+# Run SEIR from multiple starting points
+np.random.seed(594717)
+
+results_seir = []
+for i in range(min(5, Nreps_local)):
+    theta_start = theta_seir.copy()
+    theta_start["Beta"] = np.random.uniform(5, 40)
+    theta_start["mu_EI"] = np.random.uniform(0.5, 5)
+    theta_start["rho"] = np.random.uniform(0.1, 0.8)
+    theta_start["eta"] = np.random.uniform(0.02, 0.15)
+    
+    pomp_obj = Pomp(
+        rinit=rinit_seir, rproc=rproc_seir, 
+        dmeas=dmeas_seir, rmeas=rmeas_seir,
+        ys=ys, theta=theta_start, statenames=statenames_seir,
+        t0=0.0, dt=1/7, accumvars=(4,), ydim=1  # accumvars=(4,) for H
+    )
+    
+    key = jax.random.key(i * 100)
+    pomp_obj.mif(J=Np, M=Nmif, rw_sd=rw_sd_seir, a=0.5, key=key)
+    
+    # Evaluate likelihood
+    key = jax.random.key(i * 100 + 5000)
+    pomp_obj.pfilter(key=key, J=Np*2, reps=Nreps_eval)
+    
+    pf_result = pomp_obj.results_history[-1]
+    logliks = pf_result.logLiks.values.flatten()
+    
+    final_params = pomp_obj.theta[0]  # Get first (only) parameter set
+    
+    results_seir.append({
+        **final_params,
+        'loglik': logmeanexp(logliks),
+        'loglik_se': logmeanexp_se(logliks)
+    })
+    print(f"Start {i+1}: loglik = {results_seir[-1]['loglik']:.2f}")
+
+results_seir_df = pd.DataFrame(results_seir)
+```
+
+## Solution Part E: Model Comparison {.allowframebreaks}
+
+```{python}
+#| echo: true
+# SIR model for comparison
+theta_sir = {
+    "Beta": 15.0,
+    "mu_IR": 2.0,
+    "N": 38000.0,
+    "eta": 0.06,
+    "rho": 0.5,
+    "k": 10.0
+}
+
+# statenames: ["S", "I", "R", "H"] - H is at index 3
+statenames_sir = ["S", "I", "R", "H"]
+
+rw_sd_sir = RWSigma(
+    sigmas={
+        "Beta": 0.02,
+        "mu_IR": 0.0,    # Fixed
+        "N": 0.0,        # Fixed
+        "rho": 0.02,
+        "eta": 0.02,
+        "k": 0.0         # Fixed
+    },
+    init_names=["eta"]
+)
+
+# Run SIR searches
+np.random.seed(594718)
+
+results_sir = []
+for i in range(min(5, Nreps_local)):
+    theta_start = theta_sir.copy()
+    theta_start["Beta"] = np.random.uniform(5, 40)
+    theta_start["rho"] = np.random.uniform(0.1, 0.8)
+    theta_start["eta"] = np.random.uniform(0.02, 0.15)
+    
+    pomp_obj = Pomp(
+        rinit=rinit_sir, rproc=rproc_sir, 
+        dmeas=dmeas_sir, rmeas=rmeas_sir,
+        ys=ys, theta=theta_start, statenames=statenames_sir,
+        t0=0.0, dt=1/7, accumvars=(3,), ydim=1  # accumvars=(3,) for H
+    )
+    
+    key = jax.random.key(i * 200)
+    pomp_obj.mif(J=Np, M=Nmif, rw_sd=rw_sd_sir, a=0.5, key=key)
+    
+    key = jax.random.key(i * 200 + 5000)
+    pomp_obj.pfilter(key=key, J=Np*2, reps=Nreps_eval)
+    
+    pf_result = pomp_obj.results_history[-1]
+    logliks = pf_result.logLiks.values.flatten()
+    
+    final_params = pomp_obj.theta[0]
+    
+    results_sir.append({
+        **final_params,
+        'loglik': logmeanexp(logliks)
+    })
+    print(f"SIR Start {i+1}: loglik = {results_sir[-1]['loglik']:.2f}")
+
+results_sir_df = pd.DataFrame(results_sir)
+```
+
+\framebreak
+
+```{python}
+#| echo: true
+# Compare models
+best_seir = results_seir_df.loc[results_seir_df['loglik'].idxmax()]
+best_sir = results_sir_df.loc[results_sir_df['loglik'].idxmax()]
+
+print("Model Comparison:")
+print(f"  SIR best loglik:  {best_sir['loglik']:.2f}")
+print(f"  SEIR best loglik: {best_seir['loglik']:.2f}")
+print(f"  Difference: {best_seir['loglik'] - best_sir['loglik']:.2f}")
+
+# AIC comparison (SEIR has 1 more parameter: mu_EI)
+aic_sir = -2 * best_sir['loglik'] + 2 * 4   # 4 estimated params
+aic_seir = -2 * best_seir['loglik'] + 2 * 5 # 5 estimated params
+print(f"\n  SIR AIC:  {aic_sir:.2f}")
+print(f"  SEIR AIC: {aic_seir:.2f}")
+print(f"  SEIR is {'better' if aic_seir < aic_sir else 'worse'} by AIC")
+```
+
+
+# Exercise 4.2: Fitting All Parameters
+
+## Problem Statement
+
+Fit SIR model with all parameters, including k (overdispersion).
+
+## Solution {.allowframebreaks}
+
+```{python}
+#| echo: true
+# Random walk SDs including k and mu_IR
+# ALL parameters must be listed
+rw_sd_full = RWSigma(
+    sigmas={
+        "Beta": 0.02,
+        "mu_IR": 0.02,   # Now estimating
+        "N": 0.0,        # Fixed
+        "rho": 0.02,
+        "eta": 0.02,
+        "k": 0.02        # Now estimating
+    },
+    init_names=["eta"]
+)
+
+# Run from multiple starting points
+np.random.seed(12345)
+
+results_full = []
+for i in range(5):
+    theta_start = theta_sir.copy()
+    theta_start["Beta"] = np.random.uniform(5, 40)
+    theta_start["mu_IR"] = np.random.uniform(0.5, 5)
+    theta_start["rho"] = np.random.uniform(0.1, 0.8)
+    theta_start["eta"] = np.random.uniform(0.02, 0.15)
+    theta_start["k"] = np.random.uniform(1, 50)
+    
+    pomp_obj = Pomp(
+        rinit=rinit_sir, rproc=rproc_sir, 
+        dmeas=dmeas_sir, rmeas=rmeas_sir,
+        ys=ys, theta=theta_start, statenames=statenames_sir,
+        t0=0.0, dt=1/7, accumvars=(3,), ydim=1  # accumvars=(3,) for H
+    )
+    
+    key = jax.random.key(i * 200)
+    pomp_obj.mif(J=1500, M=50, rw_sd=rw_sd_full, a=0.5, key=key)
+    
+    key = jax.random.key(i * 200 + 1000)
+    pomp_obj.pfilter(key=key, J=5000, reps=5)
+    
+    pf_result = pomp_obj.results_history[-1]
+    logliks = pf_result.logLiks.values.flatten()
+    
+    final_params = pomp_obj.theta[0]
+    
+    results_full.append({
+        **final_params,
+        'loglik': logmeanexp(logliks)
+    })
+    print(f"Start {i+1}: loglik = {results_full[-1]['loglik']:.2f}, "
+          f"k = {results_full[-1]['k']:.2f}")
+
+results_full_df = pd.DataFrame(results_full)
+```
+
+\framebreak
+
+```{python}
+#| echo: true
+# Compare best results
+best_full = results_full_df.loc[results_full_df['loglik'].idxmax()]
+print("Best result with all parameters estimated:")
+print(f"  Log-likelihood: {best_full['loglik']:.2f}")
+print(f"  Beta: {best_full['Beta']:.2f}")
+print(f"  mu_IR: {best_full['mu_IR']:.2f}")
+print(f"  rho: {best_full['rho']:.3f}")
+print(f"  eta: {best_full['eta']:.4f}")
+print(f"  k: {best_full['k']:.2f}")
+```
+
+### Interpretation
+
+- Estimating k typically improves the fit moderately
+- The estimated k provides insight into measurement overdispersion
+- Larger k → closer to Poisson; smaller k → more overdispersion
+
+
+# Exercise 4.3: Profile over Beta
+
+## Problem Statement
+
+Construct profile likelihood over Beta. Also profile over R0 = Beta/mu_IR.
+
+## Solution: Profile over Beta {.allowframebreaks}
+
+```{python}
+#| echo: true
+def compute_beta_profile_point(beta_val, seed):
+    """Profile likelihood point for Beta."""
+    theta_start = theta_sir.copy()
+    theta_start["Beta"] = beta_val
+    theta_start["rho"] = np.random.uniform(0.1, 0.6)
+    theta_start["eta"] = np.random.uniform(0.02, 0.15)
+    
+    pomp_obj = Pomp(
+        rinit=rinit_sir, rproc=rproc_sir, 
+        dmeas=dmeas_sir, rmeas=rmeas_sir,
+        ys=ys, theta=theta_start, statenames=statenames_sir,
+        t0=0.0, dt=1/7, accumvars=(3,), ydim=1  # accumvars=(3,) for H
+    )
+    
+    # Beta NOT in sigmas with non-zero value, so it stays fixed
+    # ALL parameters must be listed
+    rw_sd_profile = RWSigma(
+        sigmas={
+            "Beta": 0.0,     # Fixed for profiling
+            "mu_IR": 0.0,
+            "N": 0.0,
+            "rho": 0.02,
+            "eta": 0.02,
+            "k": 0.0
+        }, 
+        init_names=["eta"]
+    )
+    
+    key = jax.random.key(seed)
+    pomp_obj.mif(J=2000, M=80, rw_sd=rw_sd_profile, a=0.3, key=key)
+    
+    key = jax.random.key(seed + 5000)
+    pomp_obj.pfilter(key=key, J=5000, reps=5)
+    
+    pf_result = pomp_obj.results_history[-1]
+    logliks = pf_result.logLiks.values.flatten()
+    
+    final_params = pomp_obj.theta[0]
+    
+    return {
+        'Beta': beta_val,
+        'rho': final_params['rho'],
+        'eta': final_params['eta'],
+        'loglik': logmeanexp(logliks)
+    }
+```
+
+\framebreak
+
+```{python}
+#| echo: true
+# Compute profile over Beta
+beta_grid = np.linspace(5, 40, 8)  # Reduced for faster execution
+
+profile_beta = []
+for i, beta_val in enumerate(beta_grid):
+    result = compute_beta_profile_point(beta_val, seed=i * 300)
+    profile_beta.append(result)
+    print(f"Beta = {beta_val:.1f}: loglik = {result['loglik']:.2f}")
+
+profile_beta_df = pd.DataFrame(profile_beta)
+```
+
+\framebreak
+
+```{python}
+#| echo: true
+#| fig-width: 5
+#| fig-height: 4
+# Plot profile
+max_ll = profile_beta_df['loglik'].max()
+ci_cutoff = max_ll - 0.5 * chi2.ppf(0.95, df=1)
+
+fig, ax = plt.subplots(figsize=(5, 4))
+ax.scatter(profile_beta_df['Beta'], profile_beta_df['loglik'])
+ax.axhline(ci_cutoff, color='red', linestyle='--', label='95% CI cutoff')
+ax.set(xlabel=r'$\beta$', ylabel='Profile log-likelihood',
+       title=r'Profile likelihood over $\beta$')
+ax.legend()
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+# Get 95% CI
+in_ci = profile_beta_df[profile_beta_df['loglik'] > ci_cutoff]
+if len(in_ci) > 0:
+    print(f"95% CI for Beta: ({in_ci['Beta'].min():.1f}, {in_ci['Beta'].max():.1f})")
+```
+
+## Profile over R0 {.allowframebreaks}
+
+$\mathcal{R}_0 = \beta / \mu_{IR}$ is the basic reproduction number.
+
+```{python}
+#| echo: true
+#| fig-width: 5
+#| fig-height: 4
+# For fixed mu_IR = 2, R0 = Beta / 2
+# Profile over R0 by profiling over Beta and converting
+
+profile_beta_df['R0'] = profile_beta_df['Beta'] / 2.0
+
+fig, ax = plt.subplots(figsize=(5, 4))
+ax.scatter(profile_beta_df['R0'], profile_beta_df['loglik'])
+ax.axhline(ci_cutoff, color='red', linestyle='--', label='95% CI cutoff')
+ax.set(xlabel=r'$\mathcal{R}_0 = \beta/\mu_{IR}$', ylabel='Profile log-likelihood',
+       title=r'Profile likelihood over $\mathcal{R}_0$')
+ax.legend()
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+# 95% CI for R0
+in_ci_R0 = profile_beta_df[profile_beta_df['loglik'] > ci_cutoff]
+if len(in_ci_R0) > 0:
+    print(f"95% CI for R0: ({in_ci_R0['R0'].min():.1f}, {in_ci_R0['R0'].max():.1f})")
+```
+
+### Interpretation
+
+- When mu_IR is fixed, R0 is just a rescaling of Beta
+- R0 has the same identifiability properties as Beta
+- If mu_IR were also estimated, the profile over R0 might be narrower than over Beta alone
+
+
+# Exercise 4.4: Checking Source Code
+
+## Problem Statement
+
+(a) Does the code implement the model described?
+
+(b) What problems can arise from conflicts between readability and reproducibility?
+
+(c) What solutions are available?
+
+## Solution {.allowframebreaks}
+
+### (a) Code vs Model Description
+
+To verify our implementation matches the model:
+
+1. **Check rate expressions**: The transition rates should match:
+   - $S \to I$: rate $\beta I / N$
+   - $I \to R$: rate $\mu_{IR}$
+
+2. **Check probability conversions**: For Euler discretization:
+   $$p = 1 - \exp(-\text{rate} \times dt)$$
+
+3. **Check binomial draws**: Each transition uses binomial with correct count and probability
+
+\framebreak
+
+### (b) Readability vs Reproducibility Problems
+
+**Common issues:**
+
+- Papers use continuous-time notation; code uses discrete-time
+- Mathematical notation may hide numerical details
+- Variable names may differ between paper and code
+- Accumulator variables may be implicit in equations
+- Edge cases (e.g., zero counts) not discussed in papers
+
+\framebreak
+
+### (c) Solutions
+
+1. **Document transformations**: Explicitly note how continuous-time rates become discrete probabilities
+
+2. **Use consistent naming**: Match variable names between paper and code
+
+3. **Unit tests**: Test individual components (rinit, rproc, dmeas) separately
+
+4. **Simulation studies**: Verify that inference recovers known parameters
+
+5. **Code review**: Have collaborators check code against equations
+
+
+# Exercise 4.5: Debugging rprocess
+
+## Problem Statement
+
+Suppose there is an error in rprocess and plug-and-play methods are used.
+
+(a) Will simulation studies identify the error?
+
+(b) How might you debug rprocess?
+
+(c) What research practices minimize risk?
+
+## Solution {.allowframebreaks}
+
+### (a) Simulation Studies
+
+**No, they will NOT identify the error!**
+
+- Simulation studies use `simulate()` which calls the same `rprocess`
+- You generate fake data with the buggy model
+- Then fit the buggy model to that data
+- The buggy model will fit its own simulations well
+- This is internally consistent but scientifically wrong
+
+\framebreak
+
+### (b) Debugging rprocess
+
+1. **Manual inspection**: Print intermediate values during simulation
+
+2. **Conservation laws**: Check that quantities are conserved (e.g., N = S + I + R)
+
+3. **Limiting cases**: 
+   - Beta = 0 → no infections
+   - mu_IR very large → rapid recovery
+
+4. **Compare to known solutions**: For some models, analytical solutions exist
+
+5. **Calibration checks**: Compare simulations to qualitative expectations
+
+\framebreak
+
+### (c) Best Practices
+
+1. **Independent implementations**: Have two people code the same model
+
+2. **Unit tests**: Test each component in isolation
+
+3. **Qualitative checks**: Do simulations look reasonable?
+
+4. **Documentation**: Comment code explaining what each line does
+
+5. **Version control**: Track all changes to code
+
+6. **Code review**: Systematic review before publication
+
+
+# Summary
+
+## Key Takeaways
+
+### Summary {.allowframebreaks}
+
+1. **Exercise 4.1 (SEIR)**: Adding compartments increases model complexity but may improve fit; use AIC for comparison
+
+2. **Exercise 4.2 (All parameters)**: More parameters can be estimated but may lead to identifiability issues
+
+3. **Exercise 4.3 (Profiles)**: Profile likelihoods provide valid confidence intervals; R0 and Beta are related
+
+\framebreak
+
+4. **Exercise 4.4 (Code checking)**: Careful documentation and testing needed to ensure code matches model
+
+5. **Exercise 4.5 (Debugging)**: Simulation studies alone cannot catch all errors; need multiple verification strategies
+
+### Key pypomp API Points
+
+- `accumvars` must be a **tuple of integer indices**, e.g., `(3,)` for H at index 3, NOT `["H"]`
+- `RWSigma` requires **ALL parameters** to be listed in `sigmas` dict - use `0.0` for fixed parameters
+- `traces_da` has dimensions `('replicate', 'iteration', 'variable')` - use `.isel(replicate=0)` to select
+- `rmeas` should return a JAX array with shape `(ydim,)`, e.g., `jnp.array([value])`
+- Use `results_history[-1]` to get last result
+- Access parameters via `pomp.theta[0]`
+
+
+# References

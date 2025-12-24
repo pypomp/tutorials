@@ -1,0 +1,932 @@
+---
+title: >
+  Lesson 7: Exercises - Forecasting Ebola
+author:
+  - Aaron A. King
+  - Edward L. Ionides
+  - Translated in pypomp by Kunyang He
+
+shortauthor: "King & Ionides et al."   
+shorttitle: "Lesson 7 Exercises"  
+date: "December 24, 2025"
+
+bibliography: ../sbied.bib             
+
+format:
+  beamer:
+    code-block-font-size: \tiny                    
+    theme: AnnArbor
+    colortheme: default
+    fontsize: 11pt
+    cite-method: natbib
+    biblio-style: apalike
+    toc: true  
+    slide-level: 3
+    highlight-style: tango  
+  
+  pdf:
+    documentclass: article          
+    fontsize: 11pt
+    cite-method: natbib           
+    biblio-style: apalike
+    toc: true
+    geometry: margin=1in
+    
+jupyter: python3 
+
+
+header-includes: |
+  \providecommand{\AtBeginSection}[1]{}
+  \providecommand{\AtBeginSubsection}[1]{}
+  \providecommand{\framebreak}{}
+
+  \usepackage{fvextra}  
+  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{
+    commandchars=\\\{\}, 
+    fontsize=\scriptsize 
+  }
+  \AtBeginSection{}
+  \AtBeginSubsection{}
+  \usepackage{amsmath,amssymb,amsfonts}
+  \usepackage{graphicx}
+  \usepackage{hyperref}
+  \usepackage{xcolor}
+
+  \newcommand{\myemph}[1]{\emph{#1}}
+  \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
+  \newcommand{\pkg}[1]{\texttt{#1}}
+  \newcommand{\code}[1]{\texttt{#1}}
+  \newcommand{\Rlanguage}{\textsf{R}}
+  \newcommand{\Rzero}{\mathcal{R}_{0}}
+  \newcommand{\pr}{\mathbb{P}}
+  \newcommand{\E}{\mathbb{E}}
+  \newcommand{\lik}{\mathcal{L}}
+  \newcommand{\loglik}{\ell}
+  \newcommand{\equals}{=}
+  \newcommand{\expect}[1]{\mathbb{E}\left[ #1 \right]}
+  \newcommand{\var}[1]{\mathrm{Var}\left[ #1 \right]}
+  \newcommand{\dist}[2]{\operatorname{#1}\!\bigl(#2\bigr)}
+  \newcommand{\myexercise}{\paragraph{Exercise}}
+---
+
+This document contains worked solutions to the exercises from Lesson 7 on
+forecasting Ebola, implemented using **pypomp**.
+
+# Setup
+
+## Import Packages
+```{python}
+#| echo: true
+#| output: false
+import jax
+import jax.numpy as jnp
+import jax.random as jr
+import jax.scipy as jsp
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from pypomp import Pomp
+from pypomp.util import logmeanexp, logmeanexp_se
+from scipy.stats import chi2
+
+np.random.seed(594709947)
+```
+
+## Load Data and Build Model {.allowframebreaks}
+```{python}
+#| echo: true
+# Load the data
+dat = pd.read_csv("https://kingaa.github.io/sbied/ebola/ebola_data.csv")
+
+# Population sizes
+populations = {
+    "Guinea": 10628972.0,
+    "Liberia": 4092310.0,
+    "SierraLeone": 6190280.0
+}
+
+print(f"Data shape: {dat.shape}")
+print(f"Countries: {dat['country'].unique()}")
+```
+
+\framebreak
+```{python}
+#| echo: true
+# Model configuration
+nstageE = 3  # Number of exposed stages (linear chain trick)
+timestep = 0.1  # Euler integration timestep
+
+# State names (global for reference)
+statenames = (
+    ["S"] + 
+    [f"E{i+1}" for i in range(nstageE)] + 
+    ["I", "R", "N_EI", "N_IR"]
+)
+print(f"State names: {statenames}")
+print(f"N_EI is at index: {statenames.index('N_EI')}")
+```
+
+\framebreak
+```{python}
+#| echo: true
+def rinit(theta_, key, covars, t0=None):
+    """Initial state distribution."""
+    N = theta_["N"]
+    S_0 = theta_["S_0"]
+    E_0 = theta_["E_0"]
+    I_0 = theta_["I_0"]
+    R_0 = theta_["R_0"]
+
+    m = N / (S_0 + E_0 + I_0 + R_0)
+    S = jnp.rint(m * S_0)
+    E_each = jnp.rint(m * E_0 / nstageE)
+    I = jnp.rint(m * I_0)
+    R = jnp.rint(m * R_0)
+
+    result = {"S": S, "I": I, "R": R, "N_EI": 0.0, "N_IR": 0.0}
+    for i in range(nstageE):
+        result[f"E{i+1}"] = E_each
+    
+    return result
+```
+
+\framebreak
+```{python}
+#| echo: true
+def rproc(X_, theta_, key, covars, t=None, dt=None):
+    """Process model: SEIR with Erlang-distributed exposed period."""
+    N = theta_["N"]
+    R0 = theta_["R0"]
+    alpha = theta_["alpha"]
+    gamma = theta_["gamma"]
+
+    S = X_["S"]
+    E = jnp.array([X_[f"E{i+1}"] for i in range(nstageE)])
+    I = X_["I"]
+    R = X_["R"]
+    N_EI_prev = X_["N_EI"]
+    N_IR_prev = X_["N_IR"]
+
+    # Transmission rate
+    beta = R0 * gamma
+    lam = beta * I / N
+
+    # Transition probabilities (clipped to valid range)
+    pS = jnp.clip(1.0 - jnp.exp(-lam * timestep), 0.0, 1.0)
+    pE = jnp.clip(1.0 - jnp.exp(-nstageE * alpha * timestep), 0.0, 1.0)
+    pI = jnp.clip(1.0 - jnp.exp(-gamma * timestep), 0.0, 1.0)
+
+    # Split keys for binomial draws
+    keys = jr.split(key, 2 + nstageE)
+
+    # S -> E transition
+    nS = jnp.maximum(0, jnp.rint(S)).astype(jnp.int32)
+    transS = jr.binomial(keys[0], n=nS, p=pS).astype(jnp.float32)
+
+    # E_i -> E_{i+1} transitions
+    transE = []
+    for i in range(nstageE):
+        nEi = jnp.maximum(0, jnp.rint(E[i])).astype(jnp.int32)
+        transEi = jr.binomial(keys[1 + i], n=nEi, p=pE).astype(jnp.float32)
+        transE.append(transEi)
+    transE = jnp.stack(transE)
+
+    # I -> R transition
+    nI = jnp.maximum(0, jnp.rint(I)).astype(jnp.int32)
+    transI = jr.binomial(keys[-1], n=nI, p=pI).astype(jnp.float32)
+
+    # Update compartments
+    S_new = S - transS
+    E_new = jnp.zeros(nstageE)
+    E_new = E_new.at[0].set(E[0] + transS - transE[0])
+    for i in range(1, nstageE):
+        E_new = E_new.at[i].set(E[i] + transE[i - 1] - transE[i])
+    I_new = I + transE[-1] - transI
+    R_new = R + transI
+    N_EI_new = N_EI_prev + transE[-1]
+    N_IR_new = N_IR_prev + transI
+
+    result = {
+        "S": S_new,
+        "I": I_new,
+        "R": R_new,
+        "N_EI": N_EI_new,
+        "N_IR": N_IR_new,
+    }
+    for i in range(nstageE):
+        result[f"E{i+1}"] = E_new[i]
+
+    return result
+```
+
+\framebreak
+```{python}
+#| echo: true
+def dmeas(Y_, X_, theta_, covars, t):
+    """
+    Measurement density: Negative binomial (or Poisson if k=0).
+    """
+    rho = theta_["rho"]
+    k = theta_["k"]
+    N_EI = jnp.maximum(X_["N_EI"], 0.0)
+    x = jnp.rint(Y_["cases"])
+    mu = rho * N_EI
+
+    def nb_ll(_):
+        """Negative binomial log-likelihood."""
+        r = 1.0 / k
+        return jax.lax.cond(
+            mu > 0.0,
+            lambda _: (
+                jsp.special.gammaln(x + r)
+                - jsp.special.gammaln(r)
+                - jsp.special.gammaln(x + 1.0)
+                + r * jnp.log(r / (r + mu))
+                + x * jnp.log(mu / (r + mu))
+            ),
+            lambda _: jnp.where(x == 0.0, 0.0, -jnp.inf),
+            operand=None,
+        )
+
+    def pois_ll(_):
+        """Poisson log-likelihood."""
+        return jax.lax.cond(
+            mu > 0.0,
+            lambda _: x * jnp.log(mu) - mu - jsp.special.gammaln(x + 1.0),
+            lambda _: jnp.where(x == 0.0, 0.0, -jnp.inf),
+            operand=None,
+        )
+
+    return jax.lax.cond(k > 0.0, nb_ll, pois_ll, operand=None)
+
+
+def rmeas(X_, theta_, key, covars, t):
+    """
+    Measurement simulator: Negative binomial (or Poisson if k=0).
+    """
+    rho = theta_["rho"]
+    k = theta_["k"]
+    N_EI = jnp.maximum(X_["N_EI"], 0.0)
+    mu = rho * N_EI
+
+    k1, k2 = jr.split(key, 2)
+
+    def nb_sample(_):
+        r = 1.0 / k
+        lam = jr.gamma(k1, a=r) * (mu / r)
+        return jr.poisson(k2, lam).astype(jnp.float32)
+
+    def pois_sample(_):
+        return jr.poisson(k1, mu).astype(jnp.float32)
+
+    y = jax.lax.cond(k > 0.0, nb_sample, pois_sample, operand=None)
+    return jnp.array([y])
+```
+
+\framebreak
+```{python}
+#| echo: true
+def build_ebola_model(country="SierraLeone"):
+    """Build a pomp object for the specified country."""
+    # Filter data for country
+    country_data = dat[dat['country'] == country].copy()
+    ys = country_data[['week', 'cases']].copy().astype(float).set_index('week')
+    t0 = float(ys.index.min()) - 1.0
+
+    # Accumulator variables (N_EI and N_IR reset each observation interval)
+    accumvars = (3 + nstageE, 4 + nstageE)
+
+    # Load best parameters from profiles
+    profs = pd.read_csv("https://kingaa.github.io/sbied/ebola/ebola_profiles.csv")
+    best = profs[profs["country"] == country].copy()
+    best = best.loc[best["loglik"].idxmax()]
+    N = float(populations[country])
+
+    theta = {
+        "N": N,
+        "R0": float(best["R0"]),
+        "alpha": float(best["alpha"]),
+        "gamma": float(best["gamma"]),
+        "rho": float(best["rho"]),
+        "k": float(best["k"]),
+        "S_0": float(best["S_0"]),
+        "E_0": float(best["E_0"]),
+        "I_0": float(best["I_0"]),
+        "R_0": float(best["R_0"]),
+    }
+
+    pomp_obj = Pomp(
+        rinit=rinit,
+        rproc=rproc,
+        dmeas=dmeas,
+        rmeas=rmeas,
+        ys=ys,
+        theta=theta,
+        t0=t0,
+        dt=timestep,
+        ydim=1,
+        covars=None,
+        statenames=statenames,
+        accumvars=accumvars,
+    )
+
+    return pomp_obj, country_data
+
+# Build models
+sle, dat_s = build_ebola_model("SierraLeone")
+gin, dat_g = build_ebola_model("Guinea")
+
+print("Sierra Leone model built with MLE parameters from profiles")
+print(f"\nSierra Leone MLE parameters:")
+for k, v in sle.theta[0].items():
+    print(f"  {k}: {v:.4f}" if isinstance(v, float) else f"  {k}: {v}")
+```
+
+
+# Exercise 1: The Sierra Leone Outbreak
+
+## Problem Statement
+
+### Exercise 1: The Sierra Leone Outbreak {.allowframebreaks}
+
+Apply probes to investigate the extent to which the SEIR model above is an adequate description of the data from the Sierra Leone outbreak.
+
+**Tasks:**
+
+1. Have a look at the probes provided (growth rate, residual SD, autocorrelation).
+2. Try also to come up with some informative probes of your own.
+3. Discuss the implications of your findings.
+
+## Solution
+
+### Defining Probe Functions {.allowframebreaks}
+```{python}
+#| echo: true
+def growth_rate_probe(y):
+    """Estimate exponential growth rate from case data."""
+    y = np.array(y).flatten()
+    y_safe = np.maximum(y, 0.5)
+    log_y = np.log(y_safe)
+    
+    t = np.arange(len(y))
+    mask = ~np.isnan(log_y) & ~np.isinf(log_y)
+    if mask.sum() < 2:
+        return np.nan
+    
+    t_m = t[mask]
+    y_m = log_y[mask]
+    slope = np.cov(t_m, y_m)[0, 1] / np.var(t_m)
+    return slope
+
+def residual_sd_probe(y):
+    """Compute SD of residuals from exponential trend."""
+    y = np.array(y).flatten()
+    y_safe = np.maximum(y, 0.5)
+    log_y = np.log(y_safe)
+    
+    t = np.arange(len(y))
+    mask = ~np.isnan(log_y) & ~np.isinf(log_y)
+    if mask.sum() < 2:
+        return np.nan
+    
+    t_m = t[mask]
+    y_m = log_y[mask]
+    slope = np.cov(t_m, y_m)[0, 1] / np.var(t_m)
+    intercept = np.mean(y_m) - slope * np.mean(t_m)
+    
+    fitted = slope * t_m + intercept
+    residuals = y_m - fitted
+    return np.std(residuals)
+```
+
+\framebreak
+```{python}
+#| echo: true
+def acf_probe(y, lag=1):
+    """Compute autocorrelation at specified lag."""
+    y = np.array(y).flatten()
+    y = y[~np.isnan(y)]
+    if len(y) <= lag:
+        return np.nan
+    
+    y_mean = np.mean(y)
+    numerator = np.sum((y[lag:] - y_mean) * (y[:-lag] - y_mean))
+    denominator = np.sum((y - y_mean)**2)
+    
+    if denominator == 0:
+        return np.nan
+    return numerator / denominator
+
+def max_cases_probe(y):
+    """Maximum number of cases."""
+    y = np.array(y).flatten()
+    return np.nanmax(y)
+
+def total_cases_probe(y):
+    """Total number of cases."""
+    y = np.array(y).flatten()
+    return np.nansum(y)
+
+def peak_week_probe(y):
+    """Week of peak cases."""
+    y = np.array(y).flatten()
+    return np.nanargmax(y)
+```
+
+### Simulating from the Model {.allowframebreaks}
+```{python}
+#| echo: true
+# Generate simulations
+key = jax.random.key(42)
+X_sims, Y_sims = sle.simulate(key=key, nsim=500)
+
+# Get Sierra Leone data
+sle_cases = dat_s['cases'].values
+
+print(f"Generated {500} simulations")
+print(f"Data length: {len(sle_cases)} weeks")
+print(f"\nX_sims columns: {X_sims.columns.tolist()}")
+print(f"Y_sims columns: {Y_sims.columns.tolist()}")
+```
+
+### Applying Probes {.allowframebreaks}
+```{python}
+#| echo: true
+# Compute probe values for data
+data_probes = {
+    'growth_rate': growth_rate_probe(sle_cases),
+    'residual_sd': residual_sd_probe(sle_cases),
+    'acf_1': acf_probe(sle_cases, lag=1),
+    'acf_2': acf_probe(sle_cases, lag=2),
+    'max_cases': max_cases_probe(sle_cases),
+    'total_cases': total_cases_probe(sle_cases),
+    'peak_week': peak_week_probe(sle_cases)
+}
+
+print("Data probe values:")
+for name, val in data_probes.items():
+    print(f"  {name}: {val:.4f}")
+```
+
+\framebreak
+```{python}
+#| echo: true
+# Compute probe values for simulations
+sim_probes = {name: [] for name in data_probes.keys()}
+
+for i in range(500):
+    sim_data = Y_sims[Y_sims['sim'] == i]
+    cases = sim_data['obs_0'].values
+    
+    sim_probes['growth_rate'].append(growth_rate_probe(cases))
+    sim_probes['residual_sd'].append(residual_sd_probe(cases))
+    sim_probes['acf_1'].append(acf_probe(cases, lag=1))
+    sim_probes['acf_2'].append(acf_probe(cases, lag=2))
+    sim_probes['max_cases'].append(max_cases_probe(cases))
+    sim_probes['total_cases'].append(total_cases_probe(cases))
+    sim_probes['peak_week'].append(peak_week_probe(cases))
+
+# Convert to arrays
+for name in sim_probes:
+    sim_probes[name] = np.array(sim_probes[name])
+```
+
+### Visualizing Probe Results {.allowframebreaks}
+```{python}
+#| echo: true
+#| fig-width: 8
+#| fig-height: 6
+# Plot probe distributions
+fig, axes = plt.subplots(2, 3, figsize=(10, 6))
+axes = axes.flatten()
+
+probe_names = ['growth_rate', 'residual_sd', 'acf_1', 
+               'max_cases', 'total_cases', 'peak_week']
+
+for ax, name in zip(axes, probe_names):
+    sim_vals = sim_probes[name]
+    sim_vals = sim_vals[~np.isnan(sim_vals)]
+    
+    ax.hist(sim_vals, bins=30, alpha=0.7, density=True)
+    ax.axvline(data_probes[name], color='red', linewidth=2, 
+               linestyle='--', label='Data')
+    ax.set_xlabel(name)
+    ax.set_ylabel('Density')
+    ax.legend(fontsize=8)
+
+plt.tight_layout()
+plt.show()
+```
+
+\framebreak
+```{python}
+#| echo: true
+# Compute p-values
+print("Probe p-values (two-sided):")
+for name in probe_names:
+    sim_vals = sim_probes[name]
+    sim_vals = sim_vals[~np.isnan(sim_vals)]
+    data_val = data_probes[name]
+    
+    # Two-sided p-value
+    p_lower = np.mean(sim_vals <= data_val)
+    p_upper = np.mean(sim_vals >= data_val)
+    p_val = 2 * min(p_lower, p_upper)
+    
+    print(f"  {name}: p = {p_val:.4f}")
+```
+
+### Interpretation {.allowframebreaks}
+```{python}
+#| echo: true
+print("Interpretation of probe results:")
+print("")
+print("1. Growth Rate:")
+print("   If p-value is extreme, the model may not capture")
+print("   the actual growth dynamics well.")
+print("")
+print("2. Residual SD:")
+print("   If data has lower SD than simulations, the model")
+print("   may be adding too much stochastic variation.")
+print("")
+print("3. Autocorrelation:")
+print("   Mismatch suggests the model's temporal dynamics")
+print("   don't match the observed patterns.")
+print("")
+print("4. Max/Total Cases:")
+print("   These indicate whether the model captures the")
+print("   overall scale of the outbreak.")
+```
+
+
+# Exercise 2: Decomposing the Uncertainty
+
+## Problem Statement
+
+### Exercise 2: Decomposing the Uncertainty {.allowframebreaks}
+
+As we have discussed, the uncertainty shown in the forecasts above has three sources:
+
+1. **Measurement error**: Uncertainty in reported cases given true incidence
+2. **Process noise**: Stochasticity in disease transmission
+3. **Parametric uncertainty**: Uncertainty in parameter estimates
+
+Show how you can break the total uncertainty into these three components. Produce plots similar to that above showing each of the components.
+
+## Solution
+
+### Strategy for Decomposition {.allowframebreaks}
+
+To decompose uncertainty:
+
+1. **Measurement error only**: Fix parameters at MLE, use deterministic skeleton, vary only observation process
+
+2. **Process noise only**: Fix parameters at MLE, run stochastic simulations, use expected observations
+
+3. **Parameter uncertainty only**: Sample parameters, use deterministic trajectories with expected observations
+
+4. **Total uncertainty**: Sample parameters, run stochastic simulations, vary observations
+
+\framebreak
+```{python}
+#| echo: true
+# Get MLE parameters
+theta_mle = sle.theta[0]
+rho = theta_mle["rho"]
+k = theta_mle["k"]
+times = dat_s['week'].values
+n_times = len(times)
+
+print(f"MLE rho: {rho:.4f}")
+print(f"MLE k: {k:.4f}")
+print(f"Number of time points: {n_times}")
+```
+
+\framebreak
+```{python}
+#| echo: true
+# Define deterministic skeleton (for comparison)
+def deterministic_trajectory(theta_, times, pop):
+    """Compute deterministic SEIR trajectory."""
+    N = pop
+    R0 = theta_["R0"]
+    alpha = theta_["alpha"]
+    gamma = theta_["gamma"]
+    
+    beta = R0 * gamma
+    m_alpha = nstageE * alpha
+    
+    # Initial conditions (using same logic as rinit)
+    total = theta_["S_0"] + theta_["E_0"] + theta_["I_0"] + theta_["R_0"]
+    S = N * theta_["S_0"] / total
+    E_total = N * theta_["E_0"] / total
+    E1 = E_total / 3
+    E2 = E_total / 3
+    E3 = E_total / 3
+    I = N * theta_["I_0"] / total
+    R = N * theta_["R_0"] / total
+    
+    dt = 0.1
+    results = []
+    
+    for t in times:
+        # Record state - approximate incidence as gamma * I
+        results.append({
+            'time': t, 'S': S, 'E1': E1, 'E2': E2, 'E3': E3,
+            'I': I, 'R': R, 'N_EI': I * gamma
+        })
+        
+        # Update (Euler method)
+        dS = -beta * S * I / N
+        dE1 = beta * S * I / N - m_alpha * E1
+        dE2 = m_alpha * E1 - m_alpha * E2
+        dE3 = m_alpha * E2 - m_alpha * E3
+        dI = m_alpha * E3 - gamma * I
+        dR = gamma * I
+        
+        S += dS * dt
+        E1 += dE1 * dt
+        E2 += dE2 * dt
+        E3 += dE3 * dt
+        I += dI * dt
+        R += dR * dt
+    
+    return pd.DataFrame(results)
+```
+
+### Component 1: Measurement Error Only {.allowframebreaks}
+```{python}
+#| echo: true
+# Get deterministic trajectory at MLE
+det_traj = deterministic_trajectory(theta_mle, times, 
+                                     populations["SierraLeone"])
+
+# Sample observations from deterministic incidence
+n_sims = 100
+meas_error_sims = []
+
+for i in range(n_sims):
+    # True incidence from deterministic model
+    H = det_traj['N_EI'].values
+    mu = rho * H
+    
+    # Sample observations (negative binomial)
+    # Using numpy's parameterization: n=k, p=k/(k+mu)
+    cases = np.random.negative_binomial(k, k/(k + mu + 1e-10))
+    meas_error_sims.append(cases)
+
+meas_error_sims = np.array(meas_error_sims)
+print(f"Measurement error simulations: {meas_error_sims.shape}")
+```
+
+### Component 2: Process Noise Only {.allowframebreaks}
+```{python}
+#| echo: true
+# Run stochastic simulations at MLE, report expected observations
+# (mean of negative binomial, no sampling)
+
+key = jax.random.key(12345)
+X_sims_proc, Y_sims_proc = sle.simulate(key=key, nsim=100)
+
+# Check available columns
+print(f"X_sims_proc columns: {X_sims_proc.columns.tolist()}")
+
+# Find the column for N_EI (it might be named differently)
+n_ei_idx = statenames.index('N_EI')
+print(f"N_EI index in statenames: {n_ei_idx}")
+
+# Try to find the right column name
+if 'N_EI' in X_sims_proc.columns:
+    n_ei_col = 'N_EI'
+elif f'state_{n_ei_idx}' in X_sims_proc.columns:
+    n_ei_col = f'state_{n_ei_idx}'
+else:
+    # List all state-like columns
+    state_cols = [c for c in X_sims_proc.columns if c not in ['time', 'sim']]
+    n_ei_col = state_cols[n_ei_idx] if len(state_cols) > n_ei_idx else state_cols[-2]
+    
+print(f"Using column for N_EI: {n_ei_col}")
+```
+
+\framebreak
+```{python}
+#| echo: true
+# Extract process noise simulations
+# Ensure we only take n_times points to match the data
+process_noise_sims = []
+for i in range(100):
+    # Get latent incidence (before observation noise)
+    X_sim = X_sims_proc[X_sims_proc['sim'] == i]
+    H = X_sim[n_ei_col].values
+    # Expected cases = rho * H (no observation noise)
+    expected_cases = rho * H
+    # Truncate to match data length
+    process_noise_sims.append(expected_cases[:n_times])
+
+process_noise_sims = np.array(process_noise_sims)
+print(f"Process noise simulations: {process_noise_sims.shape}")
+```
+
+### Component 3: Parameter Uncertainty Only {.allowframebreaks}
+```{python}
+#| echo: true
+# Sample parameters, compute deterministic trajectories
+def sample_params(mle, n=100, scale=0.15):
+    params_list = []
+    for _ in range(n):
+        params = mle.copy()
+        params["R0"] = mle["R0"] * np.exp(np.random.normal(0, scale))
+        params["rho"] = mle["rho"] * np.exp(np.random.normal(0, scale))
+        params["k"] = mle["k"] * np.exp(np.random.normal(0, scale))
+        params_list.append(params)
+    return params_list
+
+np.random.seed(42)
+param_samples = sample_params(theta_mle, n=100)
+
+param_uncert_sims = []
+for params in param_samples:
+    traj = deterministic_trajectory(params, times, 
+                                    populations["SierraLeone"])
+    expected_cases = params["rho"] * traj['N_EI'].values
+    param_uncert_sims.append(expected_cases[:n_times])
+
+param_uncert_sims = np.array(param_uncert_sims)
+print(f"Parameter uncertainty simulations: {param_uncert_sims.shape}")
+```
+
+### Comparing Uncertainty Components {.allowframebreaks}
+```{python}
+#| echo: true
+#| fig-width: 8
+#| fig-height: 8
+fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+
+# Plot 1: Measurement error only
+ax = axes[0, 0]
+for i in range(min(20, n_sims)):
+    ax.plot(times, meas_error_sims[i][:n_times], alpha=0.2, color='blue')
+ax.plot(dat_s['week'], dat_s['cases'], 'k-', linewidth=2)
+ax.set_title('Measurement Error Only')
+ax.set_xlabel('Week')
+ax.set_ylabel('Cases')
+
+# Plot 2: Process noise only
+ax = axes[0, 1]
+for i in range(min(20, 100)):
+    sim_vals = process_noise_sims[i]
+    ax.plot(times[:len(sim_vals)], sim_vals, alpha=0.2, color='green')
+ax.plot(dat_s['week'], dat_s['cases'], 'k-', linewidth=2)
+ax.set_title('Process Noise Only')
+ax.set_xlabel('Week')
+ax.set_ylabel('Expected Cases')
+
+# Plot 3: Parameter uncertainty only
+ax = axes[1, 0]
+for i in range(min(20, 100)):
+    sim_vals = param_uncert_sims[i]
+    ax.plot(times[:len(sim_vals)], sim_vals, alpha=0.2, color='red')
+ax.plot(dat_s['week'], dat_s['cases'], 'k-', linewidth=2)
+ax.set_title('Parameter Uncertainty Only')
+ax.set_xlabel('Week')
+ax.set_ylabel('Expected Cases')
+
+# Plot 4: All simulations (total uncertainty)
+ax = axes[1, 1]
+for i in range(min(20, 100)):
+    sim_data = Y_sims_proc[Y_sims_proc['sim'] == i]
+    sim_times = sim_data['time'].values[:n_times]
+    sim_cases = sim_data['obs_0'].values[:n_times]
+    ax.plot(sim_times, sim_cases, alpha=0.2, color='purple')
+ax.plot(dat_s['week'], dat_s['cases'], 'k-', linewidth=2)
+ax.set_title('Total Uncertainty')
+ax.set_xlabel('Week')
+ax.set_ylabel('Cases')
+
+plt.tight_layout()
+plt.show()
+```
+
+### Quantifying Uncertainty Components {.allowframebreaks}
+```{python}
+#| echo: true
+# Compute variance at each time point for each component
+def compute_variance_over_time(sims):
+    """Compute variance at each time point."""
+    return np.var(sims, axis=0)
+
+# Ensure all arrays have the same length
+min_len = min(meas_error_sims.shape[1], 
+              process_noise_sims.shape[1], 
+              param_uncert_sims.shape[1],
+              n_times)
+
+var_meas = compute_variance_over_time(meas_error_sims[:, :min_len])
+var_process = compute_variance_over_time(process_noise_sims[:, :min_len])
+var_param = compute_variance_over_time(param_uncert_sims[:, :min_len])
+
+# Total variance from full simulations
+full_sims = []
+for i in range(100):
+    sim_data = Y_sims_proc[Y_sims_proc['sim'] == i]
+    sim_cases = sim_data['obs_0'].values[:min_len]
+    full_sims.append(sim_cases)
+full_sims = np.array(full_sims)
+var_total = compute_variance_over_time(full_sims)
+
+print("Relative contribution to variance (averaged over time):")
+total_var = np.mean(var_meas) + np.mean(var_process) + np.mean(var_param)
+print(f"  Measurement error: {100*np.mean(var_meas)/total_var:.1f}%")
+print(f"  Process noise: {100*np.mean(var_process)/total_var:.1f}%")
+print(f"  Parameter uncertainty: {100*np.mean(var_param)/total_var:.1f}%")
+```
+
+\framebreak
+```{python}
+#| echo: true
+#| fig-width: 6
+#| fig-height: 4
+# Plot variance decomposition over time
+fig, ax = plt.subplots(figsize=(6, 4))
+
+plot_times = times[:min_len]
+ax.plot(plot_times, np.sqrt(var_meas), 
+        label='Measurement', linewidth=2)
+ax.plot(plot_times, np.sqrt(var_process), 
+        label='Process', linewidth=2)
+ax.plot(plot_times, np.sqrt(var_param), 
+        label='Parameter', linewidth=2)
+ax.plot(plot_times, np.sqrt(var_total), 
+        'k--', label='Total', linewidth=2)
+
+ax.set_xlabel('Week')
+ax.set_ylabel('Standard Deviation')
+ax.set_title('Uncertainty Components Over Time')
+ax.legend()
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+### Interpretation {.allowframebreaks}
+```{python}
+#| echo: true
+print("Interpretation of Uncertainty Decomposition:")
+print("")
+print("1. MEASUREMENT ERROR:")
+print("   - Arises from imperfect observation of true incidence")
+print("   - Typically largest at peak (more cases to miscount)")
+print("   - Can be reduced with better surveillance")
+print("")
+print("2. PROCESS NOISE:")
+print("   - Inherent stochasticity in disease transmission")
+print("   - Important early in outbreak (small numbers)")
+print("   - Cannot be eliminated")
+print("")
+print("3. PARAMETER UNCERTAINTY:")
+print("   - Uncertainty in R0, rho, k, etc.")
+print("   - Grows over time (trajectories diverge)")
+print("   - Can be reduced with more data")
+```
+
+
+# Summary
+
+## Key Insights from Exercises
+
+### Summary {.allowframebreaks}
+
+**Exercise 1 (Sierra Leone Probes):**
+
+- Multiple probes reveal different aspects of model fit
+- Growth rate and residual SD are particularly informative
+- Autocorrelation probes capture temporal dynamics
+- P-values quantify discrepancy between model and data
+
+\framebreak
+
+**Exercise 2 (Uncertainty Decomposition):**
+
+- Three main sources: measurement, process, parameter
+- Relative importance varies over time
+- Early: process noise dominates (small numbers)
+- Peak: measurement error dominates
+- Late: parameter uncertainty dominates (trajectory divergence)
+- Understanding sources guides intervention/data collection
+
+
+# Acknowledgments and License
+
+### Acknowledgments {.allowframebreaks}
+
+- This lesson is prepared for the Simulation-based Inference for Epidemiological Dynamics module at SISMID.
+
+- The materials build on previous versions of this course and related courses.
+
+- Licensed under the Creative Commons Attribution-NonCommercial license (CC BY-NC 4.0).
+
+
+# References
+
+::: {#refs}
+:::

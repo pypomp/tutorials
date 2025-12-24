@@ -1,0 +1,909 @@
+---
+title: >
+  Lesson 7: Case Study - Forecasting Ebola
+author:
+  - Aaron A. King
+  - Edward L. Ionides
+  - Translated in pypomp by Kunyang He
+
+shortauthor: "King & Ionides et al."   
+shorttitle: "Lesson 7"  
+date: "December 24, 2025"
+
+bibliography: ../sbied.bib             
+
+format:
+  beamer:
+    code-block-font-size: \tiny                    
+    theme: AnnArbor
+    colortheme: default
+    fontsize: 11pt
+    cite-method: natbib
+    biblio-style: apalike
+    toc: true  
+    slide-level: 3
+    highlight-style: tango  
+  
+  pdf:
+    documentclass: article          
+    fontsize: 11pt
+    cite-method: natbib           
+    biblio-style: apalike
+    toc: true
+    geometry: margin=1in
+    
+jupyter: python3 
+
+
+header-includes: |
+  \providecommand{\AtBeginSection}[1]{}
+  \providecommand{\AtBeginSubsection}[1]{}
+  \providecommand{\framebreak}{}
+
+  \usepackage{fvextra}  
+  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{
+    commandchars=\\\{\}, 
+    fontsize=\scriptsize 
+  }
+  \AtBeginSection{}
+  \AtBeginSubsection{}
+  \usepackage{amsmath,amssymb,amsfonts}
+  \usepackage{graphicx}
+  \usepackage{hyperref}
+  \usepackage{xcolor}
+
+  \newcommand{\myemph}[1]{\emph{#1}}
+  \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
+  \newcommand{\pkg}[1]{\texttt{#1}}
+  \newcommand{\code}[1]{\texttt{#1}}
+  \newcommand{\Rlanguage}{\textsf{R}}
+  \newcommand{\Rzero}{\mathcal{R}_{0}}
+  \newcommand{\pr}{\mathbb{P}}
+  \newcommand{\E}{\mathbb{E}}
+  \newcommand{\lik}{\mathcal{L}}
+  \newcommand{\loglik}{\ell}
+  \newcommand{\equals}{=}
+  \newcommand{\expect}[1]{\mathbb{E}\left[ #1 \right]}
+  \newcommand{\var}[1]{\mathrm{Var}\left[ #1 \right]}
+  \newcommand{\dist}[2]{\operatorname{#1}\!\bigl(#2\bigr)}
+  \newcommand{\myexercise}{\paragraph{Exercise}}
+---
+
+This lesson presents a case study of forecasting Ebola, demonstrating the use of
+diagnostic probes for model criticism and forecasting methods based on POMP models.
+
+# Introduction
+
+## Objectives
+
+### Learning Objectives
+
+1. To explore the use of POMP models in the context of an outbreak of an emerging infectious disease.
+
+2. To demonstrate the use of diagnostic probes for model criticism.
+
+3. To illustrate some forecasting methods based on POMP models.
+
+4. To provide an example that can be modified to apply similar approaches to other outbreaks of emerging infectious diseases.
+
+This lesson follows @King2015, all codes for which are available on [datadryad.org](https://dx.doi.org/10.5061/dryad.r5f30).
+
+## 2014 West Africa EVD Outbreak
+
+### An Emerging Infectious Disease Outbreak {.allowframebreaks}
+
+Let's situate ourselves at the beginning of October 2014. The WHO situation report contained data on the number of cases in each of Guinea, Sierra Leone, and Liberia. Key questions included:
+
+1. How fast will the outbreak unfold?
+2. How large will it ultimately prove?
+3. What interventions will be most effective?
+
+\framebreak
+
+As is to be expected in the case of a fast-moving outbreak of a novel pathogen in an underdeveloped country, the answers to these questions were sought in a context far from ideal:
+
+- Case ascertainment is difficult and the case definition itself may be evolving.
+- Surveillance effort is changing on the same timescale as the outbreak itself.
+- The public health and behavioral response to the outbreak is rapidly changing.
+
+### Best Practices {.allowframebreaks}
+
+- The @King2015 paper focused critical attention on the economical and therefore common practice of fitting deterministic transmission models to cumulative incidence data.
+
+- Specifically, @King2015 showed how this practice easily leads to overconfident prediction that, worryingly, can mask their own presence.
+
+\framebreak
+
+- The paper recommended the use of POMP models, for several reasons:
+  - Such models can accommodate a wide range of hypothetical forms.
+  - They can be readily fit to incidence data, especially during the exponential growth phase of an outbreak.
+  - Stochastic models afford a more explicit treatment of uncertainty.
+  - POMP models come with a number of diagnostic approaches built-in, which can be used to assess model misspecification.
+
+
+# Data and Model
+
+## Data
+
+### Situation-Report Data {.allowframebreaks}
+
+The data we focus on here are from the WHO Situation Report of 1 October 2014. Supplementing these data are population estimates for the three countries.
+```{python}
+#| echo: true
+import jax
+import jax.numpy as jnp
+import jax.random as jr
+import jax.scipy as jsp
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from pypomp import Pomp
+from pypomp.util import logmeanexp, logmeanexp_se
+from scipy.stats import chi2
+
+np.random.seed(594709947)
+
+# Load the data
+dat = pd.read_csv("https://kingaa.github.io/sbied/ebola/ebola_data.csv")
+print(dat.head(10))
+```
+
+\framebreak
+```{python}
+#| echo: true
+# Population sizes (2014 census)
+populations = {
+    "Guinea": 10628972.0,
+    "Liberia": 4092310.0,
+    "SierraLeone": 6190280.0
+}
+```
+
+\framebreak
+```{python}
+#| echo: true
+#| fig-width: 6
+#| fig-height: 4
+# Plot the data
+fig, ax = plt.subplots(figsize=(6, 4))
+for country in dat['country'].unique():
+    country_data = dat[dat['country'] == country]
+    ax.plot(country_data['week'], country_data['cases'], 
+            label=country, linewidth=1.5)
+ax.set_xlabel('Week')
+ax.set_ylabel('Cases')
+ax.set_title('Ebola Cases by Country (WHO Situation Report, Oct 2014)')
+ax.legend()
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+## Model
+
+### SEIR Model with Gamma-Distributed Latent Period {.allowframebreaks}
+
+- Many of the early modeling efforts used variants on the simple SEIR model.
+
+- Here, we'll focus on a variant that attempts a more careful description of the duration of the latent period.
+
+- Specifically, this model assumes that the amount of time an infection remains latent is
+$$\mathrm{LP} \sim \dist{Gamma}{m,\frac{1}{m\,\alpha}},$$
+where $m$ is an integer.
+
+- This means that the latent period has expectation $1/\alpha$ and variance $1/(m\,\alpha)$. In this document, we'll fix $m=3$.
+
+\framebreak
+
+- We implement Gamma distributions using the so-called \myemph{linear chain trick}.
+
+The model structure is:
+$$S \to E_1 \to E_2 \to E_3 \to I \to R/\text{dead}$$
+
+\framebreak
+
+The observations are modeled as a negative binomial process conditional on the number of infections. That is, if $C_t$ are the reported cases at week $t$ and $H_t$ is the true incidence, then we postulate that $C_t | H_t$ is negative binomial with
+$$\expect{C_t|H_t} = \rho\,H_t \quad \text{and} \quad \var{C_t|H_t} = \rho\,H_t\,(1+k\,\rho\,H_t).$$
+The negative binomial process allows for overdispersion in the counts. This overdispersion is controlled by parameter $k$. When $k \to 0$, the distribution reduces to Poisson.
+
+### Building the Model in pypomp {.allowframebreaks}
+```{python}
+#| echo: true
+# Number of exposed stages (for linear chain trick)
+nstageE = 3
+
+# Euler integration timestep
+timestep = 0.1
+```
+
+\framebreak
+```{python}
+#| echo: true
+def rinit(theta_, key, covars, t0=None):
+    """Initial state distribution."""
+    N = theta_["N"]
+    S_0 = theta_["S_0"]
+    E_0 = theta_["E_0"]
+    I_0 = theta_["I_0"]
+    R_0 = theta_["R_0"]
+
+    m = N / (S_0 + E_0 + I_0 + R_0)
+    S = jnp.rint(m * S_0)
+    E_each = jnp.rint(m * E_0 / nstageE)
+    I = jnp.rint(m * I_0)
+    R = jnp.rint(m * R_0)
+
+    result = {"S": S, "I": I, "R": R, "N_EI": 0.0, "N_IR": 0.0}
+    for i in range(nstageE):
+        result[f"E{i+1}"] = E_each
+    
+    return result
+```
+
+\framebreak
+```{python}
+#| echo: true
+def rproc(X_, theta_, key, covars, t=None, dt=None):
+    """Process model: SEIR with Erlang-distributed exposed period."""
+    N = theta_["N"]
+    R0 = theta_["R0"]
+    alpha = theta_["alpha"]
+    gamma = theta_["gamma"]
+
+    S = X_["S"]
+    E = jnp.array([X_[f"E{i+1}"] for i in range(nstageE)])
+    I = X_["I"]
+    R = X_["R"]
+    N_EI_prev = X_["N_EI"]
+    N_IR_prev = X_["N_IR"]
+
+    # Transmission rate
+    beta = R0 * gamma
+    lam = beta * I / N
+
+    # Transition probabilities (clipped to valid range)
+    pS = jnp.clip(1.0 - jnp.exp(-lam * timestep), 0.0, 1.0)
+    pE = jnp.clip(1.0 - jnp.exp(-nstageE * alpha * timestep), 0.0, 1.0)
+    pI = jnp.clip(1.0 - jnp.exp(-gamma * timestep), 0.0, 1.0)
+
+    # Split keys for binomial draws
+    keys = jr.split(key, 2 + nstageE)
+
+    # S -> E transition
+    nS = jnp.maximum(0, jnp.rint(S)).astype(jnp.int32)
+    transS = jr.binomial(keys[0], n=nS, p=pS).astype(jnp.float32)
+
+    # E_i -> E_{i+1} transitions
+    transE = []
+    for i in range(nstageE):
+        nEi = jnp.maximum(0, jnp.rint(E[i])).astype(jnp.int32)
+        transEi = jr.binomial(keys[1 + i], n=nEi, p=pE).astype(jnp.float32)
+        transE.append(transEi)
+    transE = jnp.stack(transE)
+
+    # I -> R transition
+    nI = jnp.maximum(0, jnp.rint(I)).astype(jnp.int32)
+    transI = jr.binomial(keys[-1], n=nI, p=pI).astype(jnp.float32)
+
+    # Update compartments
+    S_new = S - transS
+    E_new = jnp.zeros(nstageE)
+    E_new = E_new.at[0].set(E[0] + transS - transE[0])
+    for i in range(1, nstageE):
+        E_new = E_new.at[i].set(E[i] + transE[i - 1] - transE[i])
+    I_new = I + transE[-1] - transI
+    R_new = R + transI
+    N_EI_new = N_EI_prev + transE[-1]
+    N_IR_new = N_IR_prev + transI
+
+    result = {
+        "S": S_new,
+        "I": I_new,
+        "R": R_new,
+        "N_EI": N_EI_new,
+        "N_IR": N_IR_new,
+    }
+    for i in range(nstageE):
+        result[f"E{i+1}"] = E_new[i]
+
+    return result
+```
+
+\framebreak
+```{python}
+#| echo: true
+def dmeas(Y_, X_, theta_, covars, t):
+    """
+    Measurement density: Negative binomial (or Poisson if k=0).
+    """
+    rho = theta_["rho"]
+    k = theta_["k"]
+    N_EI = jnp.maximum(X_["N_EI"], 0.0)
+    x = jnp.rint(Y_["cases"])
+    mu = rho * N_EI
+
+    def nb_ll(_):
+        """Negative binomial log-likelihood."""
+        r = 1.0 / k
+        return jax.lax.cond(
+            mu > 0.0,
+            lambda _: (
+                jsp.special.gammaln(x + r)
+                - jsp.special.gammaln(r)
+                - jsp.special.gammaln(x + 1.0)
+                + r * jnp.log(r / (r + mu))
+                + x * jnp.log(mu / (r + mu))
+            ),
+            lambda _: jnp.where(x == 0.0, 0.0, -jnp.inf),
+            operand=None,
+        )
+
+    def pois_ll(_):
+        """Poisson log-likelihood."""
+        return jax.lax.cond(
+            mu > 0.0,
+            lambda _: x * jnp.log(mu) - mu - jsp.special.gammaln(x + 1.0),
+            lambda _: jnp.where(x == 0.0, 0.0, -jnp.inf),
+            operand=None,
+        )
+
+    return jax.lax.cond(k > 0.0, nb_ll, pois_ll, operand=None)
+```
+
+\framebreak
+```{python}
+#| echo: true
+def rmeas(X_, theta_, key, covars, t):
+    """
+    Measurement simulator: Negative binomial (or Poisson if k=0).
+    """
+    rho = theta_["rho"]
+    k = theta_["k"]
+    N_EI = jnp.maximum(X_["N_EI"], 0.0)
+    mu = rho * N_EI
+
+    k1, k2 = jr.split(key, 2)
+
+    def nb_sample(_):
+        r = 1.0 / k
+        lam = jr.gamma(k1, a=r) * (mu / r)
+        return jr.poisson(k2, lam).astype(jnp.float32)
+
+    def pois_sample(_):
+        return jr.poisson(k1, mu).astype(jnp.float32)
+
+    y = jax.lax.cond(k > 0.0, nb_sample, pois_sample, operand=None)
+    return jnp.array([y])
+```
+
+\framebreak
+```{python}
+#| echo: true
+def build_ebola_model(country="Guinea"):
+    """Build a pomp object for the specified country."""
+    # Filter data for country
+    country_data = dat[dat['country'] == country].copy()
+    ys = country_data[['week', 'cases']].copy().astype(float).set_index('week')
+    t0 = float(ys.index.min()) - 1.0
+
+    # State names
+    statenames = (
+        ["S"] + 
+        [f"E{i+1}" for i in range(nstageE)] + 
+        ["I", "R", "N_EI", "N_IR"]
+    )
+
+    # Accumulator variables (N_EI and N_IR reset each observation interval)
+    accumvars = (3 + nstageE, 4 + nstageE)
+
+    # Load best parameters from profiles
+    profs = pd.read_csv("https://kingaa.github.io/sbied/ebola/ebola_profiles.csv")
+    best = profs[profs["country"] == country].copy()
+    best = best.loc[best["loglik"].idxmax()]
+    N = float(populations[country])
+
+    theta = {
+        "N": N,
+        "R0": float(best["R0"]),
+        "alpha": float(best["alpha"]),
+        "gamma": float(best["gamma"]),
+        "rho": float(best["rho"]),
+        "k": float(best["k"]),
+        "S_0": float(best["S_0"]),
+        "E_0": float(best["E_0"]),
+        "I_0": float(best["I_0"]),
+        "R_0": float(best["R_0"]),
+    }
+
+    pomp_obj = Pomp(
+        rinit=rinit,
+        rproc=rproc,
+        dmeas=dmeas,
+        rmeas=rmeas,
+        ys=ys,
+        theta=theta,
+        t0=t0,
+        dt=timestep,
+        ydim=1,
+        covars=None,
+        statenames=statenames,
+        accumvars=accumvars,
+    )
+
+    return pomp_obj, country_data
+
+# Build models for each country
+gin, dat_g = build_ebola_model("Guinea")
+sle, dat_s = build_ebola_model("SierraLeone")
+lbr, dat_l = build_ebola_model("Liberia")
+
+print("Models built for Guinea, Sierra Leone, and Liberia")
+print(f"\nGuinea MLE parameters:")
+for k, v in gin.theta[0].items():
+    print(f"  {k}: {v:.4f}" if isinstance(v, float) else f"  {k}: {v}")
+```
+
+## Parameter Estimates
+
+### Parameter Estimates {.allowframebreaks}
+
+- @King2015 estimated parameters for this model for each country.
+
+- A Latin hypercube design was used to initiate a large number of iterated filtering runs.
+
+- Profile likelihoods were computed for each country against the parameters $k$ (the measurement model overdispersion) and $\mathcal{R}_0$ (the basic reproductive ratio).
+
+- Full details are given [on the datadryad.org site](https://dx.doi.org/10.5061/dryad.r5f30).
+
+\framebreak
+```{python}
+#| echo: true
+# Display loaded MLE parameters for all countries
+profs = pd.read_csv("https://kingaa.github.io/sbied/ebola/ebola_profiles.csv")
+
+for country in ["Guinea", "SierraLeone", "Liberia"]:
+    best = profs[profs["country"] == country].copy()
+    best = best.loc[best["loglik"].idxmax()]
+    print(f"\n{country} MLE parameters:")
+    print(f"  R0: {best['R0']:.3f}")
+    print(f"  alpha: {best['alpha']:.3f}")
+    print(f"  gamma: {best['gamma']:.3f}")
+    print(f"  rho: {best['rho']:.3f}")
+    print(f"  k: {best['k']:.3f}")
+    print(f"  loglik: {best['loglik']:.2f}")
+```
+
+
+# Model Criticism
+
+## Diagnostics
+
+### Diagnostics or Model Criticism {.allowframebreaks}
+
+- Parameter estimation is the process of finding the parameters that are "best", in some sense, for a given model, from among the set of those that make sense for that model.
+
+- Model selection, likewise, aims at identifying the "best" model, in some sense, from among a set of candidates.
+
+- One can do both of these things more or less well, but no matter how carefully they are done, the best of a bad set of models is still bad.
+
+\framebreak
+
+- Let's investigate the model here, at its maximum-likelihood parameters, to see if we can identify problems.
+
+- The guiding principle in this is that, if the model is "good", then the data are a plausible realization of that model.
+
+- Therefore, we can compare the data directly against model simulations.
+
+- Moreover, we can quantify the agreement between simulations and data in any way we like.
+
+\framebreak
+
+- Any statistic, or set of statistics, that can be applied to the data can also be applied to simulations.
+
+- Shortcomings of the model should manifest themselves as discrepancies between the model-predicted distribution of such statistics and their value on the data.
+
+- **pypomp** provides tools to facilitate this process through simulation-based diagnostics.
+
+## Simulation for Diagnosis
+
+### Model Simulations {.allowframebreaks}
+```{python}
+#| echo: true
+# Simulate from the model at MLE
+key = jax.random.key(1234567)
+X_sims, Y_sims = gin.simulate(key=key, nsim=100)
+
+print(f"Simulated {100} trajectories")
+```
+
+\framebreak
+```{python}
+#| echo: true
+#| fig-width: 6
+#| fig-height: 4
+# Plot simulations vs data
+fig, ax = plt.subplots(figsize=(6, 4))
+
+# Plot simulations
+for i in range(min(20, 100)):
+    sim_data = Y_sims[Y_sims['sim'] == i]
+    ax.plot(sim_data['time'], sim_data['obs_0'], 
+            alpha=0.2, color='blue', linewidth=0.5)
+
+# Plot actual data
+ax.plot(dat_g['week'], dat_g['cases'], 
+        'k-', linewidth=2, label='Data')
+
+ax.set_xlabel('Week')
+ax.set_ylabel('Cases')
+ax.set_title('Model Simulations vs Data (Guinea)')
+ax.legend()
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+## Diagnostic Probes
+
+### Diagnostic Probes {.allowframebreaks}
+
+- Does the data look like it could have come from the model?
+  - The simulations appear to be growing a bit more quickly than the data.
+
+- Let's try to quantify this:
+  - First, we'll write a function that estimates the exponential growth rate by linear regression.
+  - Then, we'll apply it to the data and to simulations.
+
+\framebreak
+```{python}
+#| echo: true
+def growth_rate_probe(y):
+    """Estimate exponential growth rate from case data."""
+    y = np.array(y).flatten()
+    # Handle zeros by adding small constant
+    y_safe = np.maximum(y, 0.5)
+    log_y = np.log(y_safe)
+    
+    # Linear regression on log data
+    t = np.arange(len(y))
+    mask = ~np.isnan(log_y) & ~np.isinf(log_y)
+    if mask.sum() < 2:
+        return np.nan
+    
+    # Simple linear regression
+    t_m = t[mask]
+    y_m = log_y[mask]
+    slope = np.cov(t_m, y_m)[0, 1] / np.var(t_m)
+    return slope
+
+def residual_sd_probe(y):
+    """Compute SD of residuals from exponential trend."""
+    y = np.array(y).flatten()
+    y_safe = np.maximum(y, 0.5)
+    log_y = np.log(y_safe)
+    
+    t = np.arange(len(y))
+    mask = ~np.isnan(log_y) & ~np.isinf(log_y)
+    if mask.sum() < 2:
+        return np.nan
+    
+    t_m = t[mask]
+    y_m = log_y[mask]
+    slope = np.cov(t_m, y_m)[0, 1] / np.var(t_m)
+    intercept = np.mean(y_m) - slope * np.mean(t_m)
+    
+    fitted = slope * t_m + intercept
+    residuals = y_m - fitted
+    return np.std(residuals)
+```
+
+\framebreak
+```{python}
+#| echo: true
+#| fig-width: 5
+#| fig-height: 4
+# Apply probes to data and simulations
+guinea_cases = dat_g['cases'].values
+
+# Data probe values
+data_growth = growth_rate_probe(guinea_cases)
+data_sd = residual_sd_probe(guinea_cases)
+
+# Simulation probe values
+sim_growth = []
+sim_sd = []
+for i in range(100):
+    sim_data = Y_sims[Y_sims['sim'] == i]
+    cases = sim_data['obs_0'].values
+    sim_growth.append(growth_rate_probe(cases))
+    sim_sd.append(residual_sd_probe(cases))
+
+sim_growth = np.array(sim_growth)
+sim_sd = np.array(sim_sd)
+
+print(f"Data growth rate: {data_growth:.4f}")
+print(f"Simulation mean growth rate: {np.nanmean(sim_growth):.4f}")
+print(f"Simulation SD: {np.nanstd(sim_growth):.4f}")
+```
+
+\framebreak
+```{python}
+#| echo: true
+#| fig-width: 5
+#| fig-height: 4
+# Plot probe distributions
+fig, ax = plt.subplots(figsize=(5, 4))
+ax.hist(sim_growth[~np.isnan(sim_growth)], bins=20, 
+        alpha=0.7, label='Simulations')
+ax.axvline(data_growth, color='red', linewidth=2, 
+           linestyle='--', label='Data')
+ax.set_xlabel('Growth Rate')
+ax.set_ylabel('Frequency')
+ax.set_title('Growth Rate Probe')
+ax.legend()
+plt.tight_layout()
+plt.show()
+
+# P-value
+pval = np.mean(sim_growth <= data_growth)
+print(f"P-value (fraction <= data): {pval:.4f}")
+```
+
+\framebreak
+```{python}
+#| echo: true
+#| fig-width: 5
+#| fig-height: 4
+# Also check residual SD
+fig, ax = plt.subplots(figsize=(5, 4))
+ax.hist(sim_sd[~np.isnan(sim_sd)], bins=20, 
+        alpha=0.7, label='Simulations')
+ax.axvline(data_sd, color='red', linewidth=2, 
+           linestyle='--', label='Data')
+ax.set_xlabel('Residual SD')
+ax.set_ylabel('Frequency')
+ax.set_title('Residual SD Probe')
+ax.legend()
+plt.tight_layout()
+plt.show()
+
+pval_sd = np.mean(sim_sd <= data_sd)
+print(f"P-value for residual SD: {pval_sd:.4f}")
+```
+
+### Interpretation {.allowframebreaks}
+
+- Do these results bear out our suspicion that the model and data differ in terms of growth rate?
+
+- The simulations also appear to be more highly variable around the trend than do the data.
+
+- Let's also look more carefully at the distribution of values about the trend using additional probes.
+
+
+# Forecasting Using POMP Models
+
+## Sources of Uncertainty
+
+### Forecasting and Forecasting Uncertainty {.allowframebreaks}
+
+- To this point in the course, we've focused on using POMP models to answer scientific questions, i.e., to compare alternative hypothetical explanations for the data in hand.
+
+- Of course, we can also use them to make forecasts.
+
+\framebreak
+
+- A set of key issues surrounds quantifying the forecast uncertainty.
+
+- This arises from four sources:
+  1. measurement error
+  2. process noise
+  3. parametric uncertainty
+  4. structural uncertainty
+
+- Here, we'll explore how we can account for the first three of these in making forecasts for the Sierra Leone outbreak.
+
+## Forecasting Ebola: An Empirical Bayes Approach
+
+### Parameter Uncertainty {.allowframebreaks}
+
+We take an [*empirical Bayes*](https://en.wikipedia.org/wiki/Empirical_Bayes_method) approach.
+
+First, we set up a collection of parameter vectors in a neighborhood of the maximum likelihood estimate containing the region of high likelihood.
+```{python}
+#| echo: true
+# Generate parameter samples around MLE
+def sample_params_near_mle(base_theta, n_samples=50, scale=0.1):
+    """Sample parameters in neighborhood of MLE."""
+    params_list = []
+    for _ in range(n_samples):
+        params = base_theta.copy()
+        for key in ["R0", "rho", "k"]:
+            # Perturb on log scale
+            params[key] = base_theta[key] * np.exp(np.random.normal(0, scale))
+        params_list.append(params)
+    return params_list
+
+# Sample parameters for Sierra Leone
+np.random.seed(887851050)
+param_samples = sample_params_near_mle(sle.theta[0], 
+                                        n_samples=30, scale=0.15)
+print(f"Generated {len(param_samples)} parameter samples")
+```
+
+\framebreak
+```{python}
+#| echo: true
+#| fig-width: 5
+#| fig-height: 4
+# Visualize parameter distribution
+R0_vals = [p["R0"] for p in param_samples]
+rho_vals = [p["rho"] for p in param_samples]
+
+fig, axes = plt.subplots(1, 2, figsize=(8, 3))
+axes[0].hist(R0_vals, bins=15, alpha=0.7)
+axes[0].axvline(sle.theta[0]["R0"], color='r', 
+                linewidth=2, linestyle='--')
+axes[0].set_xlabel('R0')
+axes[0].set_title('R0 samples')
+
+axes[1].hist(rho_vals, bins=15, alpha=0.7)
+axes[1].axvline(sle.theta[0]["rho"], color='r', 
+                linewidth=2, linestyle='--')
+axes[1].set_xlabel('rho')
+axes[1].set_title('rho samples')
+
+plt.tight_layout()
+plt.show()
+```
+
+### Process Noise and Measurement Error {.allowframebreaks}
+
+Next, we carry out a particle filter at each parameter vector, which gives us estimates of both the likelihood and the filter distribution at that parameter value.
+```{python}
+#| echo: true
+# For each parameter set, run particle filter and extract final states
+# Then simulate forecasts
+
+def run_forecast(pomp_obj, params, n_particles=500, 
+                 forecast_weeks=12, seed=12345):
+    """Run particle filter and generate forecasts."""
+    # Update parameters
+    pomp_obj.theta = [params]
+    
+    # Run particle filter
+    key = jax.random.key(seed)
+    pomp_obj.pfilter(J=n_particles, key=key, reps=1, thresh=0)
+    
+    pf_result = pomp_obj.results_history[-1]
+    loglik = pf_result.logLiks.values.flatten()[0]
+    
+    # Simulate forecasts from final state
+    X_sims, Y_sims = pomp_obj.simulate(key=key, nsim=10)
+    
+    return loglik, Y_sims
+```
+
+\framebreak
+```{python}
+#| echo: true
+# Run forecasts for a subset of parameter samples
+forecast_results = []
+n_forecast = min(10, len(param_samples))  # Limit for demo
+
+for i, params in enumerate(param_samples[:n_forecast]):
+    loglik, sims = run_forecast(sle, params, n_particles=200, 
+                                seed=i * 1000)
+    forecast_results.append({
+        'params': params,
+        'loglik': loglik,
+        'sims': sims
+    })
+    print(f"Forecast {i+1}: loglik = {loglik:.2f}, R0 = {params['R0']:.3f}")
+```
+
+### Computing Forecast Quantiles {.allowframebreaks}
+
+We give these prediction distributions weights proportional to the estimated likelihoods of the parameter vectors.
+```{python}
+#| echo: true
+# Compute weights from log-likelihoods
+logliks = np.array([r['loglik'] for r in forecast_results])
+# Subtract max for numerical stability
+weights = np.exp(logliks - np.max(logliks))
+weights = weights / weights.sum()
+
+# Effective sample size
+ess = 1 / np.sum(weights**2)
+print(f"Effective sample size: {ess:.1f}")
+print(f"Weights range: [{weights.min():.4f}, {weights.max():.4f}]")
+```
+
+\framebreak
+```{python}
+#| echo: true
+#| fig-width: 6
+#| fig-height: 4
+# Combine forecasts with weights
+# Plot weighted forecast envelope
+
+fig, ax = plt.subplots(figsize=(6, 4))
+
+# Plot data
+ax.plot(dat_s['week'], dat_s['cases'], 'k-', 
+        linewidth=2, label='Data')
+
+# Plot weighted simulations (clip alpha to valid range)
+for i, result in enumerate(forecast_results):
+    sims = result['sims']
+    for j in range(min(5, 10)):
+        sim_data = sims[sims['sim'] == j]
+        # Clip alpha to [0, 1] range
+        alpha_val = np.clip(weights[i] * 3, 0.05, 1.0)
+        ax.plot(sim_data['time'], sim_data['obs_0'], 
+                alpha=alpha_val, color='blue', linewidth=0.5)
+
+ax.set_xlabel('Week')
+ax.set_ylabel('Cases')
+ax.set_title('Ebola Forecasts for Sierra Leone')
+ax.legend()
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+
+# Exercises
+
+## Exercise 1: The Sierra Leone Outbreak
+
+### Exercise 1: The Sierra Leone Outbreak
+
+Apply probes to investigate the extent to which the SEIR model above is an adequate description of the data from the Sierra Leone outbreak.
+
+- Have a look at the probes provided with **pypomp** (growth rate, residual SD, autocorrelation).
+- Try also to come up with some informative probes of your own.
+- Discuss the implications of your findings.
+
+## Exercise 2: Decomposing the Uncertainty
+
+### Exercise 2: Decomposing the Uncertainty
+
+As we have discussed, the uncertainty shown in the forecasts above has three sources: parameter uncertainty, process noise, and measurement error.
+
+Show how you can break the total uncertainty into these three components. Produce plots similar to that above showing each of the components.
+
+
+# Summary
+
+## Key Takeaways
+
+### Summary {.allowframebreaks}
+
+1. **POMP models** are well-suited for modeling emerging infectious disease outbreaks, providing a framework for both inference and forecasting.
+
+2. **Model criticism** through simulation-based diagnostics is essential. We compare data against model simulations using probe statistics.
+
+3. **Forecasting uncertainty** has multiple sources:
+   - Measurement error
+   - Process noise
+   - Parametric uncertainty
+   - Structural uncertainty
+
+4. **Empirical Bayes** approaches allow us to incorporate parameter uncertainty into forecasts by sampling from the high-likelihood region.
+
+
+# Acknowledgments and License
+
+### Acknowledgments {.allowframebreaks}
+
+- This lesson is prepared for the Simulation-based Inference for Epidemiological Dynamics module at the Summer Institute in Statistics and Modeling in Infectious Diseases (SISMID).
+
+- The materials build on previous versions of this course and related courses.
+
+- Licensed under the Creative Commons Attribution-NonCommercial license (CC BY-NC 4.0). Please share and remix non-commercially, mentioning its origin.
+
+
+# References
+
+::: {#refs}
+:::

@@ -1,14 +1,14 @@
 ---
 title: >
-  Lesson 2: Simulation of Stochastic Dynamic Models
+  Lesson 2: Simulation of Stochastic Dynamic Models
 author:
-  - Aaron A. King
-  - Edward L. Ionides
-  - Translated in pypomp by Kunyang He
+  - Aaron A. King
+  - Edward L. Ionides
+  - Translated in pypomp by Kunyang He
 
-shortauthor: "King & Ionides et al."   
-shorttitle: "Lesson 2"  
-date: "May 28, 2025"
+shortauthor: "King & Ionides et al."   
+shorttitle: "Lesson 2"  
+date: "December 23, 2025"
 
 bibliography: ../sbied.bib             
 
@@ -76,9 +76,9 @@ systems, especially for epidemiology.
    *rates* for the flows between compartments.
 3. We show how deterministic and stochastic versions of a compartmental model
    are derived and related.
-4. We introduce Euler’s method to simulate from dynamic models.
+4. We introduce Euler's method to simulate from dynamic models.
 5. We specify deterministic and stochastic compartmental models in
-   `pomp` using Euler‐method simulation.
+   `pypomp` using Euler‐method simulation.
 
 
 
@@ -86,9 +86,9 @@ systems, especially for epidemiology.
 
 ## Example: the SIR model  
 
-### A basic compartment model: The SIR model {.allowframebreaks}
+### A basic compartment model: The SIR model {.allowframebreaks}
 - We develop deterministic and stochastic representations of a
-  susceptible‑infected‑recovered (SIR) system, a fundamental class of models for disease transmission dynamics.
+  susceptible‑infected‑recovered (SIR) system, a fundamental class of models for disease transmission dynamics.
 - We set up  notation applicable to general compartment models \citep{Breto2009}. \framebreak \begin{center}
   \resizebox{0.65\textwidth}{!}{
     \Large
@@ -145,7 +145,7 @@ $$
 N_{SI}(t)
 $$  
 
-count the number of individuals who have transitioned from $S$ to $I$ by time $t$. We say that $N_{SI}(t)$ is a \myemph{counting process}. A similarly constructed process  
+count the number of individuals who have transitioned from $S$ to $I$ by time $t$. We say that $N_{SI}(t)$ is a \myemph{counting process}. A similarly constructed process  
 $$
 N_{IR}(t)
 $$  
@@ -218,7 +218,7 @@ $$
 
 ### Exercise
 
-What is the link between little $o$ notation and the derivative?  
+What is the link between little $o$ notation and the derivative?  
 Explain why  
 
 $$
@@ -248,7 +248,7 @@ What considerations might help you choose which of these notations to use?
 
 ### Euler's method for ordinary differential equations {.allowframebreaks}
 
-- Euler (1707 – 1783) wanted a numeric solution of an ordinary
+- Euler (1707 – 1783) wanted a numeric solution of an ordinary
   differential equation (ODE) $dx/dt = h(x)$ with an initial condition
   $x(0)$.  
 - He supposed this ODE has some true solution $x(t)$ which could not be worked out analytically. He wanted an approximation $\tilde{x}(t)$ of $x(t)$.  
@@ -290,14 +290,14 @@ What considerations might help you choose which of these notations to use?
 
 \framebreak
 
-- If our model fitting, model investigation, and final conclusions are all based on our numerical solution $\tilde x(t)$ (i.e. we are sticking entirely to simulation‑based methods) then we are most immediately concerned with how well $\tilde x(t)$ describes the system of interest. In that sense, $\tilde x(t)$ becomes more important than the original model $x(t)$.
+- If our model fitting, model investigation, and final conclusions are all based on our numerical solution $\tilde x(t)$ (i.e. we are sticking entirely to simulation‑based methods) then we are most immediately concerned with how well $\tilde x(t)$ describes the system of interest. In that sense, $\tilde x(t)$ becomes more important than the original model $x(t)$.
 
 
 
 ### Numerical solutions as scientific models
 
 - It is important that a scientist fully describe the numerical
-  model $\tilde x(t)$. Arguably, the main purpose of the original model $x(t)$ is to give a succinct description of how $\tilde x(t)$ was constructed.  
+  model $\tilde x(t)$. Arguably, the main purpose of the original model $x(t)$ is to give a succinct description of how $\tilde x(t)$ was constructed.  
 - All numerical methods are, ultimately, discretizations. Epidemi‑
   ologically, setting $\delta$ to be a day or an hour can be quite
   different from setting $\delta$ to be two weeks or a month. For
@@ -350,7 +350,7 @@ What considerations might help you choose which of these notations to use?
    $$
 
    where $\operatorname{Poisson}(\mu)$ is a Poisson random variable with
-   mean $\mu$ and  
+   mean $\mu$ and  
 
    $$
    \mu_{SI}\bigl(\tilde I(t)\bigr)=\beta\,\tilde I(t).
@@ -368,8 +368,8 @@ What considerations might help you choose which of these notations to use?
    \bigr],
    $$
 
-   where $\operatorname{Binomial}(n,p)$ has mean $np$ and
-   variance $np(1-p)$, with $p=\mu_{SI}\bigl(\tilde I(t)\bigr)\,\delta$.
+   where $\operatorname{Binomial}(n,p)$ has mean $np$ and
+   variance $np(1-p)$, with $p=\mu_{SI}\bigl(\tilde I(t)\bigr)\,\delta$.
 
 \framebreak  
 
@@ -422,7 +422,7 @@ Practically, it is often preferable to work with **(3)**.
 
 
 
-### Exercise · Euler's method vs Gillespie's algorithm
+### Exercise · Euler's method vs Gillespie's algorithm
 
 A widely used exact simulation method for continuous‑time Markov chains
 is [Gillespie's algorithm](https://en.wikipedia.org/wiki/Gillespie_algorithm).  
@@ -431,26 +431,24 @@ implementation of Gillespie's algorithm over an Euler solution?
 
 Numerically, Gillespie's algorithm is often approximated using
 [tau‑leaping](https://en.wikipedia.org/wiki/Tau-leaping) methods, which
-are closely related to Euler’s approach; in this context Euler’s method
+are closely related to Euler's approach; in this context Euler's method
 is sometimes called *tau‑leaping*.
 
-# Compartment models in \pkg{pomp}
+# Compartment models in \pkg{pypomp}
 
 ## A basic pomp model for measles
 
 ### The Consett measles outbreak {.allowframebreaks}
 
-As an example that we can probe in some depth, let's look at an outbreak of measles that occurred in the small town of Consett in England in 1948. The town had a population of 38 820, with 737 births over the course of the year.
+As an example that we can probe in some depth, let's look at an outbreak of measles that occurred in the small town of Consett in England in 1948. The town had a population of 38 820, with 737 births over the course of the year.
 
 ```{python}
 #| echo: false
 import jax.numpy as jnp
-import jax.random
-import jax.scipy as jsp
+import jax
 import pandas as pd
 import numpy as np
 import pypomp as pp
-from functools import partial
 import matplotlib.pyplot as plt
 ```
 
@@ -459,7 +457,6 @@ import matplotlib.pyplot as plt
 We download the data and examine them:
 
 ```{python data}
-
 #| fig-cap: "Consett measles outbreak (1948)"
 #| fig-width: 3
 #| fig-height: 2
@@ -536,9 +533,9 @@ fig.tight_layout()
 - We will model the outbreak using the simple **SIR** model.  
 - Tasks: (i) estimate the parameters of the SIR; (ii) decide whether SIR
   adequately describes these data.  
-- The rate at which individuals move from S to I is the *force of
+- The rate at which individuals move from S to I is the *force of
   infection*
-  $\mu_{SI}= \beta\,I/N$, while that at which individuals leave I for R
+  $\mu_{SI}= \beta\,I/N$, while that at which individuals leave I for R
   is $\mu_{IR}$.
 
 
@@ -546,9 +543,9 @@ fig.tight_layout()
 ### Framing the SIR as a POMP model
 
 - **Latent state variables**: numbers of individuals
-  $S(t)$, $I(t)$, $R(t)$ in the S, I, R compartments.  
+  $S(t)$, $I(t)$, $R(t)$ in the S, I, R compartments.  
 - Treat population size $N=S+I+R$ as fixed at the known value
-  38 000.  
+  38 000.  
 - The actual numbers moving between compartments over any interval are
   modeled as **stochastic processes**.  
 - We assume the stochasticity is **purely demographic**: every
@@ -558,12 +555,12 @@ fig.tight_layout()
 
 
 
-### Implementing the SIR model in \pkg{pomp} {.allowframebreaks}
+### Implementing the SIR model in \pkg{pypomp} {.allowframebreaks}
 
-- To implement the model in \pkg{pomp}, we first need a **stochastic
+- To implement the model in \pkg{pypomp}, we first need a **stochastic
   simulator** for the latent process.  
-- Following method 3 (binomial with exponential transition), the number
-  moving S → I over $\Delta t$ is  
+- Following method 3 (binomial with exponential transition), the number
+  moving S → I over $\Delta t$ is  
 
   $$
   \Delta N_{SI}\sim
@@ -572,7 +569,7 @@ fig.tight_layout()
     \Bigr),
   $$
 
-  and the number moving I → R is  
+  and the number moving I → R is  
 
   $$
   \Delta N_{IR}\sim
@@ -583,20 +580,28 @@ fig.tight_layout()
 
 \framebreak
 
+In \pkg{pypomp}, model components are defined as Python functions with specific
+argument signatures. The initial state simulator `rinit` must have arguments
+`theta_`, `key`, `covars`, and `t0` (in that order), and return a dictionary
+mapping state names to their initial values:
+
 ```{python rinit}
 #| echo: true
-@partial(pp.RInit, t0=0.0)
-def rinit(theta_, key, covars=None, t0=None):
-    Beta, mu_IR, N, eta, rho, k = unpack_params(theta_)
+def rinit(theta_, key, covars, t0):
+    """Initial state simulator for SIR model."""
+    N = theta_["N"]
+    eta = theta_["eta"]
     S0 = jnp.round(N * eta)
     I0 = 1.0
     R0 = jnp.round(N * (1 - eta)) - 1.0   
-    H0 = 0.0                             
-    return jnp.array([S0, I0, R0, H0])
+    H0 = 0.0  # Accumulator for true incidence                            
+    return {"S": S0, "I": I0, "R": R0, "H": H0}
 ```
 
+\framebreak
+
 - Now assume the case reports result from a process by which new
-  infections are diagnosed and reported with probability $\rho$, which
+  infections are diagnosed and reported with probability $\rho$, which
   we can think of as the probability that a child's parents take the
   child to the doctor, who recognises measles and reports it to the
   authorities.
@@ -605,34 +610,48 @@ def rinit(theta_, key, covars=None, t0=None):
   measles tend to be confined to bed. Therefore diagnosed cases have,
   presumably, a much lower transmission rate. Accordingly, let's treat
   each week's \code{reports} as being related to the number of
-  individuals who have moved from $I$ to $R$ over the course of that
+  individuals who have moved from $I$ to $R$ over the course of that
   week.
 
 - We need a variable to track these **daily** counts. We modify our
-  rprocess function above, adding a variable $H$ to tally the true
-  incidence.
+  model to add a variable $H$ to tally the true incidence.
+
+\framebreak
+
+The process simulator `rproc` must have arguments `X_`, `theta_`, `key`, 
+`covars`, `t`, and `dt` (in that order), and return a dictionary of the 
+updated state:
 
 ```{python rproc}
 #| echo: true
-@partial(pp.RProc, step_type="fixedstep", nstep=7, accumvars=(3,))
-def rproc(X_, theta_, key, covars=None, t=None, dt=None):
-    Beta, mu_IR, N, eta, rho, k = unpack_params(theta_)
-    S, I, R, H = X_
+def rproc(X_, theta_, key, covars, t, dt):
+    """Process simulator for SIR model with Euler-binomial scheme."""
+    # Unpack state
+    S, I, R, H = X_["S"], X_["I"], X_["R"], X_["H"]
+    # Unpack parameters
+    Beta = theta_["Beta"]
+    mu_IR = theta_["mu_IR"]
+    N = theta_["N"]
 
+    # Transition probabilities (exponential form)
     p_SI = 1.0 - jnp.exp(-Beta * I / N * dt)
     p_IR = 1.0 - jnp.exp(-mu_IR * dt)
 
+    # Draw transitions
     key_SI, key_IR = jax.random.split(key)
-    dN_SI = jax.random.binomial(key_SI, n=jnp.round(S).astype(jnp.int32), p=p_SI)
-    dN_IR = jax.random.binomial(key_IR, n=jnp.round(I).astype(jnp.int32), p=p_IR)
+    dN_SI = jax.random.binomial(key_SI, n=S.astype(jnp.int32), p=p_SI)
+    dN_IR = jax.random.binomial(key_IR, n=I.astype(jnp.int32), p=p_IR)
 
+    # Update state
     S_new = S - dN_SI
     I_new = I + dN_SI - dN_IR
     R_new = R + dN_IR
-    H_new = H + dN_IR           
+    H_new = H + dN_IR  # Accumulate incidence           
 
-    return jnp.array([S_new, I_new, R_new, H_new])
+    return {"S": S_new, "I": I_new, "R": R_new, "H": H_new}
 ```
+
+\framebreak
 
 - Now, we'll model the data by a negative‑binomial variable  
 
@@ -640,82 +659,103 @@ def rproc(X_, theta_, key, covars=None, t=None, dt=None):
   \mathrm{reports}_t \sim \operatorname{NegBin}\bigl(\rho\,H(t),\,k\bigr),
   $$
 
-  with mean $\rho\,H(t)$ and variance $\rho\,H(t)+\bigl(\rho\,H(t)\bigr)^2/k$. The binomial distribution does not have a separate variance parameter.
+  with mean $\rho\,H(t)$ and variance $\rho\,H(t)+\bigl(\rho\,H(t)\bigr)^2/k$. The binomial distribution does not have a separate variance parameter.
 
-- Now, to include the observations in the model, we must write either a \code{dmeasure} or an \code{rmeasure} component, or both.
+- Now, to include the observations in the model, we must write either a \code{dmeas} or an \code{rmeas} component, or both.
+
+\framebreak
+
+First, we define helper functions for the negative binomial distribution:
 
 ```{python negativebinomial}
 #| echo: true
 def nbinom_logpmf(x, k, mu):
-    """Log PMF of NB(k, mu) that is robust when mu == 0."""
+    """Log PMF of NegBin(k, mu) that is robust when mu == 0."""
     x = jnp.asarray(x)
     k = jnp.asarray(k)
     mu = jnp.asarray(mu)
-    # handle mu == 0 separately
+    # Handle mu == 0 separately
     logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
-    safe_mu = jnp.where(mu == 0.0, 1.0, mu)        # dummy value, ignored
-    core = (jax.scipy.special.gammaln(k + x) - jax.scipy.special.gammaln(k)
+    safe_mu = jnp.where(mu == 0.0, 1.0, mu)  # Dummy value, ignored
+    core = (jax.scipy.special.gammaln(k + x) 
+            - jax.scipy.special.gammaln(k)
             - jax.scipy.special.gammaln(x + 1)
             + k * jnp.log(k / (k + safe_mu))
             + x * jnp.log(safe_mu / (k + safe_mu)))
     return jnp.where(mu == 0.0, logp_zero, core)
 
 def rnbinom(key, k, mu):
+    """Sample from NegBin(k, mu) via Gamma-Poisson mixture."""
     key_g, key_p = jax.random.split(key)
     lam = jax.random.gamma(key_g, k) * (mu / k)
     return jax.random.poisson(key_p, lam)
 ```
 
+\framebreak
 
+The measurement density `dmeas` must have arguments `Y_`, `X_`, `theta_`, 
+`covars`, and `t` (in that order), and return a scalar log-likelihood:
 
-```{python dmeasurermeasure}
+```{python dmeas}
 #| echo: true
-@pp.DMeas
-def dmeas(Y_, X_, theta_, covars=None, t=None):
-    Beta, mu_IR, N, eta, rho, k = unpack_params(theta_)
-    H = X_[3]
+def dmeas(Y_, X_, theta_, covars, t):
+    """Measurement density: log P(reports | H, rho, k)."""
+    rho = theta_["rho"]
+    k = theta_["k"]
+    H = X_["H"]
     mu = rho * H
-    return nbinom_logpmf(Y_[0], k, mu)
+    return nbinom_logpmf(Y_["reports"], k, mu)
+```
 
-@partial(pp.RMeas, ydim=1)
-def rmeas(X_, theta_, key, covars=None, t=None):
-    Beta, mu_IR, N, eta, rho, k = unpack_params(theta_)
-    H = X_[3]
+The measurement simulator `rmeas` must have arguments `X_`, `theta_`, `key`,
+`covars`, and `t` (in that order), and return a JAX array of observations:
+
+```{python rmeas}
+#| echo: true
+def rmeas(X_, theta_, key, covars, t):
+    """Measurement simulator: sample reports ~ NegBin(k, rho*H)."""
+    rho = theta_["rho"]
+    k = theta_["k"]
+    H = X_["H"]
     mu = rho * H
     reports = rnbinom(key, k, mu)
     return jnp.array([reports])
 ```
 
+\framebreak
 
-- A call to pomp replaces the basic model components with these, much
-faster, implementations:
-
+A call to `Pomp` assembles the model components together with the data:
 
 ```{python}
 #| echo: true
-def unpack_params(theta_vec):
-    Beta   = theta_vec[0]  
-    mu_IR  = theta_vec[1]  
-    N      = theta_vec[2]  
-    eta    = theta_vec[3]  
-    rho    = theta_vec[4]  
-    k      = theta_vec[5] 
-    return Beta, mu_IR, N, eta, rho, k
+# Define initial parameters
+theta = {
+    "Beta": 7.5,     # Transmission rate (per week)
+    "mu_IR": 0.5,    # Recovery rate (per week)
+    "N": 38000.0,    # Population size
+    "eta": 0.03,     # Initial susceptible fraction
+    "rho": 0.5,      # Reporting probability
+    "k": 10.0        # Overdispersion parameter
+}
 
-def pack_params(Beta, mu_IR, N, eta, rho, k):
-    return jnp.array([Beta, mu_IR, N, eta, rho, k])
+# State variable names (H is an accumulator variable)
+statenames = ["S", "I", "R", "H"]
 
-theta_guess = {"Beta": 7.5, "mu_IR": 0.5, "N": 38000,
-"eta": 0.03, "rho": 0.5, "k": 10.0}
-param_bounds = {k: (v * 0.9, v * 1.1) for k, v in theta_guess.items()}
-key = jax.random.key(2)
-key, subkey = jax.random.split(key)
-theta_list = pp.Pomp.sample_params(param_bounds, n=5, key=subkey)
-
+# Create the POMP object
 sir_obj = pp.Pomp(
-    rinit=rinit,rproc=rproc,dmeas=dmeas,
-    rmeas=rmeas,ys=ys,theta=theta_list,
-    covars=None,)
+    rinit=rinit,
+    rproc=rproc,
+    dmeas=dmeas,
+    rmeas=rmeas,
+    ys=ys,
+    theta=theta,
+    statenames=statenames,
+    t0=0.0,
+    nstep=7,              # 7 sub-steps per week (daily steps)
+    accumvars=(3,),       # Index of H in statenames (reset each week)
+    ydim=1,               # Dimension of observation vector
+    covars=None
+)
 ```
 
 
@@ -734,7 +774,7 @@ sir_obj = pp.Pomp(
   $\mathcal R_0 \approx \tfrac{L}{A}$, where $L$ is host lifespan and
   $A$ is mean age of infection.  
   Age‑stratified serology indicates $A \approx 4$–$5\;\text{yr}$
-  \citep{Anderson1991}. Assuming $L \approx 60$–$70\;\text{yr}$ gives
+  \citep{Anderson1991}. Assuming $L \approx 60$–$70\;\text{yr}$ gives
   $\mathcal R_0 \approx 15$.
 
 - The final‑size equation for an SIR epidemic is  
@@ -743,7 +783,7 @@ sir_obj = pp.Pomp(
   \mathcal R_0 = -\frac{\log(1-f)}{f},
   $$
 
-  where $f$ is the fraction of initial susceptibles who ultimately
+  where $f$ is the fraction of initial susceptibles who ultimately
   become infected. For $\mathcal R_0>5$, this implies $f>0.99$.
 
 \framebreak
@@ -765,38 +805,37 @@ beta           = 0.5 * 15
 
 ```
 
-- The data contain `{python} total_reports` reported infections. Assuming a 50 % reporting rate, we have $S_0 \approx `{python} S0`$, so that $\displaystyle \eta = \frac{S_0}{N} \approx `{python} eta_round`$.
+- The data contain `{python} total_reports` reported infections. Assuming a 50 % reporting rate, we have $S_0 \approx `{python} S0`$, so that $\displaystyle \eta = \frac{S_0}{N} \approx `{python} eta_round`$.
 
-- If the infectious period is roughly 2 weeks, then $1/\mu_{IR} \approx 2\ \text{wk}$ and $\beta = \mu_{IR}\,\mathcal R_0 \approx `{python} beta`\ \text{wk}^{-1}$.
+- If the infectious period is roughly 2 weeks, then $1/\mu_{IR} \approx 2\ \text{wk}$ and $\beta = \mu_{IR}\,\mathcal R_0 \approx `{python} beta`\ \text{wk}^{-1}$.
 
 \framebreak
 
-- Let’s now simulate the model with these parameter values.
+- Let's now simulate the model with these parameter values.
 
 ```{python}
 #| echo: true
 n_sims = 20
-keys = jax.random.split(key, n_sims + 1)  
-sim_keys = keys[1:]
+key = jax.random.key(42)
 
-simulated_reports = []
-for k in sim_keys:
-    sim_out = sir_obj.simulate(key=k)             
-    rep = np.asarray(sim_out[0]["Y_sims"])[:, 0, 0]  
-    simulated_reports.append(rep)
+# Run simulations
+X_sims, Y_sims = sir_obj.simulate(key=key, nsim=n_sims)
 
-sim_df = pd.DataFrame(
-    np.column_stack(simulated_reports),
-    index=ys.index,
-    columns=[f"sim_{i+1}" for i in range(n_sims)]
+# Extract simulated reports
+# Y_sims is a DataFrame with columns: replicate, sim, time, obs_0
+sim_df = Y_sims.pivot_table(
+    index="time", 
+    columns="sim", 
+    values="obs_0"
 )
+sim_df.columns = [f"sim_{i+1}" for i in range(n_sims)]
 ```
 
 ```{python}
 #| fig-cap: "SIR simulation vs. 1948 Consett measles data"
 fig, ax = plt.subplots(figsize=(3.5, 2.5))
-ys["reports"].plot(ax=ax, lw=0.8, color="black", label="observed")
-sim_df.plot(ax=ax, lw=0.8, alpha=0.6, legend=False)
+ys["reports"].plot(ax=ax, lw=1.5, color="black", label="observed")
+sim_df.plot(ax=ax, lw=0.6, alpha=0.5, legend=False, color="red")
 ax.set(
     xlabel="Week of 1948",
     ylabel="Reported measles cases",
@@ -807,3 +846,48 @@ plt.tight_layout()
 plt.show()
 ```
 
+\framebreak
+
+The data are in black; the 20 simulations are shown in red.
+Clearly, this leaves something to be desired. In the exercises, you'll
+see if this model can do better.
+
+## Exercises
+
+### Exercise 2.3. Explore the SIR model.
+
+Fiddle with the parameters to see if you can't find a model for which the
+data are a more plausible realization.
+
+### Exercise 2.4. The SEIR model
+
+Below is a diagram of the so-called SEIR model. This differs from the SIR
+model in that infected individuals must pass a period of latency before
+becoming infectious.
+
+\begin{center}
+  \resizebox{0.75\textwidth}{!}{
+    \Large
+    \setlength{\unitlength}{5pt}
+    \begin{picture}(60,12)(-5,-4)
+      \thicklines
+      \put(0,0){\framebox(6,6){S}}
+      \put(16,0){\framebox(6,6){E}}
+      \put(32,0){\framebox(6,6){I}}
+      \put(48,0){\framebox(6,6){R}}
+      \put(6,3){\vector(1,0){10}}
+      \put(9,0){$\mu_{SE}^{}$}
+      \put(22,3){\vector(1,0){10}}
+      \put(25,0){$\mu_{EI}^{}$}
+      \put(38,3){\vector(1,0){10}}
+      \put(41,0){$\mu_{IR}^{}$}
+    \end{picture}
+  }
+\end{center}
+
+Modify the codes above to construct a `Pomp` object containing the Consett
+measles data and an SEIR model. Perform simulations as above and
+adjust parameters to get a sense of whether improvement is possible by
+including a latent period.
+
+# References

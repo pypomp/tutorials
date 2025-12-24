@@ -1,0 +1,836 @@
+---
+title: >
+  Lesson 6: Exercises - Polio Case Study
+author:
+  - Aaron A. King
+  - Edward L. Ionides
+  - Translated in pypomp by Kunyang He
+
+shortauthor: "King & Ionides et al."   
+shorttitle: "Lesson 6 Exercises"  
+date: "December 24, 2025"
+
+bibliography: ../sbied.bib             
+
+format:
+  beamer:
+    code-block-font-size: \tiny                    
+    theme: AnnArbor
+    colortheme: default
+    fontsize: 11pt
+    cite-method: natbib
+    biblio-style: apalike
+    toc: true  
+    slide-level: 3
+    highlight-style: tango  
+  
+  pdf:
+    documentclass: article          
+    fontsize: 11pt
+    cite-method: natbib           
+    biblio-style: apalike
+    toc: true
+    geometry: margin=1in
+    
+jupyter: python3 
+
+
+header-includes: |
+  \providecommand{\AtBeginSection}[1]{}
+  \providecommand{\AtBeginSubsection}[1]{}
+  \providecommand{\framebreak}{}
+
+  \usepackage{fvextra}  
+  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{
+    commandchars=\\\{\}, 
+    fontsize=\scriptsize 
+  }
+  \AtBeginSection{}
+  \AtBeginSubsection{}
+  \usepackage{amsmath,amssymb,amsfonts}
+  \usepackage{graphicx}
+  \usepackage{hyperref}
+  \usepackage{xcolor}
+
+  \newcommand{\myemph}[1]{\emph{#1}}
+  \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
+  \newcommand{\pkg}[1]{\texttt{#1}}
+  \newcommand{\code}[1]{\texttt{#1}}
+  \newcommand{\Rlanguage}{\textsf{R}}
+  \newcommand{\Rzero}{\mathcal{R}_{0}}
+  \newcommand{\pr}{\mathbb{P}}
+  \newcommand{\E}{\mathbb{E}}
+  \newcommand{\lik}{\mathcal{L}}
+  \newcommand{\loglik}{\ell}
+  \newcommand{\equals}{=}
+  \newcommand{\dist}[2]{\operatorname{#1}\!\bigl(#2\bigr)}
+  \newcommand{\myexercise}{\paragraph{Exercise}}
+---
+
+This document contains worked solutions to the exercises from Lesson 6 on the
+polio case study, implemented using **pypomp**.
+
+# Setup
+
+## Import Packages
+
+```{python}
+#| echo: true
+#| output: false
+import jax
+import jax.numpy as jnp
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+from scipy.stats import nbinom, chi2, qmc
+from copy import deepcopy
+
+from pypomp import Pomp, RWSigma, ParTrans
+from pypomp.util import logmeanexp, logmeanexp_se
+
+np.random.seed(594709947)
+```
+
+## Load Data and Construct Model {.allowframebreaks}
+
+```{python}
+#| echo: true
+# Load the data
+data = pd.read_csv("polio_wisconsin.csv", comment='#')
+
+# Constants
+K = 6
+t0 = 1932 + 4/12
+
+# State variable names
+statenames = ["SB1", "SB2", "SB3", "SB4", "SB5", "SB6", "IB", "SO", "IO"]
+
+print(f"Data loaded: {len(data)} rows")
+print(f"Time range: {data['time'].min():.2f} to {data['time'].max():.2f}")
+```
+
+\framebreak
+
+```{python}
+#| echo: true
+# Load covariates from R-generated file (covar1.csv)
+# This ensures consistency with the R/pomp analysis
+cov_raw = pd.read_csv("covar1.csv")
+
+# Transpose: variable names in first column, times as column headers
+first_col = cov_raw.columns[0]
+covars = (cov_raw.rename(columns={first_col: "var"})
+                 .set_index("var")
+                 .T)
+
+covars.index = covars.index.astype(float)
+covars.index.name = "time"
+covars = covars.sort_index()
+
+print(f"Covariate columns: {list(covars.columns)}")
+print(f"Time range: {covars.index[0]:.4f} to {covars.index[-1]:.4f}")
+```
+
+\framebreak
+
+```{python}
+#| echo: true
+# Fixed parameters from covariate table
+def get_initial_births(covars_df, t0_val):
+    idx0 = np.argmin(np.abs(covars_df.index.values - t0_val))
+    B_series = covars_df["B"].values
+    return [float(B_series[max(0, idx0 - k)]) for k in range(6)]
+
+SB0_list = get_initial_births(covars, t0)
+
+fixed_params = {
+    'delta': 1/60,
+    'SB1_0': SB0_list[0], 'SB2_0': SB0_list[1],
+    'SB3_0': SB0_list[2], 'SB4_0': SB0_list[3],
+    'SB5_0': SB0_list[4], 'SB6_0': SB0_list[5],
+}
+
+# Starting parameters
+params_guess = {
+    'b1': 3.0, 'b2': 0.0, 'b3': 1.5, 'b4': 6.0, 'b5': 5.0, 'b6': 3.0,
+    'psi': 0.002, 'rho': 0.01, 'tau': 0.001,
+    'sigma_dem': 0.04, 'sigma_env': 0.5,
+    'SO_0': 0.12, 'IO_0': 0.001,
+    **fixed_params
+}
+```
+
+\framebreak
+
+```{python}
+#| echo: true
+# Model functions
+def rproc(X_, theta_, key, covars, t, dt):
+    """Process model for polio transmission (Martinez-Bakker et al. 2015)."""
+    b1, b2, b3, b4, b5, b6 = theta_['b1'], theta_['b2'], theta_['b3'], \
+                              theta_['b4'], theta_['b5'], theta_['b6']
+    psi, sigma_dem, sigma_env, delta = theta_['psi'], theta_['sigma_dem'], \
+                                        theta_['sigma_env'], theta_['delta']
+    
+    SB1, SB2, SB3, SB4, SB5, SB6 = X_['SB1'], X_['SB2'], X_['SB3'], \
+                                    X_['SB4'], X_['SB5'], X_['SB6']
+    IB, SO, IO = X_['IB'], X_['SO'], X_['IO']
+    
+    B, P = covars['B'], covars['P']
+    xi1, xi2, xi3 = covars['xi1'], covars['xi2'], covars['xi3']
+    xi4, xi5, xi6 = covars['xi4'], covars['xi5'], covars['xi6']
+    
+    beta = jnp.exp(b1*xi1 + b2*xi2 + b3*xi3 + b4*xi4 + b5*xi5 + b6*xi6)
+    lambda_bar = beta * (IO + IB) / P + psi
+    var_epsilon = sigma_dem**2 / jnp.maximum(lambda_bar, 1e-12) + sigma_env**2
+    
+    key, subkey = jax.random.split(key)
+    epsilon = jax.lax.cond(var_epsilon < 1e-6, lambda _: 1.0,
+        lambda _: jax.random.gamma(subkey, 1.0/var_epsilon) * var_epsilon, operand=None)
+    
+    lambda_n = lambda_bar * epsilon
+    p = jnp.exp(-(delta + lambda_n) / 12.0)
+    q = (1.0 - p) * lambda_n / (delta + lambda_n)
+    
+    new_SB1 = B
+    new_SB2 = new_SB1 * p
+    new_SB3 = new_SB2 * p
+    new_SB4 = new_SB3 * p
+    new_SB5 = new_SB4 * p
+    new_SB6 = new_SB5 * p
+    new_SO = (new_SB6 + SO) * p
+    new_IB = (new_SB1 + new_SB2 + new_SB3 + new_SB4 + new_SB5 + new_SB6) * q
+    new_IO = new_SO * q
+    
+    return {
+        'SB1': new_SB1, 'SB2': new_SB2, 'SB3': new_SB3,
+        'SB4': new_SB4, 'SB5': new_SB5, 'SB6': new_SB6,
+        'IB': new_IB, 'SO': new_SO, 'IO': new_IO
+    }
+
+def dmeas(Y_, X_, theta_, covars, t):
+    """
+    Measurement density: discretized truncated normal with numerical stability.
+    """
+    rho = theta_['rho']
+    tau = theta_['tau']
+    IO = X_['IO']
+    cases = Y_['cases']
+    
+    mu = rho * IO
+    # Add base variance (1.0) to prevent distribution from being too narrow
+    sd = jnp.sqrt((tau * IO)**2 + jnp.maximum(mu, 0.0) + 1.0)
+    
+    def _cdf(z):
+        return 0.5 * (1.0 + jax.scipy.special.erf((z - mu) / (jnp.sqrt(2.0) * sd)))
+    
+    tol = 1e-18
+    prob = jax.lax.cond(
+        cases > 0.0,
+        lambda _: _cdf(cases + 0.5) - _cdf(cases - 0.5) + tol,
+        lambda _: _cdf(0.5) + tol,
+        operand=None
+    )
+    
+    # Ensure probability has a lower bound to prevent log(0)
+    prob = jnp.maximum(prob, 1e-300)
+    
+    return jnp.log(prob)
+
+def rmeas(X_, theta_, key, covars, t):
+    """Measurement simulator. Returns JAX array with shape (ydim,)."""
+    rho, tau, IO = theta_['rho'], theta_['tau'], X_['IO']
+    mu = rho * IO
+    sd = jnp.sqrt((tau * IO)**2 + jnp.maximum(mu, 0.0))
+    z = jax.random.normal(key)
+    cases_cont = mu + sd * z
+    cases = jnp.where(cases_cont > 0.0, jnp.round(cases_cont), 0.0)
+    return jnp.array([cases])
+
+def rinit(theta_, key, covars, t0):
+    """Initial state distribution."""
+    P = covars['P']
+    return {
+        'SB1': theta_['SB1_0'], 'SB2': theta_['SB2_0'], 'SB3': theta_['SB3_0'],
+        'SB4': theta_['SB4_0'], 'SB5': theta_['SB5_0'], 'SB6': theta_['SB6_0'],
+        'IB': 0.0, 'IO': theta_['IO_0'] * P, 'SO': theta_['SO_0'] * P
+    }
+```
+
+\framebreak
+
+```{python}
+#| echo: true
+# Create Pomp object
+data_filtered = data[(data['time'] > t0 + 0.01) & (data['time'] < 1953 + 1/12 + 0.01)].copy()
+ys = data_filtered[['cases']].copy()
+ys.index = data_filtered['time']
+ys = ys.loc[ys.index.intersection(covars.index)]
+
+polio = Pomp(
+    ys=ys,
+    theta=params_guess,
+    rinit=rinit,
+    rproc=rproc,
+    dmeas=dmeas,
+    rmeas=rmeas,
+    covars=covars,
+    statenames=statenames,
+    t0=t0,
+    nstep=1,
+    ydim=1
+)
+
+print(f"Pomp object created with {len(ys)} observations")
+```
+
+\framebreak
+
+```{python}
+#| echo: true
+# Set run level
+run_level = 2
+
+Np = [100, 1000, 5000][run_level - 1]
+Nmif = [10, 100, 200][run_level - 1]
+Nreps_eval = [2, 10, 20][run_level - 1]
+Nreps_local = [10, 20, 40][run_level - 1]
+Nsim = [50, 100, 500][run_level - 1]
+
+print(f"Run level: {run_level}")
+print(f"Np={Np}, Nmif={Nmif}, Nreps_eval={Nreps_eval}")
+```
+
+
+# Exercise 1: Initial Values
+
+## Problem Statement
+
+### Exercise 1: Initial Values {.allowframebreaks}
+
+When carrying out parameter estimation for dynamic systems, we need to specify beginning values for both the dynamic system (in the state space) and the parameters (in the parameter space). 
+
+**Tasks:**
+
+1. Discuss issues in specifying and inferring initial conditions, with particular reference to this polio example.
+
+2. Suggest a possible improvement in the treatment of initial conditions here, code it up and make some preliminary assessment of its effectiveness.
+
+3. How will you decide if it is a substantial improvement?
+
+## Solution
+
+### Discussion of Initial Conditions {.allowframebreaks}
+
+```{python}
+#| echo: true
+print("Current initial condition approach:")
+print("")
+print("1. SB1_0 through SB6_0: Fixed from birth data (covar1.csv)")
+print("   - Assumed known from vital statistics")
+print("   - Reasonable since births are well-recorded")
+print("")
+print("2. SO_0, IO_0: Estimated as fractions of population P")
+print("   - SO_0 ≈ 0.12 means 12% susceptible")
+print("   - IO_0 ≈ 0.001 means 0.1% infected")
+print("")
+print("Issues:")
+print("- SO_0 and IO_0 may be poorly identified")
+print("- Initial conditions far from t0 may not matter much")
+print("- Correlation with other parameters (e.g., rho)")
+```
+
+### Improvement: Estimate More Initial States {.allowframebreaks}
+
+```{python}
+#| echo: true
+# Alternative: Also estimate initial baby susceptibles as fractions
+def rinit_v2(theta_, key, covars, t0):
+    """
+    Modified rinit: SB values scaled by a survival fraction.
+    """
+    P = covars['P']
+    s_factor = theta_.get('s_init', 1.0)
+    
+    return {
+        'SB1': theta_['SB1_0'] * s_factor,
+        'SB2': theta_['SB2_0'] * s_factor,
+        'SB3': theta_['SB3_0'] * s_factor,
+        'SB4': theta_['SB4_0'] * s_factor,
+        'SB5': theta_['SB5_0'] * s_factor,
+        'SB6': theta_['SB6_0'] * s_factor,
+        'IB': 0.0,
+        'IO': theta_['IO_0'] * P,
+        'SO': theta_['SO_0'] * P
+    }
+
+print("Alternative: Add 's_init' parameter to scale baby susceptibles")
+```
+
+### Comparing Initial Condition Treatments {.allowframebreaks}
+
+```{python}
+#| echo: true
+print("How to assess if modification is substantial:")
+print("")
+print("1. Same number of parameters → Direct likelihood comparison")
+print("   - If modification gives same number of params,")
+print("     compare maximized log-likelihoods directly")
+print("")
+print("2. Different number of parameters → Use AIC")
+print("   - AIC = -2 * logLik + 2 * k")
+print("   - Lower AIC is better")
+print("   - Penalizes additional parameters")
+print("")
+print("3. Profile likelihood")
+print("   - Check if new params are identifiable")
+print("   - Examine confidence intervals")
+```
+
+
+# Exercise 2: Starting Values
+
+## Problem Statement
+
+### Exercise 2: Randomized Starting Values {.allowframebreaks}
+
+Think about possible improvements on the assignment of randomized starting values for the parameter estimation searches.
+
+**Tasks:**
+
+1. Propose and try out a modification of the procedure.
+
+2. Does it make a difference?
+
+## Solution
+
+### Latin Hypercube Sampling {.allowframebreaks}
+
+```{python}
+#| echo: true
+def lhs_params_from_box(box, n, fixed_params):
+    """
+    Generate n parameter sets using Latin Hypercube Sampling.
+    Better space coverage than simple random sampling.
+    """
+    param_names = list(box.keys())
+    d = len(param_names)
+    
+    sampler = qmc.LatinHypercube(d=d, seed=42)
+    sample = sampler.random(n=n)
+    
+    params_list = []
+    for i in range(n):
+        params = {}
+        for j, name in enumerate(param_names):
+            lo, hi = box[name]
+            params[name] = lo + sample[i, j] * (hi - lo)
+        params.update(fixed_params)
+        params_list.append(params)
+    
+    return params_list
+
+box = {
+    'b1': (-2, 8), 'b2': (-2, 8), 'b3': (-2, 8),
+    'b4': (-2, 8), 'b5': (-2, 8), 'b6': (-2, 8),
+    'psi': (0, 0.1), 'rho': (0, 0.1), 'tau': (0, 0.1),
+    'sigma_dem': (0, 0.5), 'sigma_env': (0, 1),
+    'SO_0': (0, 1), 'IO_0': (0, 0.01)
+}
+
+lhs_starts = lhs_params_from_box(box, 5, fixed_params)
+print(f"Generated {len(lhs_starts)} LHS starting points")
+```
+
+### Comparing Sampling Methods {.allowframebreaks}
+
+```{python}
+#| echo: true
+#| fig-width: 5
+#| fig-height: 3
+def uniform_params_from_box(box, n, fixed_params):
+    params_list = []
+    for _ in range(n):
+        params = {}
+        for name, (lo, hi) in box.items():
+            params[name] = np.random.uniform(lo, hi)
+        params.update(fixed_params)
+        params_list.append(params)
+    return params_list
+
+np.random.seed(42)
+uniform_starts = uniform_params_from_box(box, 20, fixed_params)
+lhs_starts = lhs_params_from_box(box, 20, fixed_params)
+
+fig, axes = plt.subplots(1, 2, figsize=(5, 2.5))
+
+uni_rho = [p['rho'] for p in uniform_starts]
+uni_psi = [p['psi'] for p in uniform_starts]
+axes[0].scatter(uni_rho, uni_psi, s=20)
+axes[0].set_xlabel('rho')
+axes[0].set_ylabel('psi')
+axes[0].set_title('Uniform Random')
+
+lhs_rho = [p['rho'] for p in lhs_starts]
+lhs_psi = [p['psi'] for p in lhs_starts]
+axes[1].scatter(lhs_rho, lhs_psi, s=20)
+axes[1].set_xlabel('rho')
+axes[1].set_ylabel('psi')
+axes[1].set_title('Latin Hypercube')
+
+plt.tight_layout()
+plt.show()
+```
+
+### Does It Make a Difference? {.allowframebreaks}
+
+```{python}
+#| echo: true
+print("Comparison of sampling strategies:")
+print("")
+print("1. COVERAGE:")
+print("   - LHS guarantees even coverage in each dimension")
+print("   - Random sampling can have gaps and clusters")
+print("")
+print("2. EFFICIENCY:")
+print("   - LHS often finds good regions with fewer samples")
+print("   - Especially valuable in high-dimensional spaces")
+print("")
+print("3. REPRODUCIBILITY:")
+print("   - LHS with fixed seed gives consistent coverage")
+print("   - Random sampling varies between runs")
+```
+
+
+# Exercise 3: Demography
+
+## Problem Statement
+
+### Exercise 3: Demography {.allowframebreaks}
+
+The model assumes that individuals remain in each monthly age class for one month and then move to the next.
+
+**Tasks:**
+
+1. In what way is this demographic model idealized? 
+
+2. Propose an improvement.
+
+3. How would you decide if the improvement is valuable for understanding polio transmission?
+
+## Solution
+
+### Model Idealizations {.allowframebreaks}
+
+```{python}
+#| echo: true
+print("Idealizations in the demographic model:")
+print("")
+print("1. DISCRETE TIME:")
+print("   - Assumes exact 1-month duration in each class")
+print("   - Reality: continuous aging, exponential waiting times")
+print("")
+print("2. PERFECT SYNCHRONY:")
+print("   - All births at start of month")
+print("   - All transitions at month boundaries")
+print("")
+print("3. UNIFORM MORTALITY:")
+print("   - Same death rate delta for all ages")
+print("   - Reality: infant mortality higher than adults")
+```
+
+### Proposed Improvement: Gamma-distributed Duration {.allowframebreaks}
+
+```{python}
+#| echo: true
+print("Improvement: Erlang-distributed durations")
+print("")
+print("Instead of fixed 1-month duration, use:")
+print("- Multiple sub-stages per age class")
+print("- Each sub-stage has exponential waiting time")
+print("- Total duration follows Erlang (Gamma) distribution")
+print("")
+print("Trade-off:")
+print("- More realistic waiting times")
+print("- But: more state variables, slower computation")
+```
+
+
+# Exercise 4: Diagnosing Filtering Problems
+
+## Problem Statement
+
+### Exercise 4: Diagnosing Filtering Problems {.allowframebreaks}
+
+Discuss the potential problems that may have arisen in the fitting of this model.
+
+**Tasks:**
+
+1. Check conditional log-likelihoods for outliers
+
+2. Check effective sample sizes
+
+3. Check parameter convergence using traces
+
+4. Assess whether cooling fraction was appropriate
+
+## Solution
+
+### Setup for Diagnostics {.allowframebreaks}
+
+```{python}
+#| echo: true
+rw_sd = RWSigma(
+    sigmas={
+        'b1': 0.02, 'b2': 0.02, 'b3': 0.02, 
+        'b4': 0.02, 'b5': 0.02, 'b6': 0.02,
+        'psi': 0.02, 'rho': 0.02, 'tau': 0.02,
+        'sigma_dem': 0.02, 'sigma_env': 0.02,
+        'IO_0': 0.2, 'SO_0': 0.2,
+        'delta': 0.0,
+        'SB1_0': 0.0, 'SB2_0': 0.0, 'SB3_0': 0.0,
+        'SB4_0': 0.0, 'SB5_0': 0.0, 'SB6_0': 0.0
+    },
+    init_names=['IO_0', 'SO_0']
+)
+
+key = jax.random.key(12345)
+polio.mif(J=Np, M=Nmif, key=key, rw_sd=rw_sd, a=0.5)
+mif_result = polio.results_history[-1]
+
+polio.pfilter(J=Np, key=jax.random.key(99), reps=1, thresh=0, CLL=True, ESS=True)
+pf_result = polio.results_history[-1]
+print("Diagnostics computed")
+```
+
+### Conditional Log-Likelihoods {.allowframebreaks}
+
+```{python}
+#| echo: true
+#| fig-width: 6
+#| fig-height: 3
+if hasattr(pf_result, 'CLL') and pf_result.CLL is not None:
+    fig, ax = plt.subplots(figsize=(6, 3))
+    times = polio.ys.index.values
+    cll = pf_result.CLL.values[0, 0, :]
+    
+    ax.plot(times, cll, 'b-', linewidth=0.5)
+    ax.axhline(y=np.mean(cll), color='r', linestyle='--', label='Mean')
+    ax.axhline(y=np.mean(cll) - 2*np.std(cll), color='orange', 
+               linestyle=':', label='Mean - 2*SD')
+    ax.set_xlabel('Year')
+    ax.set_ylabel('Conditional Log-Likelihood')
+    ax.set_title('Identifying Potential Outliers')
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+    
+    threshold = np.mean(cll) - 3*np.std(cll)
+    outliers = times[cll < threshold]
+    print(f"Potential outlier times: {outliers}")
+else:
+    print("CLL not computed - run pfilter with CLL=True")
+```
+
+### Effective Sample Size {.allowframebreaks}
+
+```{python}
+#| echo: true
+#| fig-width: 6
+#| fig-height: 3
+if hasattr(pf_result, 'ESS') and pf_result.ESS is not None:
+    fig, ax = plt.subplots(figsize=(6, 3))
+    times = polio.ys.index.values
+    ess = pf_result.ESS.values[0, 0, :]
+    ax.plot(times, ess, 'g-', linewidth=0.5)
+    ax.axhline(y=Np/2, color='r', linestyle='--', label='Np/2 threshold')
+    ax.set_xlabel('Year')
+    ax.set_ylabel('Effective Sample Size')
+    ax.set_title('Particle Filter ESS')
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+    
+    low_ess = np.sum(ess < Np/10)
+    print(f"Times with ESS < Np/10: {low_ess} out of {len(ess)}")
+else:
+    print("ESS not computed - run pfilter with ESS=True")
+```
+
+### Parameter Convergence {.allowframebreaks}
+
+```{python}
+#| echo: true
+#| fig-width: 6
+#| fig-height: 4
+if hasattr(mif_result, 'traces_da') and mif_result.traces_da is not None:
+    traces_da = mif_result.traces_da
+    
+    params_to_plot = ['rho', 'psi', 'sigma_env', 'logLik']
+    variables = traces_da.coords['variable'].values
+    
+    fig, axes = plt.subplots(2, 2, figsize=(6, 4))
+    for ax, param in zip(axes.flatten(), params_to_plot):
+        if param in variables:
+            for rep in range(traces_da.sizes['replicate']):
+                trace = traces_da.isel(replicate=rep).sel(variable=param).values
+                ax.plot(trace, alpha=0.5)
+            ax.set_xlabel('Iteration')
+            ax.set_ylabel(param)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("Traces not available")
+```
+
+### Cooling Fraction Assessment {.allowframebreaks}
+
+```{python}
+#| echo: true
+print("Cooling fraction assessment:")
+print("")
+print("The cooling parameter 'a' controls how quickly perturbations decrease.")
+print("")
+print("Signs of a being too small:")
+print("  - Parameter traces flatten early (freeze)")
+print("  - Log-likelihood plateaus prematurely")
+print("")
+print("Signs of a being too large:")
+print("  - Parameters still varying at final iteration")
+print("  - Need very many iterations to converge")
+print("")
+print(f"Current setting: a = 0.5")
+```
+
+
+# Exercise 5: Algorithmic Parameters
+
+## Problem Statement
+
+### Exercise 5: Choosing Algorithmic Parameters {.allowframebreaks}
+
+Suppose you have a 10-minute search with `Np`, `Nmif`, and `Reps`. How would you adjust for a 2-hour search?
+
+## Solution
+
+### Scaling Strategy {.allowframebreaks}
+
+```{python}
+#| echo: true
+current = {'Np': 1000, 'Nmif': 100, 'Nstarts': 10}
+time_factor = 120 / 10  # 12x
+
+print(f"Time scaling factor: {time_factor}x")
+print("")
+
+strategies = {
+    'Balanced': {
+        'Np': int(current['Np'] * time_factor**(1/3)),
+        'Nmif': int(current['Nmif'] * time_factor**(1/3)),
+        'Nstarts': int(current['Nstarts'] * time_factor**(1/3))
+    },
+    'More particles': {
+        'Np': int(current['Np'] * time_factor**(1/2)),
+        'Nmif': current['Nmif'],
+        'Nstarts': int(current['Nstarts'] * time_factor**(1/2))
+    },
+    'More searches': {
+        'Np': current['Np'],
+        'Nmif': current['Nmif'],
+        'Nstarts': int(current['Nstarts'] * time_factor)
+    }
+}
+
+for name, params in strategies.items():
+    print(f"{name}:")
+    print(f"  Np={params['Np']}, Nmif={params['Nmif']}, Nstarts={params['Nstarts']}")
+```
+
+### Two-Stage Search Implementation {.allowframebreaks}
+
+```{python}
+#| echo: true
+print("Two-stage search (recommended for 2-hour budget):")
+print("")
+print("Stage 1 (exploration): 1 hour")
+stage1 = {'Np': 1000, 'Nmif': 50, 'Nstarts': 50}
+print(f"  Np={stage1['Np']}, Nmif={stage1['Nmif']}, Nstarts={stage1['Nstarts']}")
+print(f"  Goal: Find promising regions")
+print("")
+
+print("Stage 2 (refinement): 1 hour")
+stage2 = {'Np': 2000, 'Nmif': 100, 'Nstarts': 10}
+print(f"  Np={stage2['Np']}, Nmif={stage2['Nmif']}, Nstarts={stage2['Nstarts']}")
+print(f"  Goal: Refine top results from Stage 1")
+```
+
+
+# Summary
+
+## Key Insights from Exercises
+
+### Summary {.allowframebreaks}
+
+**Exercise 1 (Initial Values):**
+
+- Initial conditions can affect likelihood but may be weakly identified
+- Modifications should be compared via maximized log-likelihood
+- No new parameters → direct likelihood comparison
+
+**Exercise 2 (Starting Values):**
+
+- LHS provides better coverage than uniform random
+- Informed priors based on biological knowledge can help
+- Multiple strategies should be compared empirically
+
+### Summary (continued) {.allowframebreaks}
+
+**Exercise 3 (Demography):**
+
+- Model makes simplifying assumptions about age structure
+- Continuous time with gamma-distributed durations could be more realistic
+- Key: check if conclusions are robust to modifications
+
+**Exercise 4 (Diagnostics):**
+
+- Monitor ESS and conditional log-likelihoods for problems
+- Check parameter traces for convergence using `traces_da`
+- Adjust cooling fraction if traces freeze too early/late
+
+**Exercise 5 (Algorithmic Parameters):**
+
+- More starting points generally more valuable than longer runs
+- Two-stage search: explore first, refine later
+- Monitor diagnostics to guide parameter choices
+
+### Key pypomp API Points {.allowframebreaks}
+
+1. `RWSigma` requires **ALL parameters** in `sigmas` dict - use `0.0` for fixed params
+
+2. `rmeas` must return a JAX array with shape `(ydim,)`, e.g., `jnp.array([value])`
+
+3. Use `nstep=1` for discrete-time models
+
+4. Multiple starting points: pass `theta=[list_of_dicts]` to `mif()`
+
+5. Use `polio.prune(n=k)` to keep top k parameter sets
+
+6. Access traces via `mif_result.traces_da` (xarray DataArray with dimensions `('replicate', 'iteration', 'variable')`)
+
+
+# Acknowledgments and License
+
+### Acknowledgments {.allowframebreaks}
+
+- This lesson is prepared for the Simulation-based Inference for Epidemiological Dynamics module at SISMID.
+
+- The materials build on previous versions of this course and related courses.
+
+- Licensed under the Creative Commons Attribution-NonCommercial license (CC BY-NC 4.0).
+
+
+# References
+
+::: {#refs}
+:::
