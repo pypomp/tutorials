@@ -33,13 +33,13 @@ As such, its objectives are:
 
 [**3. Likelihood for POMPs: theory and practice.**](./Lecture3/index.html)
 
-**4. Iterated filtering: theory and practice.** Not yet implemented.
+[**4. Iterated filtering: theory and practice.**](./lecture4/index.html)
 
-**5. Case study: measles.  Recurrent epidemics, long time series, covariates, extra-demographic stochasticity, interpretation of parameter estimates.** Not yet implemented.
+[**5. Case study: measles.  Recurrent epidemics, long time series, covariates, extra-demographic stochasticity, interpretation of parameter estimates.**](./lecture5/index.html)
 
-**6. Case study: polio. Workflow for a real research problem.** Not yet implemented.
+[**6. Case study: polio. Workflow for a real research problem.**](./lecture6/index.html)
 
-**7. Case study: Ebola. Model diagnostics and forecasting.** Not yet implemented.
+[**7. Case study: Ebola. Model diagnostics and forecasting.**](./lecture7/index.html)
 
 **8. Case study: HIV and fluctuating sexual contact rates. Panel data.** Not yet implemented.
 
