@@ -1,0 +1,310 @@
+---
+title: >
+  Lesson 0: Preparing Your Computer for the Course
+author:
+  - Aaron A. King
+  - Edward L. Ionides
+  - Kunyang He
+
+shortauthor: "King & Ionides et al."
+shorttitle: "Lesson 0"
+date: "December 25, 2025"
+
+format:
+  beamer:
+    code-block-font-size: \tiny
+    theme: AnnArbor
+    colortheme: default
+    fontsize: 11pt
+    toc: true
+    slide-level: 3
+    highlight-style: tango
+
+  pdf:
+    documentclass: article
+    fontsize: 11pt
+    toc: true
+    number-sections: true
+---
+
+# Introduction
+
+This document provides instructions for setting up your computer to run the exercises in this course. We will be using **pypomp**, a Python implementation of partially observed Markov process (POMP) models.
+
+## What you will need
+
+- Python 3.8 or higher
+- pip or conda package manager
+- A text editor or IDE (e.g., VS Code, PyCharm, Jupyter)
+- Basic familiarity with Python programming
+
+# Python Installation
+
+## Checking your Python version
+
+First, check if you have Python installed and verify the version:
+
+```bash
+python --version
+```
+
+or
+
+```bash
+python3 --version
+```
+
+You should have Python 3.8 or higher. If not, proceed to install Python.
+
+## Installing Python
+
+### Option 1: Using Anaconda (Recommended for beginners)
+
+1. Download Anaconda from [https://www.anaconda.com/download](https://www.anaconda.com/download)
+2. Follow the installation instructions for your operating system
+3. Anaconda includes Python and many scientific packages
+
+### Option 2: Using official Python distribution
+
+1. Download Python from [https://www.python.org/downloads/](https://www.python.org/downloads/)
+2. Follow the installation instructions for your operating system
+3. Make sure to check "Add Python to PATH" during installation (Windows)
+
+# Setting Up a Virtual Environment
+
+It is highly recommended to use a virtual environment to avoid conflicts with other Python projects.
+
+## Using venv (built-in)
+
+```bash
+# Create a virtual environment
+python -m venv sbied-env
+
+# Activate the environment
+# On macOS/Linux:
+source sbied-env/bin/activate
+
+# On Windows:
+sbied-env\Scripts\activate
+```
+
+## Using conda
+
+```bash
+# Create a conda environment
+conda create -n sbied-env python=3.10
+
+# Activate the environment
+conda activate sbied-env
+```
+
+# Installing Required Packages
+
+## Installing pypomp
+
+The main package we will use is **pypomp**. Install it using pip:
+
+```bash
+pip install pypomp
+```
+
+## Installing additional dependencies
+
+Install the following packages that are commonly used in the course:
+
+```bash
+pip install numpy scipy matplotlib pandas jupyter
+```
+
+If you are using conda, you can install these packages using:
+
+```bash
+conda install numpy scipy matplotlib pandas jupyter
+```
+
+## Optional: GPU acceleration with JAX
+
+For faster computation, especially for large models, you can install JAX for GPU/TPU acceleration:
+
+```bash
+# For CPU-only (default)
+pip install jax jaxlib
+
+# For GPU support (CUDA)
+# See https://github.com/google/jax#installation for detailed instructions
+pip install jax[cuda12]
+```
+
+## Optional: Additional plotting libraries
+
+For enhanced visualizations:
+
+```bash
+pip install seaborn plotly
+```
+
+# Setting Up Jupyter
+
+Jupyter notebooks provide an interactive environment for running Python code.
+
+## Installing Jupyter
+
+If you haven't already installed Jupyter:
+
+```bash
+pip install jupyter notebook jupyterlab
+```
+
+## Launching Jupyter
+
+To start Jupyter Notebook:
+
+```bash
+jupyter notebook
+```
+
+To start JupyterLab (more modern interface):
+
+```bash
+jupyter lab
+```
+
+## Registering your virtual environment as a Jupyter kernel
+
+If you created a virtual environment, register it with Jupyter:
+
+```bash
+# Make sure your virtual environment is activated
+pip install ipykernel
+python -m ipykernel install --user --name=sbied-env --display-name="SBIED Course"
+```
+
+# Verifying Your Installation
+
+## Test basic Python functionality
+
+Create a test Python script or run in a Python interpreter:
+
+```python
+import sys
+print(f"Python version: {sys.version}")
+
+import numpy as np
+import scipy
+import matplotlib.pyplot as plt
+import pandas as pd
+
+print("All basic packages imported successfully!")
+```
+
+## Test pypomp installation
+
+Create a simple test to verify pypomp is working:
+
+```python
+import pypomp
+
+print(f"pypomp version: {pypomp.__version__}")
+print("pypomp installed successfully!")
+```
+
+## Test with a minimal example
+
+Run this minimal POMP model to ensure everything is working:
+
+```python
+import numpy as np
+import pypomp
+
+# Create a simple random walk model
+def step_fn(x, t, params, **kwargs):
+    return {'X': x['X'] + np.random.normal(0, params['sigma'])}
+
+def rinit_fn(params, **kwargs):
+    return {'X': 0.0}
+
+def rmeas_fn(x, t, params, **kwargs):
+    return {'Y': x['X'] + np.random.normal(0, params['tau'])}
+
+def dmeas_fn(y, x, t, params, log=True, **kwargs):
+    ll = -0.5 * np.log(2 * np.pi * params['tau']**2) - \
+         0.5 * (y['Y'] - x['X'])**2 / params['tau']**2
+    return ll if log else np.exp(ll)
+
+# Create POMP object
+params = {'sigma': 1.0, 'tau': 0.1}
+times = np.arange(0, 100)
+
+# If this runs without error, your installation is working!
+print("Test completed successfully!")
+```
+
+# Downloading Course Materials
+
+## Using Git (recommended)
+
+If you have Git installed:
+
+```bash
+git clone https://github.com/[repository-url]/sbied-pypomp.git
+cd sbied-pypomp
+```
+
+## Direct download
+
+Alternatively, download the course materials as a ZIP file from the course website and extract them to your working directory.
+
+# Troubleshooting
+
+## Common issues and solutions
+
+### "pip: command not found"
+
+- Make sure Python is installed and added to your PATH
+- Try using `python -m pip` instead of `pip`
+
+### "Permission denied" errors
+
+- On macOS/Linux, try using `pip install --user package_name`
+- Or use a virtual environment (recommended)
+
+### Import errors
+
+- Make sure your virtual environment is activated
+- Verify package installation: `pip list | grep package_name`
+- Try reinstalling: `pip uninstall package_name && pip install package_name`
+
+### Jupyter kernel issues
+
+- Make sure ipykernel is installed in your environment
+- Re-register the kernel (see "Registering your virtual environment" above)
+- Restart Jupyter after adding a new kernel
+
+## Getting help
+
+If you encounter issues:
+
+1. Check the pypomp documentation: [https://github.com/pypomp/pypomp](https://github.com/pypomp/pypomp)
+2. Search for error messages online
+3. Ask for help during the course sessions
+4. Check the course discussion forum
+
+# Summary
+
+By now, you should have:
+
+- ✓ Python 3.8+ installed
+- ✓ A virtual environment created and activated
+- ✓ pypomp and required packages installed
+- ✓ Jupyter set up (if using notebooks)
+- ✓ Verified your installation with test code
+
+You are now ready to begin the course!
+
+# Additional Resources
+
+- **Python Tutorial**: [https://docs.python.org/3/tutorial/](https://docs.python.org/3/tutorial/)
+- **NumPy Documentation**: [https://numpy.org/doc/](https://numpy.org/doc/)
+- **Matplotlib Tutorial**: [https://matplotlib.org/stable/tutorials/index.html](https://matplotlib.org/stable/tutorials/index.html)
+- **Jupyter Documentation**: [https://jupyter.org/documentation](https://jupyter.org/documentation)
+- **pypomp Repository**: [https://github.com/pypomp/pypomp](https://github.com/pypomp/pypomp)

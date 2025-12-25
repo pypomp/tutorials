@@ -25,7 +25,7 @@ As such, its objectives are:
 
 ## Lessons
 
-**0. Instructions for preparing your laptop for the course exercises.** Not yet implemented.
+[**0. Instructions for preparing your laptop for the course exercises.**](./Lecture0/index.html)
 
 [**1. Introduction: What is "Simulation-based Inference for Epidemiological Dynamics"?  POMPs and pypomp.**](./Lecture1/index.html)
 
