@@ -74,7 +74,10 @@ os.environ["JAX_PLATFORM_NAME"] = "cpu"
 import jax
 ```
 
-
+```{python}
+import sys
+sys.executable
+```
 
 
 
@@ -102,15 +105,14 @@ However, the existing family of POMP packages (**pomp**, **panelPomp**, and **sp
 
 \note{introducing AD/JIT/GPU hardware + pypomp} 
 As the demand grows for scalable and parallelizable inference algorithms, there is an increasing need for an accelerated framework for POMP modeling framework. 
-The Python package `pypomp` [@abkemeier2024] addresses this by integrating **automatic differentiation (AD)**, **just-in-time (JIT) compilation**, and **GPU acceleration** through JAX [@bradbury2018], a high-performance numerical computing library that supports hardware acceleration and vectorization. 
+The Python package `pypomp` [@abkemeier2024] addresses this by integrating **automatic differentiation (AD)**, **just-in-time (JIT) compilation**, and **hardware acceleration** through JAX [@bradbury2018], a high-performance numerical computing library that supports hardware acceleration and vectorization. 
 AD techniques enable efficient and accurate derivative computation by systematically applying the chain rule to fundamental operations. 
-Recent works have extended AD for gradient estimation using particle filtering, yielding a class of methods termed automatic differetiation particle filters (ADPF). 
+Recent works have extended AD for gradient estimation using particle filtering, yielding a class of methods termed automatic differentiation particle filters (ADPF). 
 Building on these advancements, `pypomp` provides AD-enabled gradient estimation for inference for POMP models within a plug-and-play framework [@ionides2006], where users specify dynamic models solely through simulators of latent state trajectories, rather than evaluating the transition density of the latent Markov process. 
 JAX's JIT compilation further accelerates repeated inference and evaluation by converting Python functions into machine code at runtime. 
 Finally, JAX's GPU support enables efficient scaling of inference methods. 
 Together, these features make `pypomp` more than a port of the `R` package `pomp`. 
-Instead, it establishes an independent, modernized platform for fast and flexible POMP modeling in Python.
-
+Instead, it establishes an independent, modernized Python platform for building, simulating and fitting fast and flexible POMP models, aiming to serve two user groups: scientists who need fast, plug-and-play likelihood-based inference for nonlinear dynamic systems, as well as method developers who want a clean, differentiable platform for experimenting with new particle-filter and Bayesian algorithms.
 
 \note{structure}
 The remainder of this paper is organized as follows. 
@@ -131,19 +133,30 @@ Section 6 concludes with a discussion of future directions.
 ### Real-world computational bottleneck
 
 Computational speed is a major bottleneck in the practical application of iterated filtering methods to POMP models. 
-In @korevaar2020 ‘s dataset, fitting and evaluating likelihoods of POMP models for 180 units required 8 days on 36 CPU cores (two 3.0 GHz Intel Xeon Gold 6154 CPUs). Scaling this up to the full dataset of 1422 units would require almost eight times as much effort, equivalent to running 36 cores for two months or 288 cores for 8 days. This is not only time consuming, but also incurs substantial computational costs, highlighting the urgent need for more efficient inference software for large-scale POMP analyses Importantly, this cost only accounts for one round of iterated filtering. In practice, to further refine the likelihood estimates, multple rounds are required, which would increase the computational burden significantly. This motivates the development of accelerated, scalable tools to make large-scale POMP inference feasible.
+In @korevaar2020 ‘s dataset, fitting and evaluating likelihoods of POMP models for 180 units required 8 days on 36 CPU cores (two 3.0 GHz Intel Xeon Gold 6154 CPUs). 
+Scaling this up to the full dataset of 1422 units would require almost eight times as much effort, equivalent to running 36 cores for two months or 288 cores for 8 days.
+This is not only time consuming, but also incurs substantial computational costs, highlighting the urgent need for more efficient inference software for large-scale POMP analyses Importantly, this cost only accounts for one round of iterated filtering. 
+In practice, to further refine the likelihood estimates, multple rounds are required, which would increase the computational burden significantly. 
+This motivates the development of accelerated, scalable tools to make large-scale POMP inference feasible.
 
 ### Opportunities for speeding up the POMP models
 
-Many of the processes involved in fitting POMP models are embarrassingly parallel. Examples include simulating the state process for each of thousands of particles, running the particle filter repeatedly under the same parameter set, and executing iterated filtering from multiple starting parameter sets. Such parallelism is especially advantageous when estimating a profile likelihood to construct confidence intervals [@ionides2017]. Harnessing parallel computing resources can therefore dramatically reduce computation time and make large-scale inference feasible. 
+Many of the processes involved in fitting POMP models are embarrassingly parallel. 
+Examples include simulating the state process for each of thousands of particles, running the particle filter repeatedly under the same parameter set, and executing iterated filtering from multiple starting parameter sets.
+Such parallelism is especially advantageous when estimating a profile likelihood to construct confidence intervals [@ionides2017].
+Harnessing parallel computing resources can therefore dramatically reduce computation time and make large-scale inference feasible. 
 
-Graphics Processing Units (GPUs) are well-suited for embarrassingly parallel operations, but the existing family of POMP packages (**pomp**, **panelPomp**, and **spatPomp** [@king2016,@breto2025,@asfaw2024]) are limited to CPU computation. None provide support for GPU acceleration or automatic differentiation. These two technologies are key to enabling scalable and efficient inference for modern POMP applications.
+Graphics Processing Units (GPUs) are well-suited for embarrassingly parallel operations, but the existing family of POMP packages (**pomp**, **panelPomp**, and **spatPomp** [@king2016,@breto2025,@asfaw2024]) are limited to CPU computation. 
+None provide support for GPU acceleration or automatic differentiation. These two technologies are key to enabling scalable and efficient inference for modern POMP applications.
 
 ### Our solution: pypomp
 
-To address this computational bottleneck, we are creating `pypomp`[@abkemeier2024], a python implementation of the `R` package `pomp`. It draws inspiration from `pomp`, but further implements new methods incoporating automatic differentiation techniques by forking the source code used in Tan [@tan2024], as well as leverages JAX's just-in-time(JIT) compilation and GPU core parallelization [@bradbury2018], allowing practitionersto run filtering methods significantly faster and cheaper. For example, in an SPX comparison model, we show that, compared to `pomp` with 36 CPU cores, `pypomp` can run at least 7 times faster and can finish the job at 5\% of the price using 1 GPU and 1 CPU core (5120 CUDA cores on a NVIDIA Tesla V100 and one core from a 2.4 GHz Intel Xeon Gold 6148 CPU). 
+To address this computational bottleneck, we are creating `pypomp`[@abkemeier2024], a python implementation of the `R` package `pomp`. 
+It draws inspiration from `pomp`, but further implements new methods incoporating automatic differentiation techniques by forking the source code used in Tan [@tan2024], as well as leverages JAX's just-in-time(JIT) compilation and GPU core parallelization [@bradbury2018], allowing practitionersto run filtering methods significantly faster and cheaper. 
+For example, in an SPX comparison model, we show that, compared to `pomp` with 36 CPU cores, `pypomp` can run at least 7 times faster and can finish the job at 5\% of the price using 1 GPU and 1 CPU core (5120 CUDA cores on a NVIDIA Tesla V100 and one core from a 2.4 GHz Intel Xeon Gold 6148 CPU). 
 
-In addition, `pypomp` is gradually including functionality from `panelPomp` and `spatPomp`, offering a unified Python interface for entire POMP methodologies across multiple `R` packages. It also takes advantage of JAX's implementation of automatic differentiation (AD), which can be used in conjunction with the differentiable measurement off-parameter with discount factor $\alpha$ (MOP-$\alpha$) particle filter to improve local optimization of the likelihood surface [@tan2024].
+In addition, `pypomp` is gradually including functionality from `panelPomp` and `spatPomp`, offering a unified Python interface for entire POMP methodologies across multiple `R` packages. 
+It also takes advantage of JAX's implementation of automatic differentiation (AD), which can be used in conjunction with the differentiable measurement off-parameter with discount factor $\alpha$ (MOP-$\alpha$) particle filter to improve local optimization of the likelihood surface [@tan2024].
 
 ### Summary of key features
 
@@ -166,7 +179,7 @@ This section introduces the structure of POMP models and its implementation in `
 
 ### Model setup
 
-A **partially observed Markov process (POMP)** model has two main components: (i) a latent Markov process that evolves over time and (ii) an observation process that links the latent states. Together, these jointly specify the mechanistic model for the observed time series, providing a framework for modeling dynamic systems where measurements are noisy. Formally, suppose we observe the process at discrete time $n=1,\dots,N$, with initial time $0$. Let $Y_{1:N}$ denote the observations and $X_{0:N}$ denote the corresponding latent (unobserved) Markov process at the corresponding time.  A POMP model is defined by three building components, each corresponding to user-supplied Python functions in `pypomp`:
+A **partially observed Markov process (POMP)** model has two main components: (i) a latent Markov process that evolves over time and (ii) an observation process that links the latent states. Together, these jointly specify the mechanistic model for the observed time series, providing a framework for modeling dynamic systems where measurements are noisy. Formally, suppose we observe the process at discrete time $n=1,\dots,N$, with initial time $0$. Data $Y_{1:N}$ are modeled as noisy, incomplete, and indirect observations of a latent (unobserved) Markov procss $\{X_{0:N}\}$ at the corresponding time.  A POMP model is defined by three building components, each corresponding to user-supplied Python functions in `pypomp`:
 
 1. initial density: $f_{X_0}(x_0; \theta)$, implemented via `rinit`, generates draws of the initial states $X_0$. 
 2. transition density: $f_{X_n|X_{n-1}}(x_n \mid x_{n-1}; \theta)$, implemented via `rproc`, propagates the evolution of latent states.
@@ -178,19 +191,19 @@ $$
 f_{X_{0:N}, Y_{1:N}}(x_{0:N}, y_{1:N}; \theta) = f_{X_0}(x_0; \theta) \prod_{n=1}^N f_{X_n|X_{n-1}}(x_n \mid x_{n-1}; \theta) \prod_{n=1}^N f_{Y_n|X_n}(y_n \mid x_n; \theta)
 $$
 
-The marginal likelihood of the observations is $\mathcal{L}(\theta) = f_{Y_{1:N}}\!\left(y_{1:N}; \theta\right) = \int f_{X_{0:N}, Y_{1:N}}(x_{0:N}, y_{1:N}; \theta) \, dx_{0:N}$. In practice, this integral is intractable for most nonlinear or non-Gaussian POMP models, motivating the use of simulation-based inference methods such as particle filtering.
+The marginal likelihood of the observations is $\mathcal{L}(\theta) = f_{Y_{1:N}}\!\left(y_{1:N}; \theta\right) = \int f_{X_{0:N}, Y_{1:N}}(x_{0:N}, y_{1:N}; \theta) \, dx_{0:N}$. Such POMP models can include all the features desired by [@Bjørnstad2001]. In practice, this integral is intractable for most nonlinear or non-Gaussian POMP models, motivating the use of simulation-based inference methods such as particle filtering.
 
 ### Implementations of POMP models in pypomp
 #### Object-oriented interface
 
 A POMP model in `pypomp` is represented as an object of class `Pomp`, which encapsulates the model components: the initial state distribution, process model, and measurement model. This object-oriented interface allows users to specify by passing components to the constructor, including observations, model parameters, model mechanics such as simulators and the measurement density, covariates, and times. After the components are passed into the constructor, the constructor automatically generates additional internal elements, such as extended observations and covariates required for interpolation
 
-@tbl-pomp_comps summarizes the main arguments to the Pomp constructor and their correspondence to mathematical objects. `RInit`, `RProc` and `RMeas` are the subconstructors, where they specify the stochastic mechanisms that define a `Pomp` model, and their objects are passed as arguments when initializing a main `Pomp` class. 
+@tbl-pomp_comps summarizes the main arguments to the Pomp constructor and their correspondence to mathematical objects.
 
 ::: {#tbl-pomp_comps}
 Table: Main arguments to the `Pomp` class and related constructor objects.
 
-| Constructor/Sub-constructor | Argument   | Type               | Description / Mathematical representation |
+| Constructor | Attributes   | Type               | Description / Mathematical representation |
 |-------------|------------|--------------------|-------------------------------------------|
 | **Pomp**    | `rinit`    | `RInit`            | simulate initial states $X_0 \sim f_{X_0}(x_0;\theta)$ |
 |             | `rproc`    | `RProc`            | simulate state transitions $X_n \sim f_{X_n\mid X_{n-1}}(x_n\mid x_{n-1};\theta)$ |
@@ -198,15 +211,12 @@ Table: Main arguments to the `Pomp` class and related constructor objects.
 |             | `dmeas`    | `DMeas`            | evaluate measurement density $f_{Y_n\mid X_n}(y_n\mid x_n;\theta)$ |
 |             | `ys`       | `pandas.DataFrame` | observations $y_{1:N}^*$ with times $t_{1:N}$ |
 |             | `covars`   | `pandas.DataFrame` | covariates $z_{1:N}^*$ with times $s_{1:N}$ |
-|             | `theta`    | `list` or `dict`   | parameters $\theta$ |
-| **RInit**   | `t0`       | `float`            | initial time point $t_0$ for simulation |
-| **RProc**   | `step_type`| `str`              | method of process evolution: `"fixedstep"` or `"euler"` |
-|             | `nstep`    | `int`              | number of steps if `step_type="fixedstep"` |
-|             | `dt`       | `float`            | time step if `step_type="euler"` |
-|             | `accumvars`| `tuple`            | indices of state variables to be accumulated |
-| **RMeas**   | `ydim`     | `int`              | observation dimension $\dim(Y)$ |
+|             | `theta`    | `dict`             | parameters $\theta$ |
+|             | `par_trans`| `Partrans`         | parameter transformation object|
+|             | `results_hisotry` | `list`      | History of the results for POMP methods run on the object |
+|             | `fresh_key`| `jax.Array`        | A fresh, unused key is stored in the attribute after running a method on the object with a key argument|
 :::
-
+where `RInit`, `RProc`, `DMeas`, and `RMeas` are sub-constructors that specify the stochastic mechanisms of the model—the initial state simulator, state process transition, measurement density, and measurement simulator, respectively. The user provides each component as a plain Python function and  `pypomp` then wraps into a JAX-compatible class instance. These wrapped components are passed as arguments when initializing the main `Pomp` object. The `ParTrans` sub-constructor defines parameter transformations between the specific estimation space and the natural parameter space.
 
 We demonstrate here how to create a `Pomp` object. Specifically, we show how to create the linear Gaussian model included in the package as `LG()`. We begin by importing necessary packages and defining helper functions for handling the parameters. Because `pypomp` will run our defined model components within JAX JIT-compiled code, it is necessary to write the components to be JAX-compliant. Naturally, the JAX package has many useful functions for this purpose. We also generate a pseudorandom number generation (PRNG) key to be used with JAX random number generators. All stochastic simulations in `pypomp` are controlled via JAX PRNG keys, ensuring full reproducibility when using the same seed.
 
@@ -402,6 +412,7 @@ Beyond the linear gaussian model, `pypomp` includes several ready‑to‑use mod
 These examples demonstrate correct model specification. 
 If a user's model throws an error or runs slowly, they may compare its components to a premade model to make improvements. 
 
+<!--
 #### JAX Numerical Backend and Interface Design
 
 A key design choice in `pypomp` is its usage of JAX as a numerical backend. 
@@ -426,17 +437,28 @@ Consequently, JAX can uniformly process parameters, thereby maintaining consiste
 Later section will demonstrate how the JAX-based design supports further inference methods.
 
 \note{more introduction to JAX?}
+-->
 
 #### Panel POMP class
 
 
 ## POMP Methods in pypomp
-In this section, we describe the core inference methods currently implemented in `pypomp`, including: 
+In this section, we describe the core elementary and inference methods currently implemented in `pypomp`, including: 
 
-- `Paricle Filter` (Sequential Monte Carlo, written in `pfilter()`): A standard sequential Monte Carlo algorithm for likelihood evaluation and state estimation, forming the basis for most inference methods in POMP models.
+- `Paricle Filter` (Sequential Monte Carlo, written in `pfilter()`): A standard sequential Monte Carlo algorithm for likelihood evaluation and (optional) state estimation, forming the basis for most inference methods in POMP models. 
 - `Differentiated Measurement-off-policy` Particle Filter (DMOP($\alpha$), written in `mop()`): A recently proposed SMC method [@tan2024] that evaluates the likelihood at one parameter value while obtaining resampling decisions from another, adjusting via discounted off-parameter measurement weights.
 - `Iterated Filtering` (IF2, `mif()`): A classical IF2 algorithm [@ionides2015] for likelihood-based parameter inference that maximizes the likelihood via particle filtering.
 - `Iterated Filtering with Automatic Differentiation` (`train()`): A recently proposed AD-based algorithm [@tan2024] that leverages DMOP($\alpha$) perform maximum likelihood estimation with gradient descent methods.
+
+It also contains other class funcions for better model diagnostics after running the above elmentary and inference mthods:
+
+- `simulate()` performs simulations of the POMP model, i.e. it samples from joint distributions of latent states and observations.
+- `traces()` returns the full trace of log-likelihoods and parameters from the entire result history.
+- `results(idx)` returns the results of the method run at the given index.
+- `time()` summarizes the execution times of methods run
+- `prune()` replaces self.theta with a list of top $n$ thetas based on the most recent available log-likelihood estimates.
+- `plot_traces()`  generates the plots containing parameter and log-likelihood traces from the entire result history.
+- `print_summary()` prints a summary of the POMP object. 
 
 A key feature of the above POMP inference methods lies in the **plug-and-play property** [@ionides2006], meaning that inference algorithms can be implemented without requiring explicit evaluation of the transition density of the latent process. 
 Instead, it suffices for the user to provide a the latent process simulator (`rproc`), the initial state simulator (`rinit`), and the observation density (`dmeas`). 
@@ -460,6 +482,12 @@ LG_obj.pfilter(J=100, reps=5, key=subkey)
 LG_obj.mif(rw_sd=rw_sd, M=2, a=0.5, J=100, key=subkey)
 
 print(LG_obj.results_history)
+
+```
+
+```{python}
+LG = pp.LG()
+LG.pfilter(J = 100, reps=5, key = subkey)
 
 ```
 
@@ -496,7 +524,15 @@ Number of particles $J$. \newline
 \textbf{Complexity: }$\mathcal{O}(J)$ 
 \end{algorithm}
 
-In `pypomp`, the `pfilter()` functions is internally run in a compiled JAX routine `pfilter_internal()` but wrapped up into a class method. `_pfilter_internal` is JIT-compiled with static arguments, in which the replicates and parameter sets are vectorized via `jax.vmap`. Both techniques enable execution on CPU/GPU and ensure the computational efficiency. In implementation, the weights and likelihood are stored in a log scale, preventing underflow. There are optional arguments (`CLL`, `ESS`, `filter_mean`, `prediction_mean`) control wheter additional diagnostic arrays are allocated and updated. The algorithm works for flexible and extendable models through the user-specified `Pomp` class components (`rinit`, `rproc`, `dmeas`, `reams`), number of particles `J` as well as other parameters. Each run returns a `dict` type element updated inside the `LG_obj. result_history` attribute, containing the log-likelihoods, algorithm parameters used, as well as model diagonostic elements at each time included if their respective boolean flags are set to True. For example, suppose we run
+In `pypomp`, the `pfilter()` functions is internally run in a JIT-compiled kernel `_vmapped_pfilter_internal2`, which applies `jax.vmap` over replicates and sharded parameters on `theta`. 
+This enables the parallel execution on CPU/GPU and ensures the computational efficiency. 
+In implementation, the weights and likelihood are stored in a log scale, preventing underflow. 
+There are optional arguments (`CLL`, `ESS`, `filter_mean`, `prediction_mean`) control wheter additional diagnostic arrays are allocated and updated. 
+The algorithm works for flexible and extendable models through the user-specified `Pomp` class components (`rinit`, `rproc`, `dmeas`, `reams`), number of particles `J` as well as other parameters. 
+Each call generates a `PompPFilterResult` object, which is then appended to `object.results_history` attribute, containing the execution time, evaluated log-likelihoods, algorithm parameters used, as well as model diagnostic elements at each time included if their respective boolean flags are set to True.
+Here `PompPFilterResults` class is a subclass of `PompBaseResult` and provides standardized storage and methods for `pfilter()` results. 
+This return design supports multi-stage inference workflow and ensures reproducibility. 
+For example, suppose we run
 
 ```{python}
 # | label: lg-pfilter
@@ -531,24 +567,31 @@ LG_obj_2.pfilter(
 ```
 
 where $J$ is the number of particles used and $reps$ is the number of particle filtering replicates to run for each parameter set provided in the `Pomp` object or as an optional argument to `pfilter()`. 
-Because `LG_obj2.result_history` begins as an empty list here when the model is constructed, the results are appended at `LG_obj_2.results_history[0]` and `LG_obj_2.results_history[1]` respectively. 
-Both of these two dictionaries contain the following items:
+Because `LG_obj2.results_history` begins as an empty list here when the model is constructed, the `PompPFilterResult` object results are appended at `LG_obj_2.results_history[0]` and `LG_obj_2.results_history[1]` respectively. 
+Both of these two objects contain the following attributes which are not None:
 
-- `method`: The method that was run. In this case, `pfilter`.
-- `logLiks`: An `xarray.DataArray` of particle filter log-likelihood estimates. There is one list for each parameter set given and each list has `reps` log-likglihood estimates. dimensions = (`theta`, `replicate`)
+- `method`: The method that was run. In this case, `"pfilter"`.
+- `execution time`:  The execution time if `track_time = True`
+- `key`: The RNG key used. 
 - `theta`: The list of parameter sets used.
+- `logLiks`: An `xarray.DataArray` of particle filter log-likelihood estimates. Evaluated log-likelihoods returned from the internal kernel are reshaped into `(n_theta, reps)` based on the number of parameter sets and replicates. 
 - `J`: The number of particles used.
+- `reps`: The number of replicates.
 - `thresh`: Threshold value for resampling used, which is 0 by default.
 
 Meanwhile, `LG_obj_2.results_history[1]` also contains the following items that are not contained in `LG_obj_2.results_history[0]` :
 
-- `CLL`: An `xarray.DataArray` containing the conditional loglikelihood over observed time steps (`theta`, `replicate`, `time`)
-- `ESS`: An `xarray.DataArray` containing the effective sample size over observed time steps (`theta`, `replicate`, `time`)
-- `filter_mean`: An `xarray.DataArray` containing the filtered mean over observed time steps (`theta`, `replicate`, `time`, `state`)
-- `prediction_mean`: An `xarray.DataArray` containing the prediction mean over observed time steps. (`theta`, `replicate`, `time`, `state`) 
+- `CLL`: An `xarray.DataArray` containing the conditional loglikelihood over observed time steps (`theta`, `replicate`, `time`). 
+- `ESS`: An `xarray.DataArray` containing the effective sample size over observed time steps (`theta`, `replicate`, `time`). 
+- `filter_mean`: An `xarray.DataArray` containing the filtered mean over observed time steps (`theta`, `replicate`, `time`, `state`). 
+- `prediction_mean`: An `xarray.DataArray` containing the prediction mean over observed time steps. (`theta`, `replicate`, `time`, `state`).
+
+The result `PompPFilterResult` also provides the following functions for further analysis:
+- `to_dataframe()` provides the summary data frame of per-parameter-set log-likelihood estimates via log-mean-exp trick with Monte Carlo standard error. 
+- `traces()` returns traces data frame with one row per replicate. 
+- `print_summary` prints brief readable summary for the results with top 5 evaluated log-likelihood results. 
 
 A key design is that all runs across multiple parameter sets and replications are stored in one `results_history` list under the corresponding `Pomp` object. This avoids object duplication, and increases reproducibility by facilitating pickling `Pomp` objects obtained from many different search strategies, loading them into a new Python session, and then comparing the results to see how they vary with different algorithmic parameters.
-
 
 
 ### Differentiated Measurement Off-Parameter (DMOP) particle filter
@@ -559,7 +602,7 @@ This prevents the wide use of AD and gradient-based optimization in POMP dynamic
 The differentiable measurement off-parameter particle filter (DMOP-$\alpha$, @tan2024) provides a solution: it treats a *differentiable* likelihood estimator produced by a variant of the standard particle filter as an objective and apply AD to obtain $\nabla_\theta \hat{\ell}(\theta)$ for likelihood-based optimal parameter search. 
 The derivative estimate from DMOP-$\alpha$ is essential for further stochastic gradient inference methods, such as iterated filtering with automatic differentiation (IFAD), where it employs stochastic gradient descent using DMOP-$\alpha$. 
 A tunning dicount factor $\alpha \in [0,1]$ controls the bias-variance trade-off of the gradient estimator: larger $\alpha$ may result in lower bias and higher variance, while smaller $\alpha$ can reduce the variance with the cost of  increasing bias.
-In implementation, DMOP-$\alpha$ does not require heavy diagnostics or multiple replicates. It only needs a stable, differentiable of the (log-) likelihood to feed into `jax.grad` and `jax.value_and_grad`. 
+In implementation, DMOP-$\alpha$ does not require heavy diagnostics or multiple replicates, and doesn't require time tracking function. It only needs a stable, differentiable of the (log-) likelihood to feed into `jax.grad` and `jax.value_and_grad`. 
 The pseudocode is shown in \ref{alg:dmop} 
 
 \begin{algorithm}[H]
@@ -676,7 +719,9 @@ By combining `jax.grad` and `jax.value_and_grad` around `mop()`, the package eff
 
 ### Iterated Filtering
 
-Iterated filtering (IF2) provides a Monte Carlo approach to estimate parameters by combining particle filtering with sequential random-walk perturbations and cooling. Compared with a plain particle filter or MOP method, IF2 not only evaluates the likelihoods but also systematically updates parameters across iterations. Its primary role is to estimate the parameters that maximizes the likelihood, given the likelihood is intractable but can be estimated under the particle filtering methods. The pseudocode for IF2 algorithm is as follows: 
+Iterated filtering (IF2) provides a Monte Carlo approach to estimate parameters by combining particle filtering with sequential random-walk perturbations and cooling. Compared with a plain particle filter or MOP method, IF2 not only evaluates the likelihoods but also systematically updates parameters across iterations. 
+Its primary role is to estimate the parameters that maximizes the likelihood, given the likelihood is intractable but can be estimated under the particle filtering methods. 
+The pseudocode for IF2 algorithm is as follows: 
 
 \begin{algorithm}[H]
 \caption{Iterated Filtering (IF2)}
@@ -705,12 +750,19 @@ Iterated filtering (IF2) provides a Monte Carlo approach to estimate parameters 
 \end{algorithmic}
 \end{algorithm}
 
-Under `pypomp`, the IF2 is implemented under `mif()`. Arguments `sigmas` and `sigmas_init` control the random walk standard deviation after and during time $t_0$ respectively. Another argument `a`, the cooling rate, reduces the perturbation magnitudes across iterations. The purturbations controlled by `sigmas`, `sigmas_init`, and `a` enable the `POMP` model to explore the parameter space and progressively converge to the optimal parameter estimates. Specifically, each call also updates and stores a child key into `LG_obj.fresh_key`, so subfequent method calls can safely omit an explicit assignment on `key` argument. 
+Under `pypomp`, the IF2 is implemented under `mif()`. 
+Argument `rw_sd` controls the random walk standard deviation during intialization time $t_0$ and after it respectively. 
+The argument `rw_sd` accepts the `RW_SD` class 
+Another argument `a`, the cooling rate, reduces the perturbation magnitudes across iterations. 
 
-Different from previous methods for evaluating the likelihoods, `Pomp` methods such as `mif()` can update attributes directly other than `resuts_history`. The `LG_obj.mif()` replaces `LG_obj.theta` with the parameter estimate from the end of the last iteration. The traces of log-likelihoods and parameter estimates are stored in `LG_obj.results_history` as a `xr.DataArray` object. The `xr.DataArray` has dimentions `(replicate, iteration, variable)`, where the `variable` dimension includes the log-likelihood estimations and all POMP model parameters. 
+The purturbations controlled by `sigmas`, `sigmas_init`, and `a` enable the `POMP` model to explore the parameter space and progressively converge to the optimal parameter estimates. 
+Specifically, each call also updates and stores a child key into `LG_obj.fresh_key`, so subfequent method calls can safely omit an explicit assignment on `key` argument. 
 
+Different from previous methods for evaluating the likelihoods, `Pomp` methods such as `mif()` can update attributes directly other than `resuts_history`.
+The `LG_obj.mif()` replaces `LG_obj.theta` with the parameter estimate from the end of the last iteration. 
+The traces of log-likelihoods and parameter estimates are stored in `LG_obj.results_history` as a `xr.DataArray` object.
+The `xr.DataArray` has dimentions `(replicate, iteration, variable)`, where the `variable` dimension includes the log-likelihood estimations and all POMP model parameters. 
 
-:
 ```{python}
 #| label: lg-mif
 #| echo: true
