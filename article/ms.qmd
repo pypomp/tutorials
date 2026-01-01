@@ -301,8 +301,8 @@ def dmeas(Y_, X_, theta_, covars=None, t=None):
     """Measurement model distribution for the linear Gaussian model"""
     A, C, Q, R = get_thetas(theta_)
     X_array = jnp.array([X_["X1"], X_["X2"]])
-    return jax.scipy.stats.multivariate_normal.logpdf(Y_, X_array, R)
-
+    Y_array = jnp.array([Y_["Y1"], Y_["Y2"]])
+    return jax.scipy.stats.multivariate_normal.logpdf(Y_array, X_array, R)
 
 def rmeas(X_, theta_, key, covars=None, t=None):
     """Measurement simulator for the linear Gaussian model"""
@@ -481,13 +481,7 @@ This design prevents repeated use of the same key across a sequence of method ca
 LG_obj.pfilter(J=100, reps=5, key=subkey)
 LG_obj.mif(rw_sd=rw_sd, M=2, a=0.5, J=100, key=subkey)
 
-print(LG_obj.results_history)
-
-```
-
-```{python}
-LG = pp.LG()
-LG.pfilter(J = 100, reps=5, key = subkey)
+print(LG_obj.results_history.traces())
 
 ```
 
@@ -530,7 +524,7 @@ In implementation, the weights and likelihood are stored in a log scale, prevent
 There are optional arguments (`CLL`, `ESS`, `filter_mean`, `prediction_mean`) control wheter additional diagnostic arrays are allocated and updated. 
 The algorithm works for flexible and extendable models through the user-specified `Pomp` class components (`rinit`, `rproc`, `dmeas`, `reams`), number of particles `J` as well as other parameters. 
 Each call generates a `PompPFilterResult` object, which is then appended to `object.results_history` attribute, containing the execution time, evaluated log-likelihoods, algorithm parameters used, as well as model diagnostic elements at each time included if their respective boolean flags are set to True.
-Here `PompPFilterResults` class is a subclass of `PompBaseResult` and provides standardized storage and methods for `pfilter()` results. 
+Here `PompPFilterResults` class is derived from `PompBaseResult` and provides standardized storage and methods for `pfilter()` results. 
 This return design supports multi-stage inference workflow and ensures reproducibility. 
 For example, suppose we run
 
@@ -601,7 +595,7 @@ A key design is that all runs across multiple parameter sets and replications ar
 This prevents the wide use of AD and gradient-based optimization in POMP dynamical systems. 
 The differentiable measurement off-parameter particle filter (DMOP-$\alpha$, @tan2024) provides a solution: it treats a *differentiable* likelihood estimator produced by a variant of the standard particle filter as an objective and apply AD to obtain $\nabla_\theta \hat{\ell}(\theta)$ for likelihood-based optimal parameter search. 
 The derivative estimate from DMOP-$\alpha$ is essential for further stochastic gradient inference methods, such as iterated filtering with automatic differentiation (IFAD), where it employs stochastic gradient descent using DMOP-$\alpha$. 
-A tunning dicount factor $\alpha \in [0,1]$ controls the bias-variance trade-off of the gradient estimator: larger $\alpha$ may result in lower bias and higher variance, while smaller $\alpha$ can reduce the variance with the cost of  increasing bias.
+A tunning dicount factor $\alpha \in [0,1]$ controls the bias-variance trade-off of the gradient estimator: larger $\alpha$ may result in lower bias and higher variance, while smaller $\alpha$ can reduce the variance with the cost of  increasing bias. 
 In implementation, DMOP-$\alpha$ does not require heavy diagnostics or multiple replicates, and doesn't require time tracking function. It only needs a stable, differentiable of the (log-) likelihood to feed into `jax.grad` and `jax.value_and_grad`. 
 The pseudocode is shown in \ref{alg:dmop} 
 
@@ -719,8 +713,14 @@ By combining `jax.grad` and `jax.value_and_grad` around `mop()`, the package eff
 
 ### Iterated Filtering
 
-Iterated filtering (IF2) provides a Monte Carlo approach to estimate parameters by combining particle filtering with sequential random-walk perturbations and cooling. Compared with a plain particle filter or MOP method, IF2 not only evaluates the likelihoods but also systematically updates parameters across iterations. 
-Its primary role is to estimate the parameters that maximizes the likelihood, given the likelihood is intractable but can be estimated under the particle filtering methods. 
+Iterated filtering (IF2) provides a Monte Carlo approach to estimate parameters by combining particle filtering with sequential random-walk perturbations and a cooling schedule to approximate maximum likelihood estimates when the likelihood is analytically intractable but can be unbiasedly estimated through sequential Monte Carlo methods.
+Compared with a plain particle filter or MOP method, IF2 not only evaluates the likelihoods but also systematically updates parameters across iterations. 
+IF2 enables systematic exploration of the parameter space in early iterations via perturbation and gradual stabilization around high-likelihood regions when the perturbation variance decreases. 
+The IF2 algorithm contains $M$ iterations, each using $J$ particles. 
+At iteration $m$, parameters are perturbed by a Gaussian random walk with standard deviations scaled by a cooling factor. 
+At each observation time, the likelihood evaluations and resampling are performed and parameter estimates are obtained. 
+The perturbation magnitudes are progressively reduced across iterations, resulting in convergence to a Monte Carlo approximation of the maximum likelihood estimate, which is an optimal parameter estimate.
+
 The pseudocode for IF2 algorithm is as follows: 
 
 \begin{algorithm}[H]
@@ -750,18 +750,37 @@ The pseudocode for IF2 algorithm is as follows:
 \end{algorithmic}
 \end{algorithm}
 
-Under `pypomp`, the IF2 is implemented under `mif()`. 
-Argument `rw_sd` controls the random walk standard deviation during intialization time $t_0$ and after it respectively. 
-The argument `rw_sd` accepts the `RW_SD` class 
-Another argument `a`, the cooling rate, reduces the perturbation magnitudes across iterations. 
+In `pypomp`, the IF2 algorithm is implemented in the method `mif()`. 
+It follows the structure of the IF2 implementation in the R package `pomp`, while introducing JAX-based vectorization and compilation for improved computational performance. 
 
-The purturbations controlled by `sigmas`, `sigmas_init`, and `a` enable the `POMP` model to explore the parameter space and progressively converge to the optimal parameter estimates. 
-Specifically, each call also updates and stores a child key into `LG_obj.fresh_key`, so subfequent method calls can safely omit an explicit assignment on `key` argument. 
+The argument `rw_sd` specifies the random walk standard deviations for parameter perturbations.
+The perturbation scales are encapsulated in a `RWSigma` object, which is passed to the method through the `rw_sd`. 
+The `RWSigma` object stores a mapping from parameter names to non-negative perturbation values and distinguishes between initial-value parameters (IVPs) and non-initial parameters, allowing different perturbation behavior at the initial time point and at subsequent time steps. 
+The float-type cooling rate `a` specifies the decay of perturbation magnitudes across iterations. 
+Together, `rw_sd` and `a` jointly control the trade-off between global exploration and local convergence of the parameter estimates. 
 
-Different from previous methods for evaluating the likelihoods, `Pomp` methods such as `mif()` can update attributes directly other than `resuts_history`.
-The `LG_obj.mif()` replaces `LG_obj.theta` with the parameter estimate from the end of the last iteration. 
+The `mif()` updates the interal state of the `Pomp` object directly. 
+In particular, `LG_obj.theta` is replaced with the parameter estimate from the end of the last iteration. 
 The traces of log-likelihoods and parameter estimates are stored in `LG_obj.results_history` as a `xr.DataArray` object.
-The `xr.DataArray` has dimentions `(replicate, iteration, variable)`, where the `variable` dimension includes the log-likelihood estimations and all POMP model parameters. 
+This array has dimentions `(replicate, iteration, variable)`, where the `variable` dimension includes the log-likelihood estimations and all POMP model parameters. 
+For reproducibility, each call updates and stores a child key into `LG_obj.fresh_key`, allowing subfequent method calls to safely omit an explicit assignment on `key` argument.
+
+Each call generates a `PompMIFResult` object, another dataclass derived from `PompBaseResult`.  
+The object is appended to `object.results_history` attribute, containing the IF2 trace outputs, algorithm settings and execution context: 
+
+- `method`: The method that was run. In this case, `"mif"`.
+- `execution time`:  The execution time if `track_time = True`
+- `key`: The RNG key used. 
+- `theta`: The list of parameter sets used.
+- `traces_da`: An `xarray.DataArray` of IF2 trace outputs. The array is indexed by `(replicate, iteration, variable)`, where `variable` includes the estimated loglikelihood and all model parameters. 
+- `J`: The number of particles used.
+- `M`: The number of IF2 iterations.
+- `rw_sd`: an `RWSigma` object representing the random walk pertubation specification. 
+- `a`: Cooling fraction.
+- `thresh`: Threshold value for resampling used, which is 0 by default.
+
+Similar to `PompPFilterResult` class, `PompMIFResult` object contains the `to_dataframe()`, `traces()`, and `print_summary()` as helper functions
+
 
 ```{python}
 #| label: lg-mif
@@ -769,41 +788,64 @@ The `xr.DataArray` has dimentions `(replicate, iteration, variable)`, where the 
 
 key, subkey = jax.random.split(key)
 
-#LG_obj_4 = pp.Pomp(
- #   rinit=rinit,
- #   rproc=rproc,
- #   dmeas=dmeas,
- #   rmeas=rmeas,
- #   ys=ys,
- #   theta=theta_list,
- #   covars=None,
-#)
-#LG_obj_4.mif(
-  #sigmas=0.02,
-  #sigmas_init=0.1,
-  #J=1000,
-  #M=100,
-  #a=0.5, # cooling rate
-  #key=subkey
-#)
-#LG_obj_4.pfilter(J=1000, reps=36)
-#LG_obj_4.mif(
-	#sigmas=0.005,
-	#sigmas_init=0.0025,
-	#J=1000, 
-	#M=100, 
-	#a=0.5,
-#)
-#LG_obj_4.pfilter(J=1000, reps=36)
+LG_obj_4 = pp.Pomp(
+    rinit=rinit,
+    rproc=rproc,
+    dmeas=dmeas,
+    rmeas=rmeas,
+    t0=0.0,
+    nstep=1,
+    ydim=2,
+    ys=ys,
+    theta=theta_list,
+    statenames=["X1", "X2"],
+)
+
+rw_sd = pp.RWSigma(
+        sigmas={
+            "A11": 0.02,
+            "A12": 0.02,
+            "A21": 0.02,
+            "A22": 0.02,
+            "C11": 0.02,
+            "C12": 0.02,
+            "C21": 0.02,
+            "C22": 0.02,
+            "Q11": 0.02,
+            "Q12": 0.02,
+            "Q21": 0.02,
+            "Q22": 0.02,
+            "R11": 0.02,
+            "R12": 0.02,
+            "R21": 0.02,
+            "R22": 0.0,
+        },
+        init_names=[],
+    )
+
+LG_obj_4.mif(
+  rw_sd = rw_sd, 
+  J = 1000,
+  M = 2,
+  a = 0.5,
+  key = subkey
+)
 
 
 ```
+
 
 The `pypomp` implementation of IF algorithm in `mif()` inherits the structure of R's `pomp` package while adding JAX compilation, providing a substantial performance improvements over R implementation.
 
 ### Iterated Filtering with Automatic Differentiation 
 
-Iterated filtering with automatic differentiation (IFAD) [@tan2024] is a hybrid method that combines the complementary advanrages of iterated filtering (IF2) and a new proposed MOP-$\alpha$ gradient method. Here by using the differentiable particle filter, the MOP-$\alpha$ gradient method can obtain gradient and Hessian estimates of the log-likelihood of a POMP model. These estimates are involved in an optimization method to perform a gradient-based search in the parameter space.  While IF2 can quickly approach the neighborhood of the global maximum, it struggles to achieve exact local convergence to the global maximum. It can take dozens of iterations to partially close the log-likelihood gap between a point in the neighborhood and the actual global maximum. In contrast, the new MOP-$\alpha$ gradient method can conduct a fast and strong local search, but shows weaker ability at conducting a global exploration [@tan2024]. IFAD addresses this tradeoff by first running IF2 to approach the neighborhoold of the global maximum, and then swithcing to the gradient-based method to further refine the parameter estimates. **NOTE:Global Maximum or Local Maximum?**
+Iterated filtering with automatic differentiation (IFAD) [@tan2024] is a two-stage method that combines the complementary advantages of iterated filtering (IF2) and a new proposed MOP-$\alpha$ gradient method. 
+The motivation is that IF2 is effective at global exploration of the parameter space and can quickly approach the neighborhood of the global maximum, but it struggles to achieve exact local convergence to the global maximum once it has reached a high-likelihood neighborhood. 
+In contrast, by using the differentiable particle filter, the MOP-$\alpha$ gradient method can conduct local refinements via gradients (and optionally Hessians) in the parameter space, but shows weaker ability at conducting a global exploration [@tan2024].
+IFAD addresses this tradeoff by first running IF2 to approach the promising region and then swithcing to a gradient-based method local search to further refine the parameter estimates. 
+IFAD improves robustness by combining exploration and exploitation through the two-stage work.
+
+The Algorithm \ref{alg:ifad} outlines the IFAD workflow:
 
 \begin{algorithm}[H]
 \caption{IFAD: Iterated Filtering with Automatic Differentiation}
@@ -829,48 +871,63 @@ Iterated filtering with automatic differentiation (IFAD) [@tan2024] is a hybrid 
 \end{algorithmic}
 \end{algorithm}
 
-In `pypomp`, the MOP-$\alpha$ gradent local search is implemented under `train()`, which utilizes JAX's automatic differentiation features with MOP-$\alpha$ to compute the gradient and Hessian of the log-likelihood. While IFAD is not implemented as an independent function, users can always run `mif()` and `train()` to execute the two phases sequentially. For example: 
+In `pypomp`, the MOP-$\alpha$ gradent local search stage is implemented by the `train()`, which utilizes JAX's automatic differentiation features to iteratively optimize MOP-$\alpha$ objective.
+While IFAD is not implemented as an independent function, users can always run `mif()` and `train()` to execute the two phases sequentially. 
+For example, the following code first runs IF2 for $M_1$ iterations to obtain a high-likelihood starting point, and then applies Newton-type optimization for $M_2$ iterations to refine the estimate: 
 
 ```{python}
 #| label: lg-ifad
 #| echo: true
 
 key, subkey = jax.random.split(key)
-#LG_obj_5 = pp.Pomp(
-#    rinit=rinit,
-#    rproc=rproc,
-#    dmeas=dmeas,
-#    rmeas=rmeas,
-#    ys=ys,
-#    theta=theta_list,
-#    covars=None,
-#)
-#LG_obj_5.mif(
-#	sigmas=0.02,
-#	sigmas_init=0.1,
-# J=1000, 
-#	M=40, 
-#	a=0.5,
-#	key=subkey
-#)
-#LG_obj_5.train(
-#    J=1000, 
-#    itns=40, 
-#    eta=0.0025, # learning rate
-#    optimizer="Newton"
-#)
+LG_obj_5 = pp.Pomp(
+    rinit=rinit,
+    rproc=rproc,
+    dmeas=dmeas,
+    rmeas=rmeas,
+    t0=0.0,
+    nstep=1,
+    ydim=2,
+    ys=ys,
+    theta=theta_list,
+    statenames=["X1", "X2"],
+)
+LG_obj_5.mif(
+    rw_sd=rw_sd,
+    J=1000, 
+    M=3, 
+  	a=0.5,
+    key=subkey
+    )
+LG_obj_5.train(
+    J=1000, 
+    M=3, 
+    eta=0.0025, # learning rate
+    optimizer="Newton"
+)
 
 ```
 
-Here, `mif()` runs IF2 for 40 iterations, followed by `train()` runs the Newton's method with MOP-$\alpha$ for 40 iterations.
+In `pypomp`, `train()` serves as a gradient-based optimizer for exploring the parameter space. 
+Each iteration follows the standard optimization working flow: starting from the current parameter estimate, it computes gradient (and Hessian) of the log-likelihood via `jax.grad()` and `jax.Hessian()`, then utilizes the choosen internal optimizer to update the direction, obtains the learning rate, and finally updates the parameters as well as evaluates the new likelihood under the updated parameters. 
+`train()` supports several common gradient-based optimizers for exploring the parameter space, including Newton's method, weighted Newton's method, Broyden-Fletcher-Goldfarb-Shanno (BFGS) algorithm, and stochastic gradient descent method (SGD). 
+In addition, An optional Armijo backtracking line search method [@Wills2021] is available for adaptively determining the learning rate (step size) under stochastic Quasi-Newton methods. 
 
-The implemented function `train()` serves as a gradient-based optimizer for exploring the parameter space. Each iteration follows the standard optimization working flow: starting from the current parameter estimate, it computes gradient (and Hessian) of the log-likelihood via `jax.grad()` and `jax.Hessian()`, then utilizes the choosen internal optimizer to update the direction, obtains the learning rate, and finally updates the parameters as well as evaluates the new likelihood under the updated parameters. `train()` supports several common gradient-based optimizers for exploring the parameter space, including Newton's method, weighted Newton's method, Broyden-Fletcher-Goldfarb-Shanno (BFGS) algorithm, and gradient descent method. In addition, A linear search method [@Wills2021] is available under `train` for determining the learning rate (step size) under stochastic Quasi-Newton methods. 
+In `train()`, there is a key argument `n_monitors`, controlling the number of log-likelihood values are evaluated during each training step. 
+When setting `n_monitors=0`, the algorithm totally skip the evaluating process and conduct the gradient-only optimization. 
+It is the fastest choice, but doesn't support the line search method for learning rate determination, as it utilizes the estimated log-likelihood as the current objective function value. 
+`n_monitors=1` is a lightest monitoring form, where users can get a one log-likelihood evaluation per training step. 
+Larger `n_monitors` reduces the log-likelihood estimate variance in particle filtering using Monte Carlo average at additional computational cost.
+There is another useful Boolean flag, `scale`, which controls whether the search direction is normalized to unit length. 
+A normalized search direction can provide a more conservative update when the gradients or Hessians are unstable. 
 
-In `train()`, there is a key argument `n_monitors`, controlling the number of log-likelihood values are evaluated during each training step. When setting `n_monitors=0`, the algorithm totally skip the evaluating process and conduct the gradient-only optimization. It is the fastest choice, but doesn't support the linear search method for learning rate determination, as it utilizes the estimated log-likelihood as the current objective function value. `n_monitors=1` is a lightest monitoring form, where users can get a one log-likelihood evaluation per training step. Larger `n_monitors` reduces the log-likelihood estimate variance in particle filtering using Monte Carlo average at additional computational cost. There is another useful Boolean flag, `scale`, which controls whether the search direction is normalized to unit length. A normalized search direction can provide a more conservative update when the gradients or Hessians are unstable. 
+Similarly to `mif()`, each call to `train()` creates a `PompTrainResult` object, which contains the algorithmic settings and an `xarray.DataArray` trace `traces_da` with dimensions `(replicate, iteration, variable)`. 
+The result object is appended into `results_history`. 
 
-Similarly to `mif()`, `train()` updates the `result_history` with the trace of log-likelihoods and parameter estimates as `xr.DataArray` object, and replaces `LG_obj.theta` with the final parameter estimates from the last iteration for each replicate, organized as distionaries keyed by parameter names. The `xr.DataArray` has dimentions `(replicate, iteration, variable)`. The `variable` dimension includes the log-likelihood estimations and all POMP model parameters. 
-
-The core highlight of IFAD in algorithmic implementation lies in its internal automatic differentiation and just-in-time compilation powered by JAX. Via JAX, gradients and Hessian matrices for the MOP-$\alpha$ log-likelihood function can be directly obtained without manual derivation, ensuring correctness, efficiency and operability. This also enables flexible use of advanced gradient-based optimizers in each training step, such as Newton's method, quasi-Newton methods, BFGS, gradient descent and stochastic line search. Additionally, JAX's GPU compilation capabilities enable these optimization processes to execute efficiently, making IFAD not only theoretically feasible but also capable of effectively handling large complex POMP models in practical algorithmic implementations.
+The core highlight of IFAD in algorithmic implementation lies in its internal automatic differentiation and just-in-time compilation powered by JAX. 
+Via JAX, gradients and Hessian matrices for the MOP-$\alpha$ log-likelihood function can be directly obtained without manual derivation, ensuring correctness, efficiency and operability. 
+This also enables flexible use of advanced gradient-based optimizers in each training step, such as Newton's method, quasi-Newton methods, BFGS, gradient descent and stochastic line search. 
+Additionally, JAX's GPU compilation capabilities enable these optimization processes to execute efficiently, making IFAD not only theoretically feasible but also capable of effectively handling large complex POMP models in practical algorithmic implementations.
 
 
 # Data Analysis with pypomp / Tutorials and data analysis examples
