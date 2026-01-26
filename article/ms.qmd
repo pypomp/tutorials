@@ -50,6 +50,7 @@ format:
     journal:
       include-jss-default: false
 bibliography: references.bib
+abstract: We introduce **pypomp**, a high-performance Python package for statistical inference for partially observed Markov process (POMP) models. Built to handle complex stochastic dynamic systems, it implements simulation-based algorithms including sequential Monte Carlo and iterated filtering. By utilizing parallel processing on graphical processing unit (GPU) hardware, **pypomp** is able to run these algorithms several times faster than its predecessor, the R package **pomp**. Models that took weeks to fit and evaluate in **pomp** now take only days in **pypomp**, facilitating the use of previously impractical models. The package offers an accessible interface that streamlines the entire pipeline of model construction, fitting, and analysis. With its scalability, **pypomp** supports the analysis of large datasets in fields such as epidemiology, ecology, and finance, providing a robust environment for modeling partially observed temporal processes.
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -69,15 +70,20 @@ os.environ["JAX_PLATFORM_NAME"] = "cpu"
 ```
 
 ```{python}
-#| label: jax
-#| echo: false
+# | label: jax
+# | echo: false
 import jax
 ```
 
 ```{python}
+# | label: sys
+# | echo: false
+# | eval: false
 import sys
+
 sys.executable
 ```
+
 
 
 
