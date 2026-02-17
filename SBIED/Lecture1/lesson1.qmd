@@ -4,7 +4,7 @@ title: >
 author:
   - Aaron A. King
   - Edward L. Ionides
-  - Translated in pypomp by Kunyang He
+  - Translated to pypomp by Kunyang He
 
 shortauthor: "King & Ionides et al."   
 shorttitle: "Lesson 1"  
@@ -35,13 +35,7 @@ format:
 jupyter: python3 
 
 
-
 header-includes: |
-  \providecommand{\AtBeginSection}[1]{}
-  \providecommand{\AtBeginSubsection}[1]{}
-  \providecommand{\framebreak}{}
-  \AtBeginSection{}
-  \AtBeginSubsection{}
   \usepackage{amsmath,amssymb,amsfonts}
   \usepackage{graphicx}
   \usepackage{hyperref}
@@ -49,11 +43,8 @@ header-includes: |
   \usepackage{tikz}
   \usetikzlibrary{positioning,calc,arrows.meta}
 
-  \newcommand{\myemph}[1]{\emph{#1}}
-  \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
-  \newcommand{\pkg}[1]{\texttt{#1}}
-  \newcommand{\code}[1]{\texttt{#1}}
-  \newcommand{\Rlanguage}{\textsf{R}}
+   \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
+   \newcommand{\Rlanguage}{\textsf{R}}
   \newcommand{\Rzero}{\mathcal{R}_{0}}
   \newcommand{\pr}{\mathbb{P}}
   \newcommand{\equals}{=}
@@ -68,19 +59,11 @@ header-includes: |
 ## Objectives for this lesson
 - To understand the motivations for simulation‑based inference in the study of epidemiological and ecological systems.
 - To introduce the class of partially observed Markov process (POMP) models.
-- To introduce the \pkg{pomp} \Rlanguage package.
+- To introduce the `pypomp` Python package.
 
-## What is pypomp
+This is a Python-`pypomp` version of the R-`pomp` [SBIED](https://kingaa.github.io/sbied/) course. 
+The main difference, apart from choice of language, is that `pypomp` permits the use of graphical processing unit (GPU) hardware and supports methods requiring automatic differentiation.
 
-- pypomp is an independent Python framework for building, simulating and fitting partially observed Markov process (POMP) models.
-
-- Written in modern Python ≥ 3.10 and built on JAX for just‑in‑time compilation, automatic differentiation (AD) and transparent CPU/GPU/TPU execution.
-
-- Aims to serve two user groups:
-
-     - Scientists who need fast, plug‑and‑play likelihood‑based inference for nonlinear dynamical systems.
-
-     - Method developers who want a clean, differentiable platform for experimenting with new particle‐filter and Bayesian algorithms. 
 
 ## What makes epidemiological inference hard?
 
@@ -96,15 +79,6 @@ header-includes: |
   - How to design ecological or epidemiological intervention?  
   - How to make accurate forecasts?
 - **Time series** are particularly useful sources of data.
-
-## Why pypomp
-
-- **Automatic differentiation**: gradients of log‑likelihoods, summary statistics and even full particle‑filter traces are available out‑of‑the‑box—no hand‑coded adjoints.
-
-- **Hardware acceleration**: a single GPU can advance tens of thousands of particles in parallel, giving up‑to‑16× speed‑ups over CPU‑bound workflows.
-
-- **Functional, stateless design**: all simulators take explicit JAX random keys, making large‐scale parallelisation and reproducibility straightforward.
-
 
 
 ### Obstacles to inference
@@ -130,7 +104,7 @@ The *partially observed Markov process* (POMP) modeling framework we focus on in
 2. To teach statistically and computationally efficient approaches for performing scientific inference using POMP models.  
 3. To give students the ability to formulate models of their own.  
 4. To give students opportunities to work with such inference methods.  
-5. To familiarize students with the \pkg{pomp} package.  
+5. To familiarize students with the `pypomp` package.  
 6. To provide documented examples for adaptation and re‑use.
 
 
@@ -157,21 +131,18 @@ The *partially observed Markov process* (POMP) modeling framework we focus on in
 
 ## Mathematical definitions
 
-### Partially observed Markov process (POMP) models {.allowframebreaks}
+### Partially observed Markov process (POMP) models 
 - Data $y^*_1,\dots,y^*_N$ collected at times $t_1<\dots<t_N$ are modeled as noisy, incomplete, and indirect observations of a Markov process $\{X(t), t\ge t_0\}$.
-- This is a \myemph{partially observed Markov process (POMP)} model, also known as a hidden Markov model or a state space model.
+- This is a partially observed Markov process (POMP) model, also known as a hidden Markov model or a state space model.
 - $\{X(t)\}$ is Markov if the history of the process, $\{X(s), s\le t\}$, is uninformative about the future of the process, $\{X(s), s\ge t\}$, given the current value of the process, $X(t)$.
-- If all quantities important for the dynamics of the system are placed in the \myemph{state}, $X(t)$, then the Markov property holds by construction.
-
-\framebreak
-
+- If all quantities important for the dynamics of the system are placed in the _state_, $X(t)$, then the Markov property holds by construction.
 - Systems with delays can usually be rewritten as Markovian systems, at least approximately.
 - An important special case: any system of differential equations $dx/dt=f(x)$ is Markovian.
 - POMP models can include all the features desired by \cite{Bjornstad2001}.
 
 ### Schematic of the structure of a POMP
 - Arrows in the following diagram show causal relations.
-- A key perspective to keep in mind is that \myemph{the model is to be viewed as the process that generated the data}.
+- A key perspective to keep in mind is that _the model is to be viewed as the process that generated the data_.
 - That is: the data are viewed as one realization of the model's stochastic process.
 
 ![Schematic of the structure of a POMP](pomp_schematic1.png){height=4cm fig-cap="Schematic of the structure of a POMP" fig-alt="Diagram of POMP structure"}
@@ -290,7 +261,7 @@ The *partially observed Markov process* (POMP) modeling framework we focus on in
 ## From math to algorithms
 
 ### Moving from math to algorithms for POMP models
-We specify some \myemph{basic model components} which can be used within algorithms:
+We specify some _basic model components_ which can be used within algorithms:
 
 - `rprocess`: a draw from $f_{X_n|X_{n-1}}(x_n| x_{n-1};\theta)$  
 - `dprocess`: evaluation of $f_{X_n|X_{n-1}}(x_n| x_{n-1};\theta)$  
@@ -305,74 +276,88 @@ These basic model components define the specific POMP model under consideration.
 ### What is a simulation-based method?
 - Simulating random processes is often much easier than evaluating their transition probabilities.  
 - In other words, we may be able to write rprocess but not dprocess.  
--  \myemph{Simulation-based} methods require the user to specify rprocess but not dprocess.  
--  \myemph{Plug-and-play}, \myemph{likelihood-free} and \myemph{equation-free} are alternative terms for “simulation-based’’ methods.  
+-  __Simulation-based__ methods require the user to specify rprocess but not dprocess.  
+-  _Plug-and-play_, _likelihood-free_ and _equation-free_ are alternative terms for _simulation-based_.
 - Much development of simulation-based statistical methodology has occurred in the past decade.  
 
 
+## The pypomp package
 
-# The \pkg{pomp} package
-
-### The \pkg{pomp} package for POMP models
-- \pkg{pomp} is an  \Rlanguage package for data analysis using partially observed Markov process (POMP) models \citep{King2016}.  
-- Note the distinction: lower case \pkg{pomp} is a software package; upper case POMP is a class of models.  
-- \pkg{pomp} builds methodology for POMP models in terms of arbitrary user-specified POMP models.  
-- \pkg{pomp} provides tools, documentation, and examples to help users specify POMP models.  
-- \pkg{pomp} provides a platform for modification and sharing of models, data-analysis workflows, and methodological development.  
+- `pypomp` is a Python framework for building, simulating and fitting partially observed Markov process (POMP) models \citep{abkemeier25}.
+- `pypomp` builds methodology for POMP models in terms of arbitrary user-specified POMP models.  
+- `pypomp` provides tools, documentation, and examples to help users specify POMP models.  
+- `pypomp` provides a platform for modification and sharing of models, data-analysis workflows, and methodological development.  
+- `pypomp` is built on JAX for just‑in‑time compilation, automatic differentiation (AD) and CPU/GPU/TPU execution.
 
 
+### Structure of the pypomp package
+Suppose `pp` is a pypomp representation of a POMP model built by the `Pomp` constructor,
+```{python}
+#| eval: false
+from pypomp.pomp_class import Pomp
+```
+It is useful to divide the `pypomp` package functionality into different levels:
 
-### Structure of the \pkg{pomp} package
-It is useful to divide the \pkg{pomp} package functionality into different levels:
-
-- Basic model components  
-- Workhorses  
-- Elementary POMP algorithms  
-- Inference algorithms  
-
+- Basic model components: building `pp` to specify the POMP model
+- Elementary POMP algorithms: investigating `pp` at a fixed set of parameters
+- Inference algorithms: parameter estimation, model selection and diagnostics
 
 
 ### Basic model components
-Basic model components are user-specified procedures that perform the elementary computations that specify a POMP model.  
-There are nine of these:
+Basic model components are user-specified methods belonging to `pp` that perform the elementary computations that specify a POMP model.  
+There are five of these:
 
 - `rinit`: simulator for the initial-state distribution, i.e., the distribution of the latent state at time $t_0$.  
-- `rprocess` and `dprocess`: simulator and density evaluation procedure, respectively, for the process model.  
+- `rprocess`: simulator for the process model.  
 - `rmeasure` and `dmeasure`: simulator and density evaluation procedure, respectively, for the measurement model.  
+- `par_trans`: parameter transformations.  
+
+The scientist must specify whichever basic model components are required for the algorithms that the scientist uses. 
+Future pypomp algorithms may implement `dprocess` (transition density for the process model) and `rprior`, `dprior` to represent Bayesian prior belief.
+
+<!---
+
+- `rprocess` and `dprocess`: simulator and density evaluation procedure, respectively, for the process model.  
 - `rprior` and `dprior`: simulator and density evaluation procedure, respectively, for the prior distribution.  
 - `skeleton`: evaluation of a deterministic skeleton.  
-- `partrans`: parameter transformations.  
+--->
 
-The scientist must specify whichever of these basic model components are required for the algorithms that the scientist uses.
+### Classes for basic model components
 
+- `pp.rinit` has class `RInit`
+- `pp.dmeas` has class `DMeas`
+- `pp.rmeas` has class `RMeas`
+- `pp.rproc` has class `RProc`
+- `pp.par_trans` has class `ParTrans`
 
+These methods are not vectorized, i.e., they evaluate the model properties for a single realization of the model.
 
-### Workhorses
-Workhorses are \Rlanguage functions, built into the package, that cause the basic model component procedures to be executed.
-
-- Each basic model component has a corresponding workhorse.  
-- Effectively, the workhorse is a vectorized wrapper around the basic model component.  
-- For example, the \code{rprocess()} function uses code specified by the rprocess model component, constructed via the \code{rprocess} argument to \code{pomp()}.  
-- The rprocess model component specifies how a single trajectory evolves at a single moment of time.  
-  The \code{rprocess()} workhorse combines these computations for arbitrary collections of times and arbitrary numbers of replications.  
-
+They are designed to be vectorized via a call to JAX `vmap`, and this happens internally in pypomp methods. 
 
 
 ### Elementary POMP algorithms
 These are algorithms that interrogate the model or the model/data confrontation without attempting to estimate parameters.  
-There are currently four of these:
+There are currently two of these:
 
-- \code{simulate} performs simulations of the POMP model, i.e., it samples from the joint distribution of latent states and observables.  
-- \code{pfilter} runs a sequential Monte Carlo (particle filter) algorithm to compute the likelihood and (optionally) estimate the prediction and filtering distributions of the latent state process.  
+- `simulate` performs simulations of the POMP model, i.e., it samples from the joint distribution of latent states and observables.  
+- `pfilter` runs a sequential Monte Carlo (particle filter) algorithm to compute the likelihood and (optionally) estimate the prediction and filtering distributions of the latent state process.  
+
+<!---
+Two more in R-pomp that could be included, but are less used:
 - \code{probe} computes one or more uni- or multi-variate summary statistics on both actual and simulated data.  
 - \code{spect} estimates the power spectral density functions for the actual and simulated data.  
+--->
 
 
-
-### POMP inference algorithms  {.allowframebreaks}
+### POMP inference algorithms  
 These are procedures that build on the elementary algorithms and are used for estimation of parameters and other inferential tasks.  
-There are currently ten of these:
+There are currently three of these:
 
+- `mif`: Likelihood maximiation via the IF2 iterated filtering algorithm.
+- `mop`: An automatically differentiatble "measurement off-parameter" particle filter.
+- `train`: Likelihood maximization based on `mop` or related strategies.
+
+<!---
 - \code{abc}: approximate Bayesian computation  
 - \code{bsmc2}: Liu-West algorithm for Bayesian SMC  
 - \code{pmcmc}: a particle MCMC algorithm  
@@ -383,26 +368,24 @@ There are currently ten of these:
 - \code{probe\_objfun}: probe matching  
 - \code{nlf\_objfun}: nonlinear forecasting  
 
-\framebreak
-
 \emph{Objective function methods}: among the estimation algorithms just listed, four are methods that construct stateful objective functions that can be optimized using general-purpose numerical optimization algorithms such as \code{optim}, \code{subplex}, or the optimizers in the \pkg{nloptr} package.
+--->
 
-# The \pkg{pypomp} package
+### Examples of POMP models in pypomp
 
-### Structure of the \pkg{pypomp} package
+-  Four example constructor functions returning `Pomp` objects.
 
-Basic model components are user-specified procedures that perform the elementary computations that specify a POMP model.  
-There are nine of these:
+- `pypomp.dacca`: The historical Dacca cholera data with the model of @King2008
+- `pypomp.LG`: A linear Gaussian example for validating Monte Carlo methods against exact Kalman filter calculations
+- `pypomp.measles.measlesPomp.UKMeasles`: Pre-vaccination meases in England and Wales with the model of @He2010
+- `pypomp.spx`:  A stochastic volatility model for the S&P 500 stock market index.
 
-- `RInit`: simulator for the initial-state distribution, i.e., the distribution of the latent state at time $t_0$.  
-- `RProc`: simulator and density evaluation procedure, respectively, for the process model.  
-- `RMeas` and `DMeas`: simulator and density evaluation procedure, respectively, for the measurement model.   
 
-- LG(), dacca(), spx(), UKMeasles() : Four ready‑to‑run example models returning a Pomp object.
+<!---
 
-The scientist must specify whichever of these basic model components are required for the algorithms that the scientist uses.
+THIS IS TOO MUCH COMPLEXITY FOR AN INTRODUCTION; THE ARGUMENTS ARE NOT YET DEFINED
 
-### key methods of the pyomp class
+### key methods of the pypomp class
 
 - \code{sample\_params(bounds, n, key)}: Uniformly sample parameters within given bounds.
 - \code{simulate(key, theta=None, times=None, nsim=\dots)}: Simulate latent states + observations.
@@ -413,4 +396,6 @@ The scientist must specify whichever of these basic model components are require
 - \code{traces()} / \code{results(idx)}: Inspect parameter / log‑likelihood histories.
 - \code{plot\_traces()}: Visualise convergence and diagnostics.
 
+--->
 
+# References
