@@ -49,6 +49,11 @@ header-includes: |
   \newcommand{\myexercise}{\paragraph{Exercise}}
 ---
 
+```{python}
+#| echo: false
+#| output: false
+"trying an empty chunk to see if it helps compilation"
+```
 
 ## Objectives for this lesson
 - To understand the motivations for simulation‑based inference in the study of epidemiological and ecological systems.
@@ -82,7 +87,7 @@ header-includes: |
 
 ## Obstacles to inference
 
-*Obstacles for **ecological** modeling and inference via nonlinear mechanistic models enumerated by* [@Bjornstad2001]:
+*Obstacles for **ecological** modeling and inference via nonlinear mechanistic models enumerated by* @Bjornstad2001:
 
 1. Combining measurement noise and process noise.  
 2. Including covariates in mechanistically plausible ways.  
@@ -125,15 +130,14 @@ The *partially observed Markov process* (POMP) modeling framework we focus on in
 
 ## Partially observed Markov process (POMP) models
 
-Data $y^*_1,\dots,y^*_N$ collected at times $t_1<\dots<t_N$ are modeled as noisy, incomplete, and indirect observations of a Markov process $\{X(t), t\ge t_0\}$.
-This is a **partially observed Markov process (POMP) model**, also known as a **hidden Markov model** or a **state space model**.
+A **POMP model** consists of data $y^*_1,\dots,y^*_N$ collected at times $t_1<\dots<t_N$, modeled as noisy, incomplete, and indirect observations of a Markov process $\{X(t), t\ge t_0\}$. This is also known as a **hidden Markov model** or a **state space model**.
 
 - $\{X(t)\}$ is Markov if the history of the process, $\{X(s), s\le t\}$, is uninformative about the future of the process, $\{X(s), s\ge t\}$, given the current value of the process, $X(t)$.
 - If all quantities important for the dynamics of the system are placed in the _state_, $X(t)$, then the Markov property holds by construction.
 - Systems with delays can usually be rewritten as Markovian systems, at least approximately.
 - An important special case: any system of differential equations $dx/dt=f(x)$ is Markovian.
 
-POMP models can include all the features desired by \cite{Bjornstad2001}.
+POMP models can include all the features desired by @Bjornstad2001.
 
 ## Schematic of the structure of a POMP
 - Arrows in the following diagram show causal relations.
@@ -241,13 +245,13 @@ POMP models can include all the features desired by \cite{Bjornstad2001}.
   \label{fig:pomp-centered}
 \end{figure}
 
-- The state process, $X_n$, is Markovian, i.e.,
+The state process, $X_n$, is Markovian, i.e.,
   $$
     f_{X_n|X_{0:n-1},Y_{1:n-1}}(x_n|x_{0:n-1},y_{1:n-1})
     =f_{X_n|X_{n-1}}(x_n|x_{n-1}).
   $$
 
-- Moreover, $Y_n$, depends only on the state at that time:
+Moreover, $Y_n$, depends only on the state at that time:
   $$
     f_{Y_n|X_{0:N},Y_{1:n-1}}(y_n|x_{0:n},y_{1:n-1})
     =f_{Y_n|X_{n}}(y_n|x_n), \quad\text{for $n=1,\dots,N$}.
@@ -286,7 +290,7 @@ These basic model components define the specific POMP model under consideration.
 
 ## The pypomp package
 
-- `pypomp` is a Python framework for building, simulating and fitting partially observed Markov process (POMP) models \citep{abkemeier25}.
+- `pypomp` is a Python framework for building, simulating and fitting partially observed Markov process (POMP) models @abkemeier25.
 
 - `pypomp` builds methodology for POMP models in terms of arbitrary user-specified POMP models.  
 
@@ -298,20 +302,24 @@ These basic model components define the specific POMP model under consideration.
 
 
 ## Structure of the pypomp package
-Suppose `pp` is a pypomp representation of a POMP model built by the `Pomp` constructor,
+We conventionally denote the `pypomp` package by `pp`:
 ```{python}
 #| eval: false
+#| echo: true
+import pypomp as pp
 from pypomp.pomp_class import Pomp
 ```
+Suppose `mod` is a pypomp representation of a POMP model, so `mod` has class `Pomp`.
+
 It is useful to divide the `pypomp` package functionality into different levels:
 
-- Basic model components: building `pp` to specify the POMP model
-- Elementary POMP algorithms: investigating `pp` at a fixed set of parameters
+- Basic model components: building `mod` to specify the desired POMP model
+- Elementary POMP algorithms: investigating `mod` at a fixed set of parameters
 - Inference algorithms: parameter estimation, model selection and diagnostics
 
 
 ## Basic model components
-Basic model components are user-specified methods belonging to `pp` that perform the elementary computations that specify a POMP model. There are five of these:
+Basic model components are user-specified methods belonging to `mod` that perform the elementary computations that specify a POMP model. There are five of these:
 
 **`rinit`**: simulator for the initial-state distribution, i.e., the distribution of the latent state at time $t_0$.  
 
@@ -336,15 +344,15 @@ Future pypomp algorithms may implement `dprocess` (transition density for the pr
 
 ## Classes for basic model components
 
-- `pp.rinit` has class `RInit`
+**`mod.rinit`** has class `RInit`
 
-- `pp.dmeas` has class `DMeas`
+**`mod.dmeas`** has class `DMeas`
 
-- `pp.rmeas` has class `RMeas`
+**`mod.rmeas`** has class `RMeas`
 
-- `pp.rproc` has class `RProc`
+**`mod.rproc`** has class `RProc`
 
-- `pp.par_trans` has class `ParTrans`
+**`mod.par_trans`** has class `ParTrans`
 
 These methods are not vectorized, i.e., they evaluate the model properties for a single realization of the model.
 
@@ -352,11 +360,11 @@ They are designed to be vectorized via a call to JAX `vmap`, and this happens in
 
 
 ## Elementary POMP algorithms
-These are algorithms that interrogate the model or the model/data confrontation without attempting to estimate parameters.  
-There are currently two of these:
+These are methods for `mod` that use the basic components or the data to interrogate the confrontation without attempting to estimate parameters.  There are currently two of these:
 
-- `simulate` performs simulations of the POMP model, i.e., it samples from the joint distribution of latent states and observables.  
-- `pfilter` runs a sequential Monte Carlo (particle filter) algorithm to compute the likelihood and (optionally) estimate the prediction and filtering distributions of the latent state process.  
+**`simulate`** performs simulations of the POMP model, i.e., it samples from the joint distribution of latent states and observables.  
+
+**`pfilter`** runs a sequential Monte Carlo (particle filter) algorithm to compute the likelihood and (optionally) estimate the prediction and filtering distributions of the latent state process.  
 
 <!---
 Two more in R-pomp that could be included, but are less used:
@@ -366,12 +374,13 @@ Two more in R-pomp that could be included, but are less used:
 
 
 ## POMP inference algorithms  
-These are procedures that build on the elementary algorithms and are used for estimation of parameters and other inferential tasks.  
-There are currently three of these:
+These are methods for `Pomp` models that call the elementary algorithms and are used for estimation of parameters and other inferential tasks. There are currently three of these:
 
-- `mif`: Likelihood maximiation via the IF2 iterated filtering algorithm.
-- `mop`: An automatically differentiatble "measurement off-parameter" particle filter.
-- `train`: Likelihood maximization based on `mop` or related strategies.
+**`mif`**: Likelihood maximization via the IF2 iterated filtering algorithm.
+
+**`mop`**: An automatically differentiatble "measurement off-parameter" particle filter.
+
+**`train`**: Likelihood maximization based on `mop` or related strategies.
 
 <!---
 - \code{abc}: approximate Bayesian computation  
@@ -389,15 +398,15 @@ There are currently three of these:
 
 ## Examples of POMP models in pypomp
 
--  Four example constructor functions returning `Pomp` objects.
+Four example constructor functions returning `Pomp` objects.
 
-- `pypomp.dacca`: The historical Dacca cholera data with the model of @King2008
+**`pp.dacca`**: The historical Dacca cholera data with the model of @King2008
 
-- `pypomp.LG`: A linear Gaussian example for validating Monte Carlo methods against exact Kalman filter calculations
+**`pp.LG`**: A linear Gaussian example for validating Monte Carlo methods against exact Kalman filter calculations
 
-- `pypomp.measles.measlesPomp.UKMeasles`: Pre-vaccination meases in England and Wales with the model of @He2010
+**`pp.measles.measlesPomp.UKMeasles`**: Pre-vaccination meases in England and Wales with the model of @He2010
 
-- `pypomp.spx`:  A stochastic volatility model for the S&P 500 stock market index.
+**`pp.spx`**:  A stochastic volatility model for the S&P 500 stock market index.
 
 
 <!---
