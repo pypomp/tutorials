@@ -10,8 +10,7 @@ The course explores deterministic and stochastic formulations of epidemiological
 Special emphasis will be on exact and approximate likelihood as the key elements in parameter estimation, hypothesis testing, and model selection.
 Specifically, the course emphasizes sequential Monte Carlo techniques.
 
-This is an adaptation of the previous [SBIED](https://github.com/kingaa/sbied) short course from **R-pomp** to **pypomp**.
-As such, its objectives are:
+This is a Python-`pypomp` version of the previous [R-pomp](https://github.com/kingaa/sbied) short course. The `pypomp` package supports GPU computation and automatic differentiation via `JAX`.
 
 1. To introduce partially observed Markov process (POMP) models as tools for scientific investigation and public health policy.
 1. To give students the ability to formulate POMP models of their own.
@@ -25,21 +24,21 @@ As such, its objectives are:
 
 ## Lessons
 
-[**0. Instructions for preparing your laptop for the course exercises.**](./Lecture0/index.html)
+[**0. Instructions for preparing your laptop for the course exercises.**](chapter0)
 
-[**1. Introduction: What is "Simulation-based Inference for Epidemiological Dynamics"?  POMPs and pypomp.**](./Lecture1/index.html)
+[**1. Introduction: What is "Simulation-based Inference for Epidemiological Dynamics"?  POMPs and pypomp.**](chapter1)
 
-[**2. Simulation of stochastic dynamic models.**](./Lecture2/index.html)
+[**2. Simulation of stochastic dynamic models.**](chapter2)
 
-[**3. Likelihood for POMPs: theory and practice.**](./Lecture3/index.html)
+[**3. Likelihood for POMPs: theory and practice.**](chapter3)
 
-[**4. Iterated filtering: theory and practice.**](./lecture4/index.html)
+[**4. Iterated filtering: theory and practice.**](chapter4)
 
-[**5. Case study: measles.  Recurrent epidemics, long time series, covariates, extra-demographic stochasticity, interpretation of parameter estimates.**](./lecture5/index.html)
+[**5. Case study: measles.  Recurrent epidemics, long time series, covariates, extra-demographic stochasticity, interpretation of parameter estimates.**](chapter5)
 
-[**6. Case study: polio. Workflow for a real research problem.**](./lecture6/index.html)
+[**6. Case study: polio. Workflow for a real research problem.**](chapter6)
 
-[**7. Case study: Ebola. Model diagnostics and forecasting.**](./lecture7/index.html)
+[**7. Case study: Ebola. Model diagnostics and forecasting.**](chapter7)
 
 **8. Case study: HIV and fluctuating sexual contact rates. Panel data.** Not yet implemented.
 
