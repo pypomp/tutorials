@@ -1,10 +1,9 @@
----
+
 title: >
   Lesson 1: Introduction to Simulation-based Inference for Epidemiological Dynamics
 author:
   - "Aaron A. King and Edward L. Ionides \\newline "
   - "Translated to pypomp by Kunyang He"
-date: "July 23, 2025"
 
 bibliography: ../sbied.bib             
 

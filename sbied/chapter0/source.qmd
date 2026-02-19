@@ -6,41 +6,59 @@ author:
   - Edward L. Ionides
   - Kunyang He
 
-shortauthor: "King & Ionides et al."
-shorttitle: "Lesson 0"
-date: "December 25, 2025"
-
 format:
   beamer:
-    code-block-font-size: \tiny
-    theme: AnnArbor
-    colortheme: default
+    code-block-font-size: \tiny                    
     fontsize: 11pt
-    toc: true
-    slide-level: 3
-    highlight-style: tango
-
+    cite-method: natbib
+    biblio-style: apalike
+    toc: false  
+    slide-level: 2
+    header-includes: |
+      \setbeamertemplate{footline}[page number]
+    output-file: slides.pdf
   pdf:
-    documentclass: article
+    documentclass: article          
     fontsize: 11pt
-    toc: true
-    number-sections: true
+    cite-method: natbib           
+    biblio-style: apalike
+    toc: false
+    geometry: margin=1in
+    output-file: notes.pdf
+    
+jupyter: python3 
+
 ---
 
-# Introduction
+## Introduction
 
-This document provides instructions for setting up your computer to run the exercises in this course. We will be using **pypomp**, a Python implementation of partially observed Markov process (POMP) models.
+- This course uses state-of-the-art tools and some care may be needed to set up the computational environment.
+
+- We use `pypomp`, a Python implementation of partially observed Markov process (POMP) models.
+
+- `pypomp` relies on `jax` for vectorization, just-in-time compilation, GPU accessibility, and automatic differentiation.
+
+- `jax` is a high-performance compting package for Python. It depends on
+
+  - CUDA, the NVIDIA GPU programming platform
+
+  - XLA, an accelerated linear algebra library for CUDA
+
+- Additionally, the course emphasizes reproducible data analysis using Quarto
 
 ## What you will need
 
-- Python 3.8 or higher
-- pip or conda package manager
-- A text editor or IDE (e.g., VS Code, PyCharm, Jupyter)
+To get started:
+
+- Python 3.10 or higher.
+
 - Basic familiarity with Python programming
 
-# Python Installation
+- A text editor or IDE (e.g., VS Code, PyCharm, Jupyter, Positron). The notes are in Quarto (qmd) format. VS Code (with the Quarto extension) and Positron are recommended for working with qmd files.
 
-## Checking your Python version
+- If you run Windows, the WSL2 Linux virtual machine is recommended for `jax`.
+
+## Python Installation
 
 First, check if you have Python installed and verify the version:
 
@@ -54,73 +72,42 @@ or
 python3 --version
 ```
 
-You should have Python 3.8 or higher. If not, proceed to install Python.
-
-## Installing Python
-
-### Option 1: Using Anaconda (Recommended for beginners)
-
-1. Download Anaconda from [https://www.anaconda.com/download](https://www.anaconda.com/download)
-2. Follow the installation instructions for your operating system
-3. Anaconda includes Python and many scientific packages
-
-### Option 2: Using official Python distribution
+You should have Python 3.10 or higher. If not, make a fresh installation. Various Python distributions exist, but we recommend using the official Python distribution:
 
 1. Download Python from [https://www.python.org/downloads/](https://www.python.org/downloads/)
 2. Follow the installation instructions for your operating system
 3. Make sure to check "Add Python to PATH" during installation (Windows)
 
-# Setting Up a Virtual Environment
+## Setting Up a Virtual Environment
 
-It is highly recommended to use a virtual environment to avoid conflicts with other Python projects.
-
-## Using venv (built-in)
+It is highly recommended to use a virtual environment to avoid conflicts with other Python projects. We use the built-in `venv` 
 
 ```bash
-# Create a virtual environment
-python -m venv sbied-env
+# Create a virtual environment in the
+# working directory for your project
+python -m venv .venv
 
 # Activate the environment
-# On macOS/Linux:
-source sbied-env/bin/activate
-
-# On Windows:
-sbied-env\Scripts\activate
+source .venv/bin/activate
 ```
 
-## Using conda
 
-```bash
-# Create a conda environment
-conda create -n sbied-env python=3.10
+## Installing Required Packages
 
-# Activate the environment
-conda activate sbied-env
-```
-
-# Installing Required Packages
-
-## Installing pypomp
-
-The main package we will use is **pypomp**. Install it using pip:
+The main package we will use is `pypomp`. Install it using `pip`:
 
 ```bash
 pip install pypomp
 ```
 
-## Installing additional dependencies
+This will also install various dependencies, including `jax`, `numpy`, `pandas`, `scipy`, `matplotlib`.
 
-Install the following packages that are commonly used in the course:
-
-```bash
-pip install numpy scipy matplotlib pandas jupyter
-```
-
-If you are using conda, you can install these packages using:
+The following additional packages are commonly used in the course:
 
 ```bash
-conda install numpy scipy matplotlib pandas jupyter
+pip install jupyter
 ```
+
 
 ## Optional: GPU acceleration with JAX
 
@@ -143,9 +130,9 @@ For enhanced visualizations:
 pip install seaborn plotly
 ```
 
-# Setting Up Jupyter
+## Setting Up Jupyter
 
-Jupyter notebooks provide an interactive environment for running Python code.
+Jupyter provides an alternative to Quarto for running Python code.
 
 ## Installing Jupyter
 
@@ -179,9 +166,9 @@ pip install ipykernel
 python -m ipykernel install --user --name=sbied-env --display-name="SBIED Course"
 ```
 
-# Verifying Your Installation
+## Verifying Your Installation
 
-## Test basic Python functionality
+### Test basic Python functionality
 
 Create a test Python script or run in a Python interpreter:
 
@@ -197,7 +184,7 @@ import pandas as pd
 print("All basic packages imported successfully!")
 ```
 
-## Test pypomp installation
+### Test pypomp installation
 
 Create a simple test to verify pypomp is working:
 
@@ -212,9 +199,11 @@ print("pypomp installed successfully!")
 
 Run this minimal POMP model to ensure everything is working:
 
-```python
+```{python}
+#| echo: true
+#| eval: true
 import numpy as np
-import pypomp
+import pypomp as pp
 
 # Create a simple random walk model
 def step_fn(x, t, params, **kwargs):
@@ -254,9 +243,7 @@ cd sbied-pypomp
 
 Alternatively, download the course materials as a ZIP file from the course website and extract them to your working directory.
 
-# Troubleshooting
-
-## Common issues and solutions
+## Troubleshooting: Common issues and solutions
 
 ### "pip: command not found"
 
@@ -289,14 +276,14 @@ If you encounter issues:
 3. Ask for help during the course sessions
 4. Check the course discussion forum
 
-# Summary
+## Summary
 
 By now, you should have:
 
 - ✓ Python 3.8+ installed
 - ✓ A virtual environment created and activated
 - ✓ pypomp and required packages installed
-- ✓ Jupyter set up (if using notebooks)
+- ✓ Quarto and/or Jupyter set up 
 - ✓ Verified your installation with test code
 
 You are now ready to begin the course!
@@ -308,3 +295,4 @@ You are now ready to begin the course!
 - **Matplotlib Tutorial**: [https://matplotlib.org/stable/tutorials/index.html](https://matplotlib.org/stable/tutorials/index.html)
 - **Jupyter Documentation**: [https://jupyter.org/documentation](https://jupyter.org/documentation)
 - **pypomp Repository**: [https://github.com/pypomp/pypomp](https://github.com/pypomp/pypomp)
+- **JAX Documentation**: [https://docs.jax.dev](https://docs.jax.dev)
