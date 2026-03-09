@@ -2,73 +2,42 @@
 title: >
   Lesson 2: Exercises on Simulation of Stochastic Dynamic Models
 author:
-  - Aaron A. King
-  - Edward L. Ionides
-  - Translated in pypomp by Kunyang He
+  - "Aaron A. King and Edward L. Ionides \\newline "
+  - "Translated to pypomp by Kunyang He"
 
-shortauthor: "King & Ionides et al."   
-shorttitle: "Lesson 2 Exercises"  
-date: "December 23, 2025"
-
-bibliography: ../sbied.bib             
+bibliography: ../sbied.bib
 
 format:
-  beamer:
-    code-block-font-size: \tiny                    
-    theme: AnnArbor
-    colortheme: default
+  pdf:
+    documentclass: article
     fontsize: 11pt
     cite-method: natbib
     biblio-style: apalike
-    toc: true  
-    slide-level: 3
-    highlight-style: tango  
-  
-  pdf:
-    documentclass: article          
-    fontsize: 11pt
-    cite-method: natbib           
-    biblio-style: apalike
-    toc: true
+    toc: false
     geometry: margin=1in
-    
-jupyter: python3 
+    output-file: exercises_notes.pdf
 
+jupyter: python3
 
 header-includes: |
-  \providecommand{\AtBeginSection}[1]{}
-  \providecommand{\AtBeginSubsection}[1]{}
   \providecommand{\framebreak}{}
-
-  \usepackage{fvextra}  
-  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{
-    commandchars=\\\{\}, 
-    fontsize=\scriptsize 
-  }
-  \AtBeginSection{}
-  \AtBeginSubsection{}
   \usepackage{amsmath,amssymb,amsfonts}
   \usepackage{graphicx}
   \usepackage{hyperref}
   \usepackage{xcolor}
 
-  \newcommand{\myemph}[1]{\emph{#1}}
   \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
-  \newcommand{\pkg}[1]{\texttt{#1}}
-  \newcommand{\code}[1]{\texttt{#1}}
-  \newcommand{\Rlanguage}{\textsf{R}}
   \newcommand{\Rzero}{\mathcal{R}_{0}}
   \newcommand{\pr}{\mathbb{P}}
   \newcommand{\equals}{=}
   \newcommand{\dist}[2]{\operatorname{#1}\!\bigl(#2\bigr)}
-  \newcommand{\Sexpr}[1]{\textcolor{gray}{[\detokenize{#1}]}}
   \newcommand{\myexercise}{\paragraph{Exercise}}
 ---
 
 This document contains worked solutions to the exercises from Lesson 2 on 
 simulation of stochastic dynamic models, implemented using `pypomp`.
 
-# Setup
+## Setup
 
 ## Import Required Packages
 
@@ -126,7 +95,7 @@ def rnbinom(key, k, mu):
     return jax.random.poisson(key_p, lam)
 ```
 
-# Exercise 2.1: Little o Notation
+## Exercise 2.1: Little o Notation
 
 ## Problem Statement
 
@@ -165,7 +134,7 @@ which, by definition, implies that $df(x)/dx = g(x)$.
 - Use derivative notation ($\frac{df}{dx} = g(x)$) when working with deterministic, continuous dynamics
 - Use little-$o$ notation when working with stochastic processes, particularly Markov chains, where discrete transitions happen over small time intervals $\delta$
 
-# Exercise 2.2: Euler versus Gillespie
+## Exercise 2.2: Euler versus Gillespie
 
 ## Problem Statement {.allowframebreaks}
 
@@ -202,7 +171,7 @@ For constant-rate compartmental models, the Gillespie algorithm gives an **exact
 
 Numerically, Gillespie's algorithm is often approximated using so-called tau-leaping methods, which are closely related to Euler's approach.
 
-# Exercise 2.3: Explore the SIR Model
+## Exercise 2.3: Explore the SIR Model
 
 ## Problem Statement
 
@@ -236,8 +205,8 @@ def rproc(X_, theta_, key, covars, t, dt):
     p_IR = 1.0 - jnp.exp(-mu_IR * dt)
 
     key_SI, key_IR = jax.random.split(key)
-    dN_SI = jax.random.binomial(key_SI, n=S.astype(jnp.int32), p=p_SI)
-    dN_IR = jax.random.binomial(key_IR, n=I.astype(jnp.int32), p=p_IR)
+    dN_SI = jax.random.binomial(key_SI, n=jnp.int32(S), p=p_SI)
+    dN_IR = jax.random.binomial(key_IR, n=jnp.int32(I), p=p_IR)
 
     S_new = S - dN_SI
     I_new = I + dN_SI - dN_IR
@@ -288,7 +257,7 @@ def run_simulation_and_plot(theta, title="SIR simulation", n_sims=20):
         statenames=statenames,
         t0=0.0,
         nstep=7,
-        accumvars=(3,),
+        accumvars=("H",),
         ydim=1,
         covars=None
     )
@@ -409,7 +378,7 @@ theta_test4 = {
 _ = run_simulation_and_plot(theta_test4, "Beta=15, eta=0.06")
 ```
 
-## Summary of Exploration
+### Summary of Exploration
 
 Different parameter combinations affect the outbreak dynamics:
 
@@ -423,7 +392,7 @@ Different parameter combinations affect the outbreak dynamics:
 
 Finding parameters that match the data well requires systematic fitting methods (covered in later lessons).
 
-# Exercise 2.4: The SEIR Model
+## Exercise 2.4: The SEIR Model
 
 ## Problem Statement {.allowframebreaks}
 
@@ -495,9 +464,9 @@ def seir_rproc(X_, theta_, key, covars, t, dt):
 
     # Draw transitions
     key_SE, key_EI, key_IR = jax.random.split(key, 3)
-    dN_SE = jax.random.binomial(key_SE, n=S.astype(jnp.int32), p=p_SE)
-    dN_EI = jax.random.binomial(key_EI, n=E.astype(jnp.int32), p=p_EI)
-    dN_IR = jax.random.binomial(key_IR, n=I.astype(jnp.int32), p=p_IR)
+    dN_SE = jax.random.binomial(key_SE, n=jnp.int32(S), p=p_SE)
+    dN_EI = jax.random.binomial(key_EI, n=jnp.int32(E), p=p_EI)
+    dN_IR = jax.random.binomial(key_IR, n=jnp.int32(I), p=p_IR)
 
     # Update state
     S_new = S - dN_SE
@@ -552,7 +521,7 @@ def run_seir_simulation_and_plot(theta, title="SEIR simulation", n_sims=20):
         statenames=statenames,
         t0=0.0,
         nstep=7,              # 7 sub-steps per week (daily steps)
-        accumvars=(4,),       # Index of H in statenames
+        accumvars=("H",),     # Accumulator variable
         ydim=1,
         covars=None
     )
@@ -631,7 +600,7 @@ For measles, realistic parameters might be:
 
 The SEIR model provides a more biologically realistic representation of measles epidemiology.
 
-# Summary
+## Summary
 
 ## Key Takeaways
 
@@ -643,4 +612,3 @@ The SEIR model provides a more biologically realistic representation of measles 
 
 4. **SEIR vs SIR**: The SEIR model's latent period can better capture the epidemiology of diseases like measles
 
-# References
