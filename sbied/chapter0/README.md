@@ -4,8 +4,9 @@
 Aaron A. King, Edward L. Ionides and Kunyang He
 
 
-| &nbsp;                            | &nbsp;                                                                                     |
-|:----------------------------------|:------------------------------------------------------------------------------------------:|
-| Notes                             | [PDF](notes.pdf)         |
-| Slides                            | [PDF](slides.pdf)        |
+| &nbsp;                   | &nbsp;                   |
+|:-------------------------|:------------------------:|
+| Notes                    | [PDF](notes.pdf)         |
+| Slides                   | [PDF](slides.pdf)        |
+
 
