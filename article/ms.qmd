@@ -50,7 +50,7 @@ format:
     journal:
       include-jss-default: false
 bibliography: references.bib
-abstract: Methods for fitting and evaluating partially observed Markov process (POMP) mechanistic models are useful in a variety of fields such as epidemiology, ecology, and finance, but they are limited by their computational demands. In response, we introduce **pypomp**, a high-performance Python package for statistical inference using POMP models. Built to handle complex stochastic dynamic systems, it implements plug-and-play algorithms for likelihood-based inference including sequential Monte Carlo and iterated filtering. By utilizing parallel processing on graphical processing unit (GPU) hardware, **pypomp** is able to run these algorithms faster and more efficiently than its predecessor, the R package **pomp**. Models that took weeks to fit and evaluate in **pomp** now take only days in **pypomp**, facilitating the use of previously impractical models. The package offers a comprehensive interface that streamlines the entire pipeline of model construction, fitting, and analysis, allowing practitioners to develop and test large, complex models with minimal implementation overhead.
+abstract: Methods for fitting and evaluating partially observed Markov process (POMP) mechanistic models are useful in a variety of fields such as epidemiology, ecology, and finance, but they are limited by their computational demands. In response, we introduce **pypomp**, a high-performance Python package for statistical inference using POMP models. Built to handle complex stochastic dynamic systems, it implements plug-and-play algorithms for likelihood-based inference including sequential Monte Carlo and iterated filtering. By utilizing parallel processing on graphical processing unit (GPU) hardware, **pypomp** is able to run these algorithms faster and more efficiently than its predecessor, the R package **pomp**. Models that took months to fit and evaluate in **pomp** now take only days in **pypomp**, facilitating the use of previously impractical models. The package offers a comprehensive interface that streamlines the entire pipeline of model construction, fitting, and analysis, allowing practitioners to develop and test large, complex models with minimal implementation overhead.
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -88,48 +88,48 @@ sys.executable
 
 
 ## Introduction
-\note{Topic} 
-Partially Observable Markov Process (POMP) models, also known as state-space models or hidden Markov models, provide a flexible and mechanistic framework for modeling time-series dynamic systems, particularly suited for scenarios where latent states are only partially observable. 
-Characterized by transition densities and measurement densities of Markov processes, this framework bridges complex underlying dynamics with limited information in real-world data. 
-Consequently, POMP models find extensive application in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains.
+Partially Observable Markov Process (POMP) models, also known as state-space models or hidden Markov models, provide a flexible mechanistic framework for modeling time-series dynamic systems where the underlying state process is not directly observed.
+Methods such as particle filtering [@arulampalam2002] and iterated filtering [@ionides2006; @ionides2015] have been developed to perform maximum likelihood estimation and evaluation for POMP models. 
+A defining strength of these methods is that they are performed by simulating from the process model instead of evaluating exact transition probabilities (a property known as plug-and-play [@breto2009]), which makes them suitable for examining a wide range of models unconstrained by needs for mathematical convenience. 
+Consequently, POMP models find extensive application in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains where mechanistic modeling is desired.
 
-\note{Existing package discussion} 
-The POMP package ecosystem in `R` has provided a solid, standardized, and extensible framework for modeling time series data using nonlinear, stochastic partially observed mechanism dynamic models. 
-The `R pomp` package has become a well-established tool for fitting POMP models using a general and abstract representation, that supports multiple inference techniques. 
-Its extension packages `panelPomp`, `spatpomp`, and `phyloPomp` further enhance its capabilities for panel, spatio-temporal, and phylodynamic data analysis, respectively.
+The `pomp` package ecosystem in R has provided a basis for POMP modeling of several types. 
+The `pomp` package is designed for standard POMP models, while its extension packages `panelPomp`, `spatpomp`, and `phyloPomp` further enhance its capabilities for panel, spatio-temporal, and phylodynamic data analysis, respectively [@king2016; @breto2025; @asfaw2024].
 
-\note{computational challenges + potential limitations} 
-While conceptually powerful, statistical inference for POMP models using the above `R` packages poses substantial computational challenges. 
+While powerful, statistical inference for POMP models poses substantial computational challenges. 
+In order to obtain a parameter estimate which converges to the maximum likelihood estimate (MLE), a practitioner may need to run Iterated Filtering 2 (IF2) for hundreds of iterations with thousands of particles from dozens of initial parameter estimates. 
+One full pass through a time series may involve hundreds of simulation steps per particle. 
+The aforementioned R packages are built only to use central processing unit (CPU) devices, which are relatively slow for these methods even when running independent method calls in parallel.
+Consequently, these methods are bottlenecked by their runtime. 
+A practitoner may then need to compromise on the number of particles or iterations used, or they may need to accept that some jobs -- such as those that run on the scale of months -- are simply infeasible. 
+Even if a job can finish in an acceptable time, the latency from submitting a job to receiving the results can slow down the pace of iterative model development, and the monetary cost of running long jobs on advanced hardware can add up. 
+
+<!-- 
+\AAnote{Commenting this out until we determine that DMOP can beat IF2}
 From a methodological perspective, likelihood-based inference for POMP models typically relies on perturbations within iterated filtering (adding ref related to iterative filtering) algorithms. 
 While many of them are stable and effective in locating a neighborhood containing the likelihood maximum, they exhibit numerical inefficiency for obtaining a precise identification of the maximum value. 
-Particularly, when the latent states are high-dimensional or when repeated model evaluations are required, the fitting process could be computationally prohibitive by the constraints. 
+Particularly, when the latent states are high-dimensional or when repeated model evaluations are required, the fitting process could be computationally prohibitive by the constraints.  -->
 
 As it turns out, POMP methods can be sped up considerably. 
-Many of the processes involved in POMP methods are embarassingly parallel, such as simulating the state process for each of thousands of particles, running the particle filter multiple times for the same parameter set, and running iterated filtering from multiple starting parameter sets, especially when estimating a profile likelihood to construct a confidence interval as per [@ionides2017]. 
-Graphics Processing Units (GPUs) are well-suited for such operations. 
-However, the existing family of POMP packages (**pomp**, **panelPomp**, and **spatPomp** [@king2016, @breto2025, @asfaw2024]) only runs on CPUs.
+Many of the processes involved in POMP methods are embarassingly parallel, such as simulating the state process for each of thousands of particles, running the particle filter multiple times for the same parameter set, and running iterated filtering from multiple starting parameter sets. 
+This last point is holds true especially when estimating a profile likelihood to construct a confidence interval as in @ionides2017. 
+Graphics processing unit (GPU) devices are well-suited for embarassingly parallel operations of this scale. 
 
-\note{introducing AD/JIT/GPU hardware + pypomp} 
-As the demand grows for scalable and parallelizable inference algorithms, there is an increasing need for an accelerated framework for POMP modeling framework. 
-The Python package `pypomp` [@abkemeier2024] addresses this by integrating **automatic differentiation (AD)**, **just-in-time (JIT) compilation**, and **hardware acceleration** through JAX [@bradbury2018], a high-performance numerical computing library that supports hardware acceleration and vectorization. 
-AD techniques enable efficient and accurate derivative computation by systematically applying the chain rule to fundamental operations. 
-Recent works have extended AD for gradient estimation using particle filtering, yielding a class of methods termed automatic differentiation particle filters (ADPF). 
-Building on these advancements, `pypomp` provides AD-enabled gradient estimation for inference for POMP models within a plug-and-play framework [@ionides2006], where users specify dynamic models solely through simulators of latent state trajectories, rather than evaluating the transition density of the latent Markov process. 
-JAX's JIT compilation further accelerates repeated inference and evaluation by converting Python functions into machine code at runtime. 
-Finally, JAX's GPU support enables efficient scaling of inference methods. 
-Together, these features make `pypomp` more than a port of the `R` package `pomp`. 
-Instead, it establishes an independent, modernized Python platform for building, simulating and fitting fast and flexible POMP models, aiming to serve two user groups: scientists who need fast, plug-and-play likelihood-based inference for nonlinear dynamic systems, as well as method developers who want a clean, differentiable platform for experimenting with new particle-filter and Bayesian algorithms.
+To address the need for plug-and-play POMP methods that leverage GPU acceleration, we introduce the package `pypomp` [@abkemeier2024].
+Briefly stated, it is a Python implementation of the core algorithms in `pomp` and `panelPomp`, but written such that they can be run on both GPUs and CPUs.
+We accomplish this by using JAX [@bradbury2018], a high-performance numerical computing library that supports hardware acceleration and automatic vectorization. 
+\AAnote{Need to change "70 times faster" to something more specific after we more rigorously compare pypomp with pomp. In addition, I think we should include the @korevaar2020 data set fit in this paper, as it provides perhaps the strongest motivation for developing pypomp.}
+The resulting package runs methods up to 70 times faster on GPUs than `pomp` can on CPUs.
+Jobs that would take months in `pomp` can be completed in days in `pypomp`, enabling plug-and-play likelihood-based inference on data sets that would otherwise be intractably large.
+<!-- AD techniques enable efficient and accurate derivative computation by systematically applying the chain rule to fundamental operations. 
+Recent works have extended AD for gradient estimation using particle filtering, yielding a class of methods termed automatic differentiation particle filters (ADPF).  -->
 
-\note{structure}
 The remainder of this paper is organized as follows. 
 Section 2 discusses the motivation for `pypomp` design using specific examples. 
 Section 3 demonstrates the mathematical notation for POMP models and their related implementation in `pypomp`. 
 Section 4 introduces the embedded methodologies. 
 Section 5 presents data analysis workflows and benchmarking results. 
 Section 6 concludes with a discussion of future directions.
-
-\note{add discussion of panelpomp into introduction}
-
 
 ## Motivation for pypomp
 
@@ -882,8 +882,8 @@ While IFAD is not implemented as an independent function, users can always run `
 For example, the following code first runs IF2 for $M_1$ iterations to obtain a high-likelihood starting point, and then applies Newton-type optimization for $M_2$ iterations to refine the estimate: 
 
 ```{python}
-#| label: lg-ifad
-#| echo: true
+# | label: lg-ifad
+# | echo: true
 
 key, subkey = jax.random.split(key)
 LG_obj_5 = pp.Pomp(
@@ -898,20 +898,14 @@ LG_obj_5 = pp.Pomp(
     theta=theta_list,
     statenames=["X1", "X2"],
 )
-LG_obj_5.mif(
-    rw_sd=rw_sd,
-    J=1000, 
-    M=3, 
-  	a=0.5,
-    key=subkey
-    )
+LG_obj_5.mif(rw_sd=rw_sd, J=1000, M=3, a=0.5, key=subkey)
+eta = {name: 0.0025 for name in LG_obj_5.canonical_param_names}
 LG_obj_5.train(
-    J=1000, 
-    M=3, 
-    eta=0.0025, # learning rate
-    optimizer="Newton"
+    J=1000,
+    M=3,
+    eta=eta,  # learning rate
+    optimizer="Adam",
 )
-
 ```
 
 In `pypomp`, `train()` serves as a gradient-based optimizer for exploring the parameter space. 
