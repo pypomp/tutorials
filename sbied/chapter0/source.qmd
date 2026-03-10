@@ -5,6 +5,8 @@ author:
   - Aaron A. King
   - Edward L. Ionides
   - Kunyang He
+date: today
+date-format: full
 
 format:
   beamer:
@@ -189,69 +191,50 @@ If you created a virtual environment, register it with Jupyter:
 # First, cd to the directory where you built .venv
 source .venv/bin/activate 
 pip install ipykernel
-python -m ipykernel install --user --name=.venv --display-name="SBIED Course"
+python -m ipykernel install --user --name=.venv \
+    --display-name="SBIED Course"
 ```
 
-## Verifying Your Installation
-
-### Test basic Python functionality
-
-Create a test Python script or run in a Python interpreter:
-
-```python
-import sys
-print(f"Python version: {sys.version}")
-
-import numpy as np
-import scipy
-import matplotlib.pyplot as plt
-import pandas as pd
-
-print("All basic packages imported successfully!")
-```
-
-### Test pypomp installation
+## Test basic pypomp functionality
 
 Create a simple test to verify pypomp is working:
-
-```python
-import pypomp
-
-print(f"pypomp version: {pypomp.__version__}")
-print("pypomp installed successfully!")
-```
-
-## Test with a minimal example
-
-Run this minimal POMP model to ensure everything is working:
 
 ```{python}
 #| echo: true
 #| eval: true
-import numpy as np
 import pypomp as pp
+import jax
+import matplotlib.pyplot as plt
 
-# Create a simple random walk model
-def step_fn(x, t, params, **kwargs):
-    return {'X': x['X'] + np.random.normal(0, params['sigma'])}
+d = pp.dacca() # constructs an example POMP model
+key = jax.random.key(42)
+n_sims = 1
+X_sims, Y_sims = d.simulate(key,nsim=n_sims)
+sim_df = Y_sims.pivot_table(
+    index="time", columns="sim", values="obs_0"
+)
+```
 
-def rinit_fn(params, **kwargs):
-    return {'X': 0.0}
 
-def rmeas_fn(x, t, params, **kwargs):
-    return {'Y': x['X'] + np.random.normal(0, params['tau'])}
+##
 
-def dmeas_fn(y, x, t, params, log=True, **kwargs):
-    ll = -0.5 * np.log(2 * np.pi * params['tau']**2) - \
-         0.5 * (y['Y'] - x['X'])**2 / params['tau']**2
-    return ll if log else np.exp(ll)
+```{python}
+#| echo: false
+#| eval: true
+#| fig-cap: "Dhaka cholera: data (black) and a simulation (red)."
+sim_df.columns = [f"sim_{i+1}" for i in range(n_sims)]
+fig, ax = plt.subplots(figsize=(4.5, 3))
+d.ys["deaths"].plot(ax=ax, lw=1.5, color="black", label="observed")
+sim_df.plot(ax=ax, lw=0.6, alpha=0.5, legend=False, color="red")
+ax.set(
+    xlabel="Year",
+    ylabel="Reported monthly cholera deaths",
+    title="",
+)
+ax.grid(alpha=0.15)
+plt.tight_layout()
+plt.show()
 
-# Create POMP object
-params = {'sigma': 1.0, 'tau': 0.1}
-times = np.arange(0, 100)
-
-# If this runs without error, your installation is working!
-print("Test completed successfully!")
 ```
 
 
@@ -294,10 +277,10 @@ to get updated files as they arrive.
 
 If you encounter issues:
 
+1. Ask your favorite AI
 1. Check the pypomp documentation: [https://pypomp.readthedocs.io/](https://pypomp.readthedocs.io/)
-2. Search for error messages online
-3. Ask your favorite AI
-3. Ask for help during the course sessions
+1. Search for error messages online
+1. Ask for help from the instructors
 
 ## Summary
 
