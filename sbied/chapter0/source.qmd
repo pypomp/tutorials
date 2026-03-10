@@ -5,6 +5,8 @@ author:
   - Aaron A. King
   - Edward L. Ionides
   - Kunyang He
+date: today
+date-format: full
 
 format:
   beamer:
@@ -32,19 +34,18 @@ jupyter: python3
 
 ## Introduction
 
-- This course uses state-of-the-art tools and some care may be needed to set up the computational environment.
+This course uses state-of-the-art computational tools.
+We use `pypomp`,a Python package for modeling and data analysis with partially observed Markov process (POMP) models. `pypomp` uses `jax` to provide high-performance computing.
 
-- We use `pypomp`, a Python implementation of partially observed Markov process (POMP) models.
+- `jax` can be thought of as an extension to `numpy` that permits just-in-time (JIT) compilation, GPU computing and automatic differentiation (AD).
 
-- `pypomp` relies on `jax` for vectorization, just-in-time compilation, GPU accessibility, and automatic differentiation.
+- Basic JAX, on a CPU, without AD, is enough for this course. 
+  
+- JIT is managed by `pypomp` and you won't necessarily need to look under the hood.
 
-- `jax` is a high-performance compting package for Python. It depends on
+- As model complexity and data size grow, you can start taking advantage of the power of JAX.
 
-  - CUDA, the NVIDIA GPU programming platform
-
-  - XLA, an accelerated linear algebra library for CUDA
-
-- Additionally, the course emphasizes reproducible data analysis using Quarto
+Additionally, the course emphasizes reproducible data analysis using Quarto
 
 ## What you will need
 
@@ -108,50 +109,75 @@ The following additional packages are commonly used in the course:
 pip install jupyter
 ```
 
+## An introduction to JAX for pypomp
 
-## Optional: GPU acceleration with JAX
+We cover enough to get started. The [JAX documentation](https://docs.jax.dev/en/latest/) is good for learning more. 
+Here, we focus on CPU hardware. 
+GPUs are useful for scalability.
 
-For faster computation, especially for large models, you can install JAX for GPU/TPU acceleration:
-
+* `jax` is a package in the JAX library. The partner package `jaxlib` is needed for compilation.
 ```bash
-# For CPU-only (default)
-pip install jax jaxlib
-
-# For GPU support (CUDA)
-# See https://github.com/google/jax#installation for detailed instructions
-pip install jax[cuda12]
+pip install jax jaxlib # for CPU
+pip install jax[cuda12] # for GPU
 ```
-
-## Optional: Additional plotting libraries
-
-For enhanced visualizations:
-
-```bash
-pip install seaborn plotly
+Customary imports are
+```python
+import jax.numpy as jnp
+import numpy as np
 ```
+You can mix `np` with `jnp`. 
+Howver, JIT and AD require `jnp`. 
+Specifically, `np` variables are considered constants by JIT and AD.
+
+* For `pypomp`, it is usually better to use `jnp`.
+
+
+## What is JIT and what do I need to know about it?
+
+* Python is a relatively slow language, interpreted rather than compiled.
+
+* JIT in JAX can lead to large acceleration, say, 10 times on a CPU
+
+* JIT enables code to run on a GPU if your machine has one. This can lead to much greater acceleration, if your GPU has $10^4$ cores.
+
+ 
+* Just-in-time compilation means that functions are compiled only when called. Different values of constants, or different dimensions of arguments, trigger re-compilation. Excessive re-compilation can severly hurt performance. 
+
+
+## Vectorization and GPU acceleration with JAX
+
+`vmap` is a `jax` function that **vectorizes** code. 
+
+`vmap` instructs JAX that multiple calls to a function can be done in parallel. 
+
+* A scalar function applied to a vector argument is vectorized by appyling the function to each component of the vector.
+
+`jit` can compile a `vmap` to make use of multiple cores on a CPU or GPU.
+
+
+## What is automatic differentiation (AD) and what do I need to know about it?
+
+AD is an elegant algorithm providing a gradient for not much more computational effort than evaluating the function.
+
+* AD amounts to recursive application of the chain rule for differentiation.
+
+* Access to gradients can speed up optimization and other numeric calculations.
+
+* For this course, we don't need to know much about AD. It can be helpufl, and some `pypomp` algorithms use the AD capabilities of `jax`.
+
 
 ## Setting Up Jupyter
 
 Jupyter provides an alternative to Quarto for running Python code.
-
-## Installing Jupyter
-
 If you haven't already installed Jupyter:
-
 ```bash
 pip install jupyter notebook jupyterlab
 ```
-
-## Launching Jupyter
-
 To start Jupyter Notebook:
-
 ```bash
 jupyter notebook
 ```
-
-To start JupyterLab (more modern interface):
-
+To start JupyterLab, a more modern interface:
 ```bash
 jupyter lab
 ```
@@ -162,88 +188,69 @@ If you created a virtual environment, register it with Jupyter:
 
 ```bash
 # Make sure your virtual environment is activated
+# First, cd to the directory where you built .venv
+source .venv/bin/activate 
 pip install ipykernel
-python -m ipykernel install --user --name=sbied-env --display-name="SBIED Course"
+python -m ipykernel install --user --name=.venv \
+    --display-name="SBIED Course"
 ```
 
-## Verifying Your Installation
-
-### Test basic Python functionality
-
-Create a test Python script or run in a Python interpreter:
-
-```python
-import sys
-print(f"Python version: {sys.version}")
-
-import numpy as np
-import scipy
-import matplotlib.pyplot as plt
-import pandas as pd
-
-print("All basic packages imported successfully!")
-```
-
-### Test pypomp installation
+## Test basic pypomp functionality
 
 Create a simple test to verify pypomp is working:
-
-```python
-import pypomp
-
-print(f"pypomp version: {pypomp.__version__}")
-print("pypomp installed successfully!")
-```
-
-## Test with a minimal example
-
-Run this minimal POMP model to ensure everything is working:
 
 ```{python}
 #| echo: true
 #| eval: true
-import numpy as np
 import pypomp as pp
+import jax
+import matplotlib.pyplot as plt
 
-# Create a simple random walk model
-def step_fn(x, t, params, **kwargs):
-    return {'X': x['X'] + np.random.normal(0, params['sigma'])}
-
-def rinit_fn(params, **kwargs):
-    return {'X': 0.0}
-
-def rmeas_fn(x, t, params, **kwargs):
-    return {'Y': x['X'] + np.random.normal(0, params['tau'])}
-
-def dmeas_fn(y, x, t, params, log=True, **kwargs):
-    ll = -0.5 * np.log(2 * np.pi * params['tau']**2) - \
-         0.5 * (y['Y'] - x['X'])**2 / params['tau']**2
-    return ll if log else np.exp(ll)
-
-# Create POMP object
-params = {'sigma': 1.0, 'tau': 0.1}
-times = np.arange(0, 100)
-
-# If this runs without error, your installation is working!
-print("Test completed successfully!")
+d = pp.dacca() # constructs an example POMP model
+key = jax.random.key(42)
+n_sims = 1
+X_sims, Y_sims = d.simulate(key,nsim=n_sims)
+sim_df = Y_sims.pivot_table(
+    index="time", columns="sim", values="obs_0"
+)
 ```
 
-# Downloading Course Materials
 
-## Using Git (recommended)
+##
 
-If you have Git installed:
+```{python}
+#| echo: false
+#| eval: true
+#| fig-cap: "Dhaka cholera: data (black) and a simulation (red)."
+sim_df.columns = [f"sim_{i+1}" for i in range(n_sims)]
+fig, ax = plt.subplots(figsize=(4.5, 3))
+d.ys["deaths"].plot(ax=ax, lw=1.5, color="black", label="observed")
+sim_df.plot(ax=ax, lw=0.6, alpha=0.5, legend=False, color="red")
+ax.set(
+    xlabel="Year",
+    ylabel="Reported monthly cholera deaths",
+    title="",
+)
+ax.grid(alpha=0.15)
+plt.tight_layout()
+plt.show()
+
+```
+
+
+## Using Git to make a local copy of SBIED materials
 
 ```bash
-git clone https://github.com/[repository-url]/sbied-pypomp.git
-cd sbied-pypomp
+git clone https://github.com/pypomp/tutorials.git
+cd tutorials/sbied
 ```
+Then, you can use 
+```bash
+git pull
+```
+to get updated files as they arrive.
 
-## Direct download
-
-Alternatively, download the course materials as a ZIP file from the course website and extract them to your working directory.
-
-## Troubleshooting: Common issues and solutions
+## Troubleshooting: Common issues and solutions {.allowframebreaks}
 
 ### "pip: command not found"
 
@@ -252,13 +259,12 @@ Alternatively, download the course materials as a ZIP file from the course websi
 
 ### "Permission denied" errors
 
-- On macOS/Linux, try using `pip install --user package_name`
-- Or use a virtual environment (recommended)
+- This should not happen when using a virtual environment as recommended
 
 ### Import errors
 
 - Make sure your virtual environment is activated
-- Verify package installation: `pip list | grep package_name`
+- Verify package installation: `pip freeze`
 - Try reinstalling: `pip uninstall package_name && pip install package_name`
 
 ### Jupyter kernel issues
@@ -271,24 +277,24 @@ Alternatively, download the course materials as a ZIP file from the course websi
 
 If you encounter issues:
 
-1. Check the pypomp documentation: [https://github.com/pypomp/pypomp](https://github.com/pypomp/pypomp)
-2. Search for error messages online
-3. Ask for help during the course sessions
-4. Check the course discussion forum
+1. Ask your favorite AI
+1. Check the pypomp documentation: [https://pypomp.readthedocs.io/](https://pypomp.readthedocs.io/)
+1. Search for error messages online
+1. Ask for help from the instructors
 
 ## Summary
 
 By now, you should have:
 
-- ✓ Python 3.8+ installed
+- ✓ Python 3.10+ installed
 - ✓ A virtual environment created and activated
 - ✓ pypomp and required packages installed
 - ✓ Quarto and/or Jupyter set up 
 - ✓ Verified your installation with test code
 
-You are now ready to begin the course!
+You are now ready to begin computing with POMP models!
 
-# Additional Resources
+## Additional Resources
 
 - **Python Tutorial**: [https://docs.python.org/3/tutorial/](https://docs.python.org/3/tutorial/)
 - **NumPy Documentation**: [https://numpy.org/doc/](https://numpy.org/doc/)
