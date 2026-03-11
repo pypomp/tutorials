@@ -48,16 +48,18 @@ header-includes: |
 ---
 
 
-This tutorial develops some classes of dynamic models relevant to biological
-systems, especially for epidemiology.
+This tutorial develops some classes of dynamic models relevant to biological systems, especially for epidemiology.
 
 1. Dynamic systems can often be represented in terms of **flows** between
    **compartments**.
+
 2. We define a **compartmental model** for which we specify
-   *rates* for the flows between compartments.
-3. We show how deterministic and stochastic versions of a compartmental model
-   are derived and related.
+   **rates** for the flows between compartments.
+
+3. We show how deterministic and stochastic versions of a compartmental model are derived and related.
+
 4. We introduce Euler's method to simulate from dynamic models.
+
 5. We specify deterministic and stochastic compartmental models in
    `pypomp` using Euler‐method simulation.
 
@@ -66,6 +68,7 @@ systems, especially for epidemiology.
 
 - We develop deterministic and stochastic representations of a
   susceptible‑infected‑recovered (SIR) system, a fundamental class of models for disease transmission dynamics.
+  
 - We set up notation applicable to general compartment models [@Breto2009]. \framebreak \begin{center}
 
 <!---
@@ -74,6 +77,7 @@ systems, especially for epidemiology.
 
 ##
 
+\begin{center}
   \resizebox{0.65\textwidth}{!}{
     \Large
     \setlength{\unitlength}{5pt}
@@ -102,14 +106,14 @@ systems, especially for epidemiology.
   }
 \end{center}
 
-\vspace{5mm}
+\vspace{2mm}
     \begin{tabular}{c @{\ :\ } l c @{\ :\ } l}
       S & susceptible & I & infected and infectious  \\
       R & recovered and/or removed  & C & reported cases
     \end{tabular}
 
-
 - We suppose that each arrow has an associated rate, so here there is a rate $\mu_{SI}(t)$ at which individuals in $S$ transition to $I$, and $\mu_{IR}$ at which individuals in $I$ transition to $R$.
+
 - To account for demography (births/deaths/migration) we include source and sink compartments, which may not be represented on the flow diagram. We write $\mu_{BS}$ for a rate of births into $S$, and denote mortality rates by $\mu_{SD}$, $\mu_{ID}$, $\mu_{RD}$.
 
 
@@ -389,15 +393,15 @@ Practically, it is often preferable to work with **(3)**.
 
 A widely used exact simulation method for continuous‑time Markov chains
 is [Gillespie's algorithm](https://en.wikipedia.org/wiki/Gillespie_algorithm).  
-We do not emphasise it here. **Why?** When would you prefer an
-implementation of Gillespie's algorithm over an Euler solution?
+We do not emphasize it here. 
+Why? When would you prefer an implementation of Gillespie's algorithm over an Euler solution?
 
 Numerically, Gillespie's algorithm is often approximated using
 [tau‑leaping](https://en.wikipedia.org/wiki/Tau-leaping) methods, which
 are closely related to Euler's approach; in this context Euler's method
 is sometimes called *tau‑leaping*.
 
-## Compartment models in `pypomp`: The Consett measles outbreak 
+## Compartment models in `pypomp`: Measles in Consett
 
 As an example that we can probe in some depth, let's look at an outbreak of measles that occurred in the small town of Consett in England in 1948. The town had a population of 38 820, with 737 births over the course of the year.
 
@@ -423,8 +427,9 @@ We download the data and examine them:
 #| echo: false
 #| fig-show: hold 
 
-url = "https://kingaa.github.io/sbied/stochsim/Measles_Consett_1948.csv"
-meas = (pd.read_csv(url)
+#url = "https://kingaa.github.io/sbied/stochsim/Measles_Consett_1948.csv"
+file = "Measles_Consett_1948.csv"
+meas = (pd.read_csv(file)
     .loc[:, ["week", "cases"]]
     .rename(columns={"week": "time", "cases": "reports"})
     .set_index("time")
@@ -578,7 +583,8 @@ def rinit(theta_, key, covars, t0):
 ```{python rproc}
 #| echo: true
 def rproc(X_, theta_, key, covars, t, dt):
-    """Process simulator for SIR model with Euler-binomial scheme."""
+    """Process simulator for SIR model 
+    using the Euler-binomial scheme."""
     S, I, R, H = X_["S"], X_["I"], X_["R"], X_["H"]
     Beta = theta_["Beta"]
     mu_IR = theta_["mu_IR"]
@@ -597,7 +603,7 @@ def rproc(X_, theta_, key, covars, t, dt):
 \normalsize
 
 
-\framebreak
+##
 
 - Now, we'll model the data, conditional on the latent state, by a negative‑binomial variable:
   $$
@@ -670,7 +676,7 @@ def rmeas(X_, theta_, key, covars, t):
 
 ##
 
-A call to `Pomp` assembles the model components together with the data:
+A call to `Pomp` assembles the model components and the data:
 
 ```{python}
 #| echo: true
@@ -699,13 +705,16 @@ sir_obj = pp.Pomp(
   model. This requires plausible parameter values, which we can obtain
   with a few back‑of‑the‑envelope estimates.
 
-Recall that $\mathcal R_0$ is the expected number of secondary infections caused by one primary infection introduced into a fully susceptible population.  
+Basic epidemiological theory defines $\mathcal R_0$ to be the expected number of secondary infections caused by one primary infection introduced into a fully susceptible population.  
+
 For an SIR infection we have $\mathcal R_0 \approx \tfrac{L}{A}$, where $L$ is host lifespan and $A$ is mean age of infection.
   
 - Age‑stratified serology indicates $A \approx 4–5\;\text{yr}$
   [@Anderson1991]. Assuming $L \approx 60–70\;\text{yr}$ gives
   $\mathcal R_0 \approx 15$.
 
+
+\framebreak
 
 - The final‑size equation for an SIR epidemic is  
   $$
@@ -714,12 +723,12 @@ For an SIR infection we have $\mathcal R_0 \approx \tfrac{L}{A}$, where $L$ is h
   where $f$ is the fraction of initial susceptibles who ultimately
   become infected. For $\mathcal R_0>5$, this implies $f>0.99$.
 
-\framebreak
-
 ```{python}
 #| echo: false
 import pandas as pd, numpy as np, io, requests
 
+# This imports the R-SBIED version rather than the local verison.
+# They should be the same, so this is just an exercise
 url = "https://raw.githubusercontent.com/kingaa/sbied/master/stochsim/Measles_Consett_1948.csv"
 csv = requests.get(url).text.replace(" ", "\n")              
 meas = pd.read_csv(io.StringIO(csv))
@@ -742,6 +751,7 @@ beta           = 0.5 * 15
 
 Let's now simulate the model with these parameter values.
 
+\small
 ```{python}
 #| echo: true
 n_sims = 20
@@ -752,14 +762,14 @@ sim_df = Y_sims.pivot_table(
 )
 sim_df.columns = [f"sim_{i+1}" for i in range(n_sims)]
 ```
-
+\normalsize
 
 ##
 
 ```{python}
 #| echo: false
-#| fig-cap: "SIR simulation vs. 1948 Consett measles data"
-fig, ax = plt.subplots(figsize=(3.5, 2.5))
+#| fig-cap: "SIR simulation (red) and 1948 Consett measles data (black)"
+fig, ax = plt.subplots(figsize=(3.5, 3))
 ys["reports"].plot(ax=ax, lw=1.5, color="black", label="observed")
 sim_df.plot(ax=ax, lw=0.6, alpha=0.5, legend=False, color="red")
 ax.set(
