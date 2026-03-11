@@ -2,8 +2,11 @@
 title: >
   Lesson 2: Simulation of Stochastic Dynamic Models
 author:
-  - "Aaron A. King and Edward L. Ionides \\newline "
-  - "Translated to pypomp by Kunyang He"
+  - Aaron A. King
+  - Edward L. Ionides
+  - Kunyang He
+date: today
+date-format: full
 
 bibliography: ../sbied.bib
 
@@ -48,9 +51,9 @@ header-includes: |
 This tutorial develops some classes of dynamic models relevant to biological
 systems, especially for epidemiology.
 
-1. Dynamic systems can often be represented in terms of *flows* between
-   *compartments*.
-2. We develop the concept of a *compartmental model* for which we specify
+1. Dynamic systems can often be represented in terms of **flows** between
+   **compartments**.
+2. We define a **compartmental model** for which we specify
    *rates* for the flows between compartments.
 3. We show how deterministic and stochastic versions of a compartmental model
    are derived and related.
@@ -59,13 +62,18 @@ systems, especially for epidemiology.
    `pypomp` using Euler‐method simulation.
 
 
+## A basic compartment model: The SIR model
 
-# Compartment models: the SIR model
-
-## A basic compartment model: The SIR model {.allowframebreaks}
 - We develop deterministic and stochastic representations of a
   susceptible‑infected‑recovered (SIR) system, a fundamental class of models for disease transmission dynamics.
-- We set up notation applicable to general compartment models @Breto2009. \framebreak \begin{center}
+- We set up notation applicable to general compartment models [@Breto2009]. \framebreak \begin{center}
+
+<!---
+## A flow diagram for the SIR model
+--->
+
+##
+
   \resizebox{0.65\textwidth}{!}{
     \Large
     \setlength{\unitlength}{5pt}
@@ -100,45 +108,47 @@ systems, especially for epidemiology.
       R & recovered and/or removed  & C & reported cases
     \end{tabular}
 
-\framebreak
 
 - We suppose that each arrow has an associated rate, so here there is a rate $\mu_{SI}(t)$ at which individuals in $S$ transition to $I$, and $\mu_{IR}$ at which individuals in $I$ transition to $R$.
-- To account for demography (births/deaths/migration) we allow the possibility of a source and sink compartment, which is not usually represented on the flow diagram. We write $\mu_{BS}$ for a rate of births into $S$, and denote mortality rates by $\mu_{SD}$, $\mu_{ID}$, $\mu_{RD}$.
+- To account for demography (births/deaths/migration) we include source and sink compartments, which may not be represented on the flow diagram. We write $\mu_{BS}$ for a rate of births into $S$, and denote mortality rates by $\mu_{SD}$, $\mu_{ID}$, $\mu_{RD}$.
 
-\framebreak
 
-- The rates may be either constant or varying. In particular, for a simple SIR model, the recovery rate $\mu_{IR}$ is a constant but the infection rate has the time-varying form
+##
+
+- The rates may be either constant or varying. For a simple SIR model, the recovery rate $\mu_{IR}$ is a constant but the infection rate has the time-varying form
     $$\mu_{SI}(t)=\beta \, I(t),$$
     with $\beta$ being the _transmission rate_. For the simplest SIR model, ignoring demography, we set
     $$ \mu_{BS}=\mu_{SD}=\mu_{ID}=\mu_{RD}=0.$$
 
-## General notation for compartment models {.allowframebreaks}
+
+## General notation for compartment models 
 
 To develop a systematic notation, it is convenient to keep track of the flows between compartments as well as the number of individuals in each compartment. Let  
 $$
 N_{SI}(t)
 $$  
-
-count the number of individuals who have transitioned from $S$ to $I$ by time $t$. We say that $N_{SI}(t)$ is a _counting process_. A similarly constructed process  
+count the number of individuals who have transitioned from $S$ to $I$ by time $t$. We say that $N_{SI}(t)$ is a **counting process**. A similarly constructed process  
 $$
 N_{IR}(t)
 $$  
-
 counts individuals transitioning from $I$ to $R$.  
+
 To include demography, we could keep track of birth and death events with the counting processes $N_{BS}(t)$, $N_{SD}(t)$, $N_{ID}(t)$ and $N_{RD}(t)$.
 
-\framebreak 
+
+##
 
 - For **discrete‑population** compartment models, the flow counting
-  processes are non‑decreasing and integer‑valued.  
+  processes are non‑decreasing and integer‑valued.
+  
 - For **continuous‑population** compartment models, the flow counting
   processes are non‑decreasing and real‑valued.
+
 
 ## Compartment processes from counting processes
 
 - The numbers of people in each compartment can be computed via these
   counting processes. Ignoring demography, we have:
-
   $$
   \begin{aligned}
     S(t) &= S(0) - N_{SI}(t) \\
@@ -147,21 +157,20 @@ To include demography, we could keep track of birth and death events with the co
   \end{aligned}
   $$
 
-- These equations represent *conservation of individuals*—what goes in must come out.
+- These equations represent **conservation of individuals**: what goes in must come out.
+
 
 ## Ordinary differential equation interpretation
 
 Together with initial conditions specifying $S(0)$, $I(0)$ and $R(0)$,
 we just need to write down ordinary differential equations (ODEs) for
 the flow counting processes. These are:
-
 $$
 \begin{aligned}
   \frac{dN_{SI}}{dt} &= \mu_{SI}(t)\,S(t) \\
   \frac{dN_{IR}}{dt} &= \mu_{IR}\,I(t)
 \end{aligned}
 $$
-
 
 
 ## Continuous‑time Markov chain interpretation {.allowframebreaks}
@@ -186,33 +195,30 @@ $$
   We write $h(\delta)=o(\delta)$ to mean
   $\displaystyle \lim_{\delta\to 0}\frac{h(\delta)}{\delta}=0$.
 
+
 ## Exercise
 
 What is the link between little $o$ notation and the derivative?  
 Explain why  
-
 $$
 f(x+\delta)=f(x)+\delta\,g(x)+o(\delta)
 $$  
-
 is the same statement as  
-
 $$
 \frac{df}{dx}=g(x).
 $$  
-
 What considerations might help you choose which of these notations to use?
+
 
 ## Simple counting processes
 
-- A *simple counting process* is one which cannot count more than one event at a time.  
-- Technically, the SIR Markov‑chain model we have written is simple.  
+- A **simple counting process** is one which cannot count more than one event at a time.  
+- By this definition, the SIR Markov‑chain model constructed above is simple.  
 - One may want to model the extra randomness resulting from multiple simultaneous events: someone sneezing in a bus; large gatherings at football matches; etc.  This extra randomness may even be critical to match the variability in data.  
 - Later in the course, we may see situations where this extra randomness plays an important role. Setting up the model using counting processes, as we have done here, turns out to be useful for this.
 
 
-
-## Euler's method for ordinary differential equations {.allowframebreaks}
+## Euler's method for ordinary differential equations
 
 - Euler (1707 – 1783) wanted a numeric solution of an ordinary
   differential equation (ODE) $dx/dt = h(x)$ with an initial condition
@@ -227,10 +233,14 @@ What considerations might help you choose which of these notations to use?
   \tilde x\big((k+1)\delta\big)=\tilde x(k\delta)+\delta\,
   h\!\bigl(\tilde x(k\delta)\bigr).
   $$
+
+
+##
+
 - This only defines $\tilde x(t)$ when $t$ is a multiple of $\delta$, but
   suppose $\tilde x(t)$ is constant between these discrete times.  
-- We now have a numerical scheme, stepping forwards in time increments of size $\delta$, that can be readily evaluated by computer.
 
+- We now have a numerical scheme, stepping forwards in time increments of size $\delta$, that can be readily evaluated by computer.
 
 
 ## Euler's method versus other numerical methods
@@ -247,17 +257,18 @@ What considerations might help you choose which of these notations to use?
 
 
 
-## Continuous‑time models and discretized approximations {.allowframebreaks}
+## Continuous‑time models and discretized approximations 
 
-- In some physical and engineering situations, a system follows an ODE model closely. For example, Newton's laws provide a very good approximation to the motions of celestial bodies.  
+- In some physical and engineering situations, a system follows an ODE model closely. For example, Newton's laws provide a very good approximation to the motions of celestial bodies.
+
 - In many biological situations, ODE models only become close
-  mathematical approximations to reality at reasonably large scale. On small temporal scales, models cannot usually capture the full scope of biological variation and complexity.  
+  mathematical approximations to reality at reasonably large scale. On small temporal scales, models cannot usually capture the full scope of biological variation and complexity.
+  
 - If we are going to expect substantial error in using $x(t)$ to model a biological system, maybe the numerical solution $\tilde x(t)$ represents the system being modeled just as well as $x(t)$ does.  
 
-\framebreak
+##
 
 - If our model fitting, model investigation, and final conclusions are all based on our numerical solution $\tilde x(t)$ (i.e. we are sticking entirely to simulation‑based methods) then we are most immediately concerned with how well $\tilde x(t)$ describes the system of interest. In that sense, $\tilde x(t)$ becomes more important than the original model $x(t)$.
-
 
 
 ## Numerical solutions as scientific models
@@ -303,56 +314,44 @@ What considerations might help you choose which of these notations to use?
 
 ## Three different stochastic Euler solutions {.allowframebreaks}
 
-1. **Poisson approximation**
-
-   $$
-   \tilde N_{SI}(t+\delta)=
-   \tilde N_{SI}(t)+
-   \operatorname{Poisson}\!\bigl[
-     \mu_{SI}\bigl(\tilde I(t)\bigr)\,\tilde S(t)\,\delta
-   \bigr],
-   $$
-
-   where $\operatorname{Poisson}(\mu)$ is a Poisson random variable with
-   mean $\mu$ and  
-
-   $$
-   \mu_{SI}\bigl(\tilde I(t)\bigr)=\beta\,\tilde I(t).
-   $$
+**1. Poisson approximation**
+$$
+\tilde N_{SI}(t+\delta)=
+\tilde N_{SI}(t)+
+\operatorname{Poisson}\!\bigl[
+    \mu_{SI}\bigl(\tilde I(t)\bigr)\,\tilde S(t)\,\delta
+\bigr],
+$$
+where $\operatorname{Poisson}(\mu)$ is a Poisson random variable with
+mean $\mu$ and  
+$$
+\mu_{SI}\bigl(\tilde I(t)\bigr)=\beta\,\tilde I(t).
+$$
  
-
-2. **Binomial approximation**
-
-   $$
-   \tilde N_{SI}(t+\delta)=
-   \tilde N_{SI}(t)+
-   \operatorname{Binomial}\!\bigl[
-     \tilde S(t),
-     \mu_{SI}\bigl(\tilde I(t)\bigr)\,\delta
-   \bigr],
-   $$
-
-   where $\operatorname{Binomial}(n,p)$ has mean $np$ and
-   variance $np(1-p)$, with $p=\mu_{SI}\bigl(\tilde I(t)\bigr)\,\delta$.
+**2. Binomial approximation**
+$$
+\tilde N_{SI}(t+\delta)=
+\tilde N_{SI}(t)+
+\operatorname{Binomial}\!\bigl[
+  \tilde S(t),
+  \mu_{SI}\bigl(\tilde I(t)\bigr)\,\delta
+\bigr],
+$$
+where $\operatorname{Binomial}(n,p)$ has mean $np$ and variance $np(1-p)$, with $p=\mu_{SI}\bigl(\tilde I(t)\bigr)\,\delta$.
 
 \framebreak  
 
-3. **Binomial approximation with exponential transition probability**
-
-   $$
-   \tilde N_{SI}(t+\delta)=
-   \tilde N_{SI}(t)+
-   \operatorname{Binomial}\!\bigl[
-     \tilde S(t),
-     1-\exp\bigl\{-\mu_{SI}\bigl(\tilde I(t)\bigr)\,\delta\bigr\}
-   \bigr].
-   $$
-
-
+**3. Binomial approximation with exponential transition probability**
+$$
+\tilde N_{SI}(t+\delta)=
+\tilde N_{SI}(t)+
+\operatorname{Binomial}\!\bigl[
+  \tilde S(t),
+  1-\exp\bigl\{-\mu_{SI}\bigl(\tilde I(t)\bigr)\,\delta\bigr\}
+\bigr].
+$$
 Analytically, it is usually easiest to reason using **(1)** or **(2)**.  
 Practically, it is often preferable to work with **(3)**.
-
-
 
 
 ## Compartment models as stochastic differential equations {.allowframebreaks}
@@ -398,9 +397,7 @@ Numerically, Gillespie's algorithm is often approximated using
 are closely related to Euler's approach; in this context Euler's method
 is sometimes called *tau‑leaping*.
 
-# Compartment models in `pypomp`
-
-## The Consett measles outbreak {.allowframebreaks}
+## Compartment models in `pypomp`: The Consett measles outbreak 
 
 As an example that we can probe in some depth, let's look at an outbreak of measles that occurred in the small town of Consett in England in 1948. The town had a population of 38 820, with 737 births over the course of the year.
 
@@ -414,9 +411,10 @@ import pypomp as pp
 import matplotlib.pyplot as plt
 ```
 
-\framebreak
-
+<!---
 We download the data and examine them:
+--->
+
 
 ```{python data}
 #| fig-cap: "Consett measles outbreak (1948)"
@@ -425,12 +423,12 @@ We download the data and examine them:
 #| echo: false
 #| fig-show: hold 
 
-meas = (pd.read_csv(
-          "https://kingaa.github.io/sbied/stochsim/Measles_Consett_1948.csv")
-          .loc[:, ["week", "cases"]]
-          .rename(columns={"week": "time", "cases": "reports"})
-          .set_index("time")
-          .astype(float))
+url = "https://kingaa.github.io/sbied/stochsim/Measles_Consett_1948.csv"
+meas = (pd.read_csv(url)
+    .loc[:, ["week", "cases"]]
+    .rename(columns={"week": "time", "cases": "reports"})
+    .set_index("time")
+    .astype(float))
 ys = meas.copy()
 ys.columns = pd.Index(["reports"])
 fig, ax = plt.subplots(figsize=(3.5, 2.5))
@@ -458,62 +456,17 @@ R0    = 15
 beta  = mu_IR * R0             
 ```
 
-\framebreak
-
-:::{.content-visible when-format="beamer"}
-```python
-meas = (pd.read_csv("https://...csv")
-          .loc[:, ["week", "cases"]]
-          .rename(columns={...})
-          .set_index("time").astype(float))
-ys = meas.copy()
-ys.columns = pd.Index(["reports"])
-
-fig, ax = plt.subplots(figsize=(3.5, 2.5))
-ax.plot(ys.index, ys["reports"], lw=1)
-ax.set(xlabel="Week of 1948",
-       ylabel="Reported measles cases",
-       title="Consett measles outbreak (1948)")
-```
-:::
-
-:::{.content-hidden when-format="beamer"}
-```{python data}
-#| fig-cap: "Consett measles outbreak (1948)"
-#| fig-width: 3
-#| fig-height: 2
-#| echo: true
-#| eval: false
-
-meas = (pd.read_csv(
-          "https://kingaa.github.io/sbied/stochsim/Measles_Consett_1948.csv")
-          .loc[:, ["week", "cases"]]
-          .rename(columns={"week": "time", "cases": "reports"})
-          .set_index("time")
-          .astype(float))
-
-ys = meas.copy()
-ys.columns = pd.Index(["reports"])
-
-fig, ax = plt.subplots(figsize=(3.5, 2.5))
-ax.plot(ys.index, ys["reports"], lw=1)
-ax.set(xlabel="Week of 1948",
-       ylabel="Reported measles cases",
-       title="Consett measles outbreak (1948)")
-ax.grid(alpha=0.20)
-fig.tight_layout()
-
-
-```
-:::
 
 ## A simple POMP model for measles
 
 - These are incidence data: the `reports` variable counts the number of
-  new measles cases each week.  
-- We will model the outbreak using the simple **SIR** model.  
+  new measles cases each week.
+  
+- We will model the outbreak using the simple **SIR** model.
+
 - Tasks: (i) estimate the parameters of the SIR; (ii) decide whether SIR
-  adequately describes these data.  
+  adequately describes these data.
+  
 - The rate at which individuals move from S to I is the *force of
   infection*
   $\mu_{SI}= \beta\,I/N$, while that at which individuals leave I for R
@@ -524,16 +477,19 @@ fig.tight_layout()
 ## Framing the SIR as a POMP model
 
 - **Latent state variables**: numbers of individuals
-  $S(t)$, $I(t)$, $R(t)$ in the S, I, R compartments.  
+  $S(t)$, $I(t)$, $R(t)$ in the S, I, R compartments.
+  
 - Treat population size $N=S+I+R$ as fixed at the known value
-  38 000.  
+  38,000.
+  
 - The actual numbers moving between compartments over any interval are
-  modeled as **stochastic processes**.  
+  modeled as **stochastic processes**.
+  
 - We assume the stochasticity is **purely demographic**: every
-  individual in a compartment faces the same exit risk at any time.  
+  individual in a compartment faces the same exit risk at any time.
+  
 - *Demographic stochasticity* is the unavoidable randomness arising from
   chance events in a discrete, finite population.
-
 
 
 ## Implementing the SIR model in `pypomp` {.allowframebreaks}
@@ -567,7 +523,7 @@ argument signatures. The initial state simulator `rinit` must have arguments
 mapping state names to their initial values:
 
 ```{python rinit}
-#| echo: false
+#| echo: true
 def rinit(theta_, key, covars, t0):
     """Initial state simulator for SIR model."""
     N = theta_["N"]
@@ -579,32 +535,6 @@ def rinit(theta_, key, covars, t0):
     return {"S": S0, "I": I0, "R": R0, "H": H0}
 ```
 
-:::{.content-visible when-format="beamer"}
-```python
-def rinit(theta_, key, covars, t0):
-    N, eta = theta_["N"], theta_["eta"]
-    S0 = jnp.round(N * eta)
-    I0 = 1.0
-    R0 = jnp.round(N*(1-eta)) - 1.0
-    H0 = 0.0  # Accumulator
-    return {"S": S0, "I": I0,
-            "R": R0, "H": H0}
-```
-:::
-
-:::{.content-hidden when-format="beamer"}
-```python
-def rinit(theta_, key, covars, t0):
-    """Initial state simulator for SIR model."""
-    N = theta_["N"]
-    eta = theta_["eta"]
-    S0 = jnp.round(N * eta)
-    I0 = 1.0
-    R0 = jnp.round(N * (1 - eta)) - 1.0   
-    H0 = 0.0  # Accumulator for true incidence                            
-    return {"S": S0, "I": I0, "R": R0, "H": H0}
-```
-:::
 
 \framebreak
 
@@ -626,12 +556,27 @@ def rinit(theta_, key, covars, t0):
 
 \framebreak
 
-The process simulator `rproc` must have arguments `X_`, `theta_`, `key`, 
-`covars`, `t`, and `dt` (in that order), and return a dictionary of the 
-updated state:
+* The process simulator `rproc` must have the following arguments, in order:
 
+`X_`
+
+`theta_`
+
+`key` 
+
+`covars`
+
+`t`
+
+`dt`
+
+* It must return a dictionary of the updated state
+
+##
+
+\footnotesize
 ```{python rproc}
-#| echo: false
+#| echo: true
 def rproc(X_, theta_, key, covars, t, dt):
     """Process simulator for SIR model with Euler-binomial scheme."""
     S, I, R, H = X_["S"], X_["I"], X_["R"], X_["H"]
@@ -649,75 +594,28 @@ def rproc(X_, theta_, key, covars, t, dt):
     H_new = H + dN_IR
     return {"S": S_new, "I": I_new, "R": R_new, "H": H_new}
 ```
+\normalsize
 
-:::{.content-visible when-format="beamer"}
-```python
-def rproc(X_, theta_, key, covars, t, dt):
-    S, I = X_["S"], X_["I"]
-    R, H = X_["R"], X_["H"]
-    Beta = theta_["Beta"]
-    mu_IR, N = theta_["mu_IR"], theta_["N"]
-    p_SI = 1 - jnp.exp(-Beta*I/N*dt)
-    p_IR = 1 - jnp.exp(-mu_IR * dt)
-    k1, k2 = jax.random.split(key)
-    dN_SI = jax.random.binomial(
-        k1, n=jnp.int32(S), p=p_SI)
-    dN_IR = jax.random.binomial(
-        k2, n=jnp.int32(I), p=p_IR)
-    S -= dN_SI; I += dN_SI - dN_IR
-    R += dN_IR; H += dN_IR
-    return {"S":S,"I":I,"R":R,"H":H}
-```
-:::
-
-:::{.content-hidden when-format="beamer"}
-```python
-def rproc(X_, theta_, key, covars, t, dt):
-    """Process simulator for SIR model with Euler-binomial scheme."""
-    # Unpack state
-    S, I, R, H = X_["S"], X_["I"], X_["R"], X_["H"]
-    # Unpack parameters
-    Beta = theta_["Beta"]
-    mu_IR = theta_["mu_IR"]
-    N = theta_["N"]
-
-    # Transition probabilities (exponential form)
-    p_SI = 1.0 - jnp.exp(-Beta * I / N * dt)
-    p_IR = 1.0 - jnp.exp(-mu_IR * dt)
-
-    # Draw transitions
-    key_SI, key_IR = jax.random.split(key)
-    dN_SI = jax.random.binomial(key_SI, n=jnp.int32(S), p=p_SI)
-    dN_IR = jax.random.binomial(key_IR, n=jnp.int32(I), p=p_IR)
-
-    # Update state
-    S_new = S - dN_SI
-    I_new = I + dN_SI - dN_IR
-    R_new = R + dN_IR
-    H_new = H + dN_IR  # Accumulate incidence           
-
-    return {"S": S_new, "I": I_new, "R": R_new, "H": H_new}
-```
-:::
 
 \framebreak
 
-- Now, we'll model the data by a negative‑binomial variable  
-
+- Now, we'll model the data, conditional on the latent state, by a negative‑binomial variable:
   $$
   \mathrm{reports}_t \sim \operatorname{NegBin}\bigl(\rho\,H(t),\,k\bigr),
   $$
+  with mean $\rho\,H(t)$ and variance $\rho\,H(t)+\bigl(\rho\,H(t)\bigr)^2/k$.
+  The binomial distribution does not have a separate variance parameter.
 
-  with mean $\rho\,H(t)$ and variance $\rho\,H(t)+\bigl(\rho\,H(t)\bigr)^2/k$. The binomial distribution does not have a separate variance parameter.
-
-- Now, to include the observations in the model, we must write either a `dmeas` or an `rmeas` component, or both.
-
-\framebreak
+- To include the observations in the model, we must write either a `dmeas` or an `rmeas` component, or both.
 
 First, we define helper functions for the negative binomial distribution:
 
+
+##
+
+\footnotesize
 ```{python negativebinomial}
-#| echo: false
+#| echo: true
 def nbinom_logpmf(x, k, mu):
     """Log PMF of NegBin(k, mu) that is robust when mu == 0."""
     x = jnp.asarray(x)
@@ -738,58 +636,16 @@ def rnbinom(key, k, mu):
     lam = jax.random.gamma(key_g, k) * (mu / k)
     return jax.random.poisson(key_p, lam)
 ```
+\normalsize
 
-:::{.content-visible when-format="beamer"}
-```python
-def nbinom_logpmf(x, k, mu):
-    x, k, mu = [jnp.asarray(v)
-                 for v in (x, k, mu)]
-    logp_zero = jnp.where(x==0, 0., -jnp.inf)
-    safe_mu = jnp.where(mu==0., 1., mu)
-    gl = jax.scipy.special.gammaln
-    core = (gl(k+x) - gl(k) - gl(x+1)
-      + k*jnp.log(k/(k+safe_mu))
-      + x*jnp.log(safe_mu/(k+safe_mu)))
-    return jnp.where(mu==0., logp_zero, core)
 
-def rnbinom(key, k, mu):
-    kg, kp = jax.random.split(key)
-    lam = jax.random.gamma(kg,k) * (mu/k)
-    return jax.random.poisson(kp, lam)
-```
-:::
-
-:::{.content-hidden when-format="beamer"}
-```python
-def nbinom_logpmf(x, k, mu):
-    """Log PMF of NegBin(k, mu) that is robust when mu == 0."""
-    x = jnp.asarray(x)
-    k = jnp.asarray(k)
-    mu = jnp.asarray(mu)
-    # Handle mu == 0 separately
-    logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
-    safe_mu = jnp.where(mu == 0.0, 1.0, mu)  # Dummy value, ignored
-    core = (jax.scipy.special.gammaln(k + x) 
-            - jax.scipy.special.gammaln(k)
-            - jax.scipy.special.gammaln(x + 1)
-            + k * jnp.log(k / (k + safe_mu))
-            + x * jnp.log(safe_mu / (k + safe_mu)))
-    return jnp.where(mu == 0.0, logp_zero, core)
-
-def rnbinom(key, k, mu):
-    """Sample from NegBin(k, mu) via Gamma-Poisson mixture."""
-    key_g, key_p = jax.random.split(key)
-    lam = jax.random.gamma(key_g, k) * (mu / k)
-    return jax.random.poisson(key_p, lam)
-```
-:::
-
-\framebreak
+##
 
 The measurement density `dmeas` and simulator `rmeas`:
 
+\footnotesize
 ```{python dmeas}
-#| echo: false
+#| echo: true
 def dmeas(Y_, X_, theta_, covars, t):
     """Measurement density: log P(reports | H, rho, k)."""
     rho = theta_["rho"]
@@ -800,7 +656,7 @@ def dmeas(Y_, X_, theta_, covars, t):
 ```
 
 ```{python rmeas}
-#| echo: false
+#| echo: true
 def rmeas(X_, theta_, key, covars, t):
     """Measurement simulator: sample reports ~ NegBin(k, rho*H)."""
     rho = theta_["rho"]
@@ -810,49 +666,14 @@ def rmeas(X_, theta_, key, covars, t):
     reports = rnbinom(key, k, mu)
     return jnp.array([reports])
 ```
+\normalsize
 
-:::{.content-visible when-format="beamer"}
-```python
-def dmeas(Y_, X_, theta_, covars, t):
-    rho, k = theta_["rho"], theta_["k"]
-    mu = rho * X_["H"]
-    return nbinom_logpmf(
-        Y_["reports"], k, mu)
-
-def rmeas(X_, theta_, key, covars, t):
-    rho, k = theta_["rho"], theta_["k"]
-    mu = rho * X_["H"]
-    return jnp.array([rnbinom(key,k,mu)])
-```
-:::
-
-:::{.content-hidden when-format="beamer"}
-```python
-def dmeas(Y_, X_, theta_, covars, t):
-    """Measurement density: log P(reports | H, rho, k)."""
-    rho = theta_["rho"]
-    k = theta_["k"]
-    H = X_["H"]
-    mu = rho * H
-    return nbinom_logpmf(Y_["reports"], k, mu)
-
-def rmeas(X_, theta_, key, covars, t):
-    """Measurement simulator: sample reports ~ NegBin(k, rho*H)."""
-    rho = theta_["rho"]
-    k = theta_["k"]
-    H = X_["H"]
-    mu = rho * H
-    reports = rnbinom(key, k, mu)
-    return jnp.array([reports])
-```
-:::
-
-\framebreak
+##
 
 A call to `Pomp` assembles the model components together with the data:
 
 ```{python}
-#| echo: false
+#| echo: true
 theta = {
     "Beta": 7.5,
     "mu_IR": 0.5,
@@ -863,61 +684,13 @@ theta = {
 }
 statenames = ["S", "I", "R", "H"]
 sir_obj = pp.Pomp(
-    rinit=rinit, rproc=rproc, dmeas=dmeas, rmeas=rmeas,
-    ys=ys, theta=theta, statenames=statenames,
-    t0=0.0, nstep=7, accumvars=("H",), ydim=1, covars=None
-)
-```
-
-:::{.content-visible when-format="beamer"}
-```python
-theta = {"Beta": 7.5, "mu_IR": 0.5,
-         "N": 38000., "eta": 0.03,
-         "rho": 0.5, "k": 10.0}
-
-sir_obj = pp.Pomp(
     rinit=rinit, rproc=rproc,
     dmeas=dmeas, rmeas=rmeas,
-    ys=ys, theta=theta,
-    statenames=["S","I","R","H"],
-    t0=0., nstep=7,
-    accumvars=("H",), ydim=1,
-    covars=None)
-```
-:::
-
-:::{.content-hidden when-format="beamer"}
-```python
-# Define initial parameters
-theta = {
-    "Beta": 7.5,     # Transmission rate (per week)
-    "mu_IR": 0.5,    # Recovery rate (per week)
-    "N": 38000.0,    # Population size
-    "eta": 0.03,     # Initial susceptible fraction
-    "rho": 0.5,      # Reporting probability
-    "k": 10.0        # Overdispersion parameter
-}
-
-# State variable names (H is an accumulator variable)
-statenames = ["S", "I", "R", "H"]
-
-# Create the POMP object
-sir_obj = pp.Pomp(
-    rinit=rinit,
-    rproc=rproc,
-    dmeas=dmeas,
-    rmeas=rmeas,
-    ys=ys,
-    theta=theta,
-    statenames=statenames,
-    t0=0.0,
-    nstep=7,              # 7 sub-steps per week (daily steps)
-    accumvars=("H",),     # Accumulator variable (reset each observation)
-    ydim=1,               # Dimension of observation vector
-    covars=None
+    ys=ys, theta=theta, statenames=statenames,
+    t0=0.0, nstep=7, accumvars=("H",),
+    ydim=1, covars=None
 )
 ```
-:::
 
 
 ## Guessing plausible parameter values {.allowframebreaks}
@@ -926,22 +699,18 @@ sir_obj = pp.Pomp(
   model. This requires plausible parameter values, which we can obtain
   with a few back‑of‑the‑envelope estimates.
 
-- Recall that $\mathcal R_0$ is the expected number of secondary
-  infections caused by one primary infection introduced into a fully
-  susceptible population.  
-  For an SIR infection we have
-  $\mathcal R_0 \approx \tfrac{L}{A}$, where $L$ is host lifespan and
-  $A$ is mean age of infection.  
-  Age‑stratified serology indicates $A \approx 4$–$5\;\text{yr}$
-  @Anderson1991. Assuming $L \approx 60$–$70\;\text{yr}$ gives
+Recall that $\mathcal R_0$ is the expected number of secondary infections caused by one primary infection introduced into a fully susceptible population.  
+For an SIR infection we have $\mathcal R_0 \approx \tfrac{L}{A}$, where $L$ is host lifespan and $A$ is mean age of infection.
+  
+- Age‑stratified serology indicates $A \approx 4–5\;\text{yr}$
+  [@Anderson1991]. Assuming $L \approx 60–70\;\text{yr}$ gives
   $\mathcal R_0 \approx 15$.
 
-- The final‑size equation for an SIR epidemic is  
 
+- The final‑size equation for an SIR epidemic is  
   $$
   \mathcal R_0 = -\frac{\log(1-f)}{f},
   $$
-
   where $f$ is the fraction of initial susceptibles who ultimately
   become infected. For $\mathcal R_0>5$, this implies $f>0.99$.
 
@@ -968,12 +737,13 @@ beta           = 0.5 * 15
 
 - If the infectious period is roughly 2 weeks, then $1/\mu_{IR} \approx 2\ \text{wk}$ and $\beta = \mu_{IR}\,\mathcal R_0 \approx `{python} beta`\ \text{wk}^{-1}$.
 
-\framebreak
 
-- Let's now simulate the model with these parameter values.
+##
+
+Let's now simulate the model with these parameter values.
 
 ```{python}
-#| echo: false
+#| echo: true
 n_sims = 20
 key = jax.random.key(42)
 X_sims, Y_sims = sir_obj.simulate(key=key, nsim=n_sims)
@@ -983,38 +753,11 @@ sim_df = Y_sims.pivot_table(
 sim_df.columns = [f"sim_{i+1}" for i in range(n_sims)]
 ```
 
-:::{.content-visible when-format="beamer"}
-```python
-n_sims = 20
-key = jax.random.key(42)
-X_sims, Y_sims = sir_obj.simulate(
-    key=key, nsim=n_sims)
-sim_df = Y_sims.pivot_table(
-    index="time", columns="sim",
-    values="obs_0")
-```
-:::
 
-:::{.content-hidden when-format="beamer"}
-```python
-n_sims = 20
-key = jax.random.key(42)
-
-# Run simulations
-X_sims, Y_sims = sir_obj.simulate(key=key, nsim=n_sims)
-
-# Extract simulated reports
-# Y_sims is a DataFrame with columns: replicate, sim, time, obs_0
-sim_df = Y_sims.pivot_table(
-    index="time", 
-    columns="sim", 
-    values="obs_0"
-)
-sim_df.columns = [f"sim_{i+1}" for i in range(n_sims)]
-```
-:::
+##
 
 ```{python}
+#| echo: false
 #| fig-cap: "SIR simulation vs. 1948 Consett measles data"
 fig, ax = plt.subplots(figsize=(3.5, 2.5))
 ys["reports"].plot(ax=ax, lw=1.5, color="black", label="observed")
@@ -1029,7 +772,8 @@ plt.tight_layout()
 plt.show()
 ```
 
-\framebreak
+
+##
 
 The data are in black; the 20 simulations are shown in red.
 Clearly, this leaves something to be desired. In the exercises, you'll

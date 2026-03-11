@@ -2,8 +2,11 @@
 title: >
   Lesson 1: Introduction to Simulation-based Inference for Epidemiological Dynamics
 author:
-  - "Aaron A. King and Edward L. Ionides \\newline "
-  - "Translated to pypomp by Kunyang He"
+  - Aaron A. King
+  - Edward L. Ionides
+  - Kunyang He
+date: today
+date-format: full
 
 bibliography: ../sbied.bib             
 
@@ -71,7 +74,7 @@ header-includes: |
 - **Complex, open, nonlinear, and non‑stationary systems:**\
   Precise “laws of nature” are unavailable.\
   It is useful to model them as stochastic processes.\
-  Multiple competing explanations** are possible.
+  Multiple competing explanations are possible.
 
 - **Central scientific goals:**\
   Which explanations are most favored by the data?\
@@ -282,7 +285,7 @@ These basic model components define the specific POMP model under consideration.
 
 -  __Simulation-based__ methods require the user to specify rprocess but not dprocess.  
 
--  _Plug-and-play_, _likelihood-free_ and _equation-free_ are alternative terms for _simulation-based_.
+-  __Plug-and-play__, __likelihood-free__ and __equation-free__ are alternative terms for simulation-based.
 
 - Much development of simulation-based statistical methodology has occurred in the past decade.  
 
@@ -306,9 +309,10 @@ We conventionally denote the `pypomp` package by `pp`:
 #| eval: false
 #| echo: true
 import pypomp as pp
-from pypomp.pomp_class import Pomp
 ```
-Suppose `mod` is a pypomp representation of a POMP model, so `mod` has class `Pomp`.
+Suppose `mod` is a pypomp representation of a POMP model
+- `mod` has class `Pomp`.
+- `mod` is built using the `pp.Pomp` constructor.
 
 It is useful to divide the `pypomp` package functionality into different levels:
 
@@ -318,7 +322,8 @@ It is useful to divide the `pypomp` package functionality into different levels:
 
 
 ## Basic model components
-Basic model components are user-specified methods belonging to `mod` that perform the elementary computations that specify a POMP model. There are five of these:
+
+* Basic model components are user-specified methods belonging to `mod` that perform the elementary computations that specify a POMP model. There are five of these:
 
 **`rinit`**: simulator for the initial-state distribution, i.e., the distribution of the latent state at time $t_0$.  
 
@@ -326,9 +331,9 @@ Basic model components are user-specified methods belonging to `mod` that perfor
 
 **`rmeas`** and **`dmeas`**: simulator and density evaluation procedure, respectively, for the measurement model.  
 
-**`par_trans`**: parameter transformations.  
+**`par_trans`**: parameter transformations. Optimization is helped by transforming parameters to remove constraints.
 
-The scientist must specify whichever basic model components are required for the algorithms that the scientist uses. 
+* The scientist must specify whichever basic model components are required for the algorithms that the scientist uses. 
 
 <!---
 Future pypomp algorithms may implement `dprocess` (transition density for the process model) and `rprior`, `dprior` to represent Bayesian prior belief.
