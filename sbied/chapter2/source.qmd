@@ -403,7 +403,7 @@ is sometimes called *tau‑leaping*.
 
 ## Compartment models in `pypomp`: Measles in Consett
 
-As an example that we can probe in some depth, let's look at an outbreak of measles that occurred in the small town of Consett in England in 1948. The town had a population of 38 820, with 737 births over the course of the year.
+As an example, we investigate an outbreak of measles that occurred in the small town of Consett in England in 1948. The town had a population of 38 820, with 737 births over the course of the year.
 
 ```{python}
 #| echo: false
@@ -423,7 +423,7 @@ We download the data and examine them:
 ```{python data}
 #| fig-cap: "Consett measles outbreak (1948)"
 #| fig-width: 3
-#| fig-height: 2
+#| fig-height: 1.8
 #| echo: false
 #| fig-show: hold 
 
@@ -436,7 +436,7 @@ meas = (pd.read_csv(file)
     .astype(float))
 ys = meas.copy()
 ys.columns = pd.Index(["reports"])
-fig, ax = plt.subplots(figsize=(3.5, 2.5))
+fig, ax = plt.subplots(figsize=(3.5, 2.2))
 ax.plot(ys.index, ys["reports"], lw=1)
 ax.set(xlabel="Week of 1948",
        ylabel="Reported measles cases",
@@ -727,12 +727,8 @@ For an SIR infection we have $\mathcal R_0 \approx \tfrac{L}{A}$, where $L$ is h
 #| echo: false
 import pandas as pd, numpy as np, io, requests
 
-# This imports the R-SBIED version rather than the local verison.
-# They should be the same, so this is just an exercise
-url = "https://raw.githubusercontent.com/kingaa/sbied/master/stochsim/Measles_Consett_1948.csv"
-csv = requests.get(url).text.replace(" ", "\n")              
-meas = pd.read_csv(io.StringIO(csv))
-
+file = "Measles_Consett_1948.csv"
+meas = pd.read_csv(file)
 
 total_reports = int(meas["cases"].sum())           
 S0             = int(total_reports / 0.5)          
@@ -768,8 +764,8 @@ sim_df.columns = [f"sim_{i+1}" for i in range(n_sims)]
 
 ```{python}
 #| echo: false
-#| fig-cap: "SIR simulation (red) and 1948 Consett measles data (black)"
-fig, ax = plt.subplots(figsize=(3.5, 3))
+#| fig-cap: "SIR simulation (red) and 1948 Consett measles data (black). Clearly, this leaves something to be desired. In the exercises, you'll see if this model can do better."
+fig, ax = plt.subplots(figsize=(3.5, 2.8))
 ys["reports"].plot(ax=ax, lw=1.5, color="black", label="observed")
 sim_df.plot(ax=ax, lw=0.6, alpha=0.5, legend=False, color="red")
 ax.set(
@@ -781,13 +777,6 @@ ax.grid(alpha=0.15)
 plt.tight_layout()
 plt.show()
 ```
-
-
-##
-
-The data are in black; the 20 simulations are shown in red.
-Clearly, this leaves something to be desired. In the exercises, you'll
-see if this model can do better.
 
 ## Exercise 2.3. Explore the SIR model.
 

@@ -58,8 +58,10 @@ import requests
 ```{python}
 #| echo: true
 # Download and prepare data
-meas = (pd.read_csv(
-          "https://kingaa.github.io/sbied/stochsim/Measles_Consett_1948.csv")
+file = "https://kingaa.github.io/sbied/stochsim/Measles_Consett_1948.csv"
+file = "https://github.com/kingaa/sbied/tree/master/stochsim/Measles_Consett_1948.csv"
+file = "Measles_Consett_1948.csv"
+meas = (pd.read_csv(file)
           .loc[:, ["week", "cases"]]
           .rename(columns={"week": "time", "cases": "reports"})
           .set_index("time")
