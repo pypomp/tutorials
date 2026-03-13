@@ -1,0 +1,5 @@
+Running on gl3399
+Running in /home/chenjunc/dacca_benchmark/mif2
+Running with 36 CPUs
+WARNING:2026-01-01 23:58:34,589:jax._src.xla_bridge:854: An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+slurmstepd: error: *** JOB 39179396 ON gl3399 CANCELLED AT 2026-01-02T11:58:59 DUE TO TIME LIMIT ***

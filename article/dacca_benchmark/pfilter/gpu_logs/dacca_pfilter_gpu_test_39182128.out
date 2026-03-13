@@ -1,0 +1,7 @@
+Running on gl1526
+Running in /home/chenjunc/dacca_benchmark/pfilter
+Python: /home/chenjunc/pypomp_gpu.venv/bin/python
+Running at level 4
+[info] Running Dacca benchmark on backend=[CudaDevice(id=0)]
+[pfilter]  {'method': 'pfilter', 'backend': 'gpu', 'particles': 5000, 'logmeanexp_ll': -3748.151177829547, 'logmeanexp_se': 0.18249152245932965, 'n_reps': 36, 'run_time': 0.4098953472243415}
+[info] Saved benchmark result to pfilter_dacca_benchmark_L4_gpu_20260102_041217.pkl

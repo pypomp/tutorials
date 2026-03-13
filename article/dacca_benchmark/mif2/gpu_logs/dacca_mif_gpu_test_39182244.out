@@ -1,0 +1,5 @@
+Running on gl1526
+Running in /home/chenjunc/dacca_benchmark/mif2
+Python: /home/chenjunc/pypomp_gpu.venv/bin/python
+Running at level 2
+[info] Running Dacca benchmark on backend=[CudaDevice(id=0)]

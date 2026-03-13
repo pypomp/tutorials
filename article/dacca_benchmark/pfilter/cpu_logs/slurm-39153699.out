@@ -1,0 +1,8 @@
+Running on gl3039
+Running in /home/chenjunc/dacca_benchmark/pfilter
+Running with 36 CPUs
+WARNING:2026-01-01 08:28:01,721:jax._src.xla_bridge:854: An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+Running at level 3
+[info] Running Dacca benchmark on backend=[CpuDevice(id=0)]
+[pfilter]  {'method': 'pfilter', 'backend': 'cpu', 'particles': 1000, 'logmeanexp_ll': -3748.4127638978175, 'logmeanexp_se': 0.432470533572986, 'n_reps': 24, 'run_time': 2.2336008747418723}
+[info] Saved benchmark result to pfilter_dacca_benchmark_L3_cpu_20260101_082856.pkl

@@ -1,0 +1,8 @@
+Running on gl3348
+Running in /home/chenjunc/dacca_benchmark/mif2
+Running with 36 CPUs
+WARNING:2026-02-02 22:01:44,393:jax._src.xla_bridge:854: An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+Running at level 3
+[info] Running Dacca benchmark on backend=[CpuDevice(id=0)]
+[mif]      {'method': 'mif', 'backend': 'cpu', 'particles': 1000, 'logmeanexp_ll': -3776.9848429929198, 'logmeanexp_se': 0.7431199551715325, 'n_reps': 20, 'n_iter': 100, 'run_time': 5609.18115234375, 'se_run_time': 6.568808078765869}
+[info] Saved benchmark result to dacca_benchmark_L3_cpu_20260204_073001.pkl

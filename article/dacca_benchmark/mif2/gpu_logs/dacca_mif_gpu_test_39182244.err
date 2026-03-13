@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/chenjunc/dacca_benchmark/mif2/benchmark_dacca_mif.py", line 249, in <module>
+    res_mif = bench_dacca_mif(J=NP_FITR, M=NFITR, rw_sd = RW_SD, a=COOLING_RATE, reps=NREPS_FITR, seed=SEED)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: bench_dacca_mif() missing 2 required positional arguments: 'np_eval' and 'reps_eval'

@@ -1,0 +1,14 @@
+Running on gl3044
+Running in /home/chenjunc/dacca_benchmark/mop
+Running with 36 CPUs
+WARNING:2026-01-01 08:28:42,929:jax._src.xla_bridge:854: An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+Running at level 3
+[info] Running Dacca benchmark on backend=[CpuDevice(id=0)]
+Traceback (most recent call last):
+  File "/home/chenjunc/dacca_benchmark/mop/benchmark_dacca_mop.py", line 211, in <module>
+    res_mop = bench_dacca_mop(J=NP_EVAL, reps=NREPS_EVAL, seed=SEED, alpha=MOP_ALPHA)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chenjunc/dacca_benchmark/mop/benchmark_dacca_mop.py", line 187, in bench_dacca_mop
+    dacca, run_time, out = time_profiling(tag = profile_tag, pomp_obj = dacca, fn = _mop_loop, subkey = subkey)
+                           ^^^^^^^^^^^^^^
+NameError: name 'time_profiling' is not defined. Did you mean: 'method_profiling'?

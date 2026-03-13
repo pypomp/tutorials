@@ -1,0 +1,7 @@
+Running on gl3400
+Running in /home/chenjunc/dacca_benchmark
+Running with 36 CPUs
+  File "/home/chenjunc/dacca_benchmark/benchmark_dacca.py", line 225
+    mem_profile: bool = False
+    ^^^^^^^^^^^
+SyntaxError: invalid syntax

@@ -1,0 +1,7 @@
+Running on gl1526
+Running in /home/chenjunc/dacca_benchmark/mop
+Python: /home/chenjunc/pypomp_gpu.venv/bin/python
+Running at level 3
+[info] Running Dacca benchmark on backend=[CudaDevice(id=0)]
+[mop]      {'method': 'mop', 'backend': 'gpu', 'particles': 1000, 'logmeanexp_ll': -3747.614359375365, 'logmeanexp_se': 0.709822261704185, 'n_reps': 24, 'run_time': 0.39004743099212646}
+[info] Saved benchmark result to dacca_benchmark_L3_gpu_20260102_041412.pkl

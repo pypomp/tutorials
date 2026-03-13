@@ -1,0 +1,20 @@
+#!/bin/bash
+#SBATCH --job-name=jax_gpu_check
+#SBATCH --partition=spgpu
+#SBATCH --gpus=a40:1
+#SBATCH --cpus-per-gpu=1
+#SBATCH --mem=8G
+#SBATCH --time=00:05:00
+#SBATCH --account=ionides1
+#SBATCH --output=jax_gpu_%j.out
+#SBATCH --error=jax_gpu_%j.err
+
+module purge
+module load cuda
+nvidia-smi
+
+source ~/pypomp_gpu.venv/bin/activate
+python - << 'EOF'
+import jax
+print("devices:", jax.devices())
+EOF

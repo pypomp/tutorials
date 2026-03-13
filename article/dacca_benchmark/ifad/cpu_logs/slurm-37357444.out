@@ -1,0 +1,6 @@
+Running on gl3189
+Running in /home/chenjunc/dacca_benchmark/ifad
+Running with 36 CPUs
+WARNING:2025-12-05 14:21:18,291:jax._src.xla_bridge:854: An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+/var/spool/slurmd.spool/job37357444/slurm_script: line 39: 3994155 Killed                  RUN_LEVEL=2 python benchmark_dacca_ifad.py
+slurmstepd: error: Detected 1 oom_kill event in StepId=37357444.batch. Some of the step tasks have been OOM Killed.

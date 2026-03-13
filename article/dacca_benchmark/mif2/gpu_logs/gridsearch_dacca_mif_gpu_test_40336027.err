@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/chenjunc/dacca_benchmark/mif2/gridsearch_dacca_mif.py", line 257, in <module>
+    grid = list(itertools.produce(A_list, RW_SD_list))
+                ^^^^^^^^^^^^^^^^^
+AttributeError: module 'itertools' has no attribute 'produce'. Did you mean: 'product'?

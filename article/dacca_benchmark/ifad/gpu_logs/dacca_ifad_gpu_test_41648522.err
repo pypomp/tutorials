@@ -1,0 +1,29 @@
+W0202 23:11:56.793070  276408 platform_util.cc:218] unable to create StreamExecutor for CUDA:0: CUDA error: : CUDA_ERROR_DEVICE_UNAVAILABLE: CUDA-capable device(s) is/are busy or unavailable
+Traceback (most recent call last):
+  File "/home/chenjunc/pypomp_gpu.venv/lib/python3.11/site-packages/jax/_src/xla_bridge.py", line 800, in backends
+    backend = _init_backend(platform)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chenjunc/pypomp_gpu.venv/lib/python3.11/site-packages/jax/_src/xla_bridge.py", line 884, in _init_backend
+    backend = registration.factory()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chenjunc/pypomp_gpu.venv/lib/python3.11/site-packages/jax/_src/xla_bridge.py", line 537, in make_pjrt_c_api_client
+    return xla_client.make_c_api_client(plugin_name, updated_options, None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chenjunc/pypomp_gpu.venv/lib/python3.11/site-packages/jaxlib/xla_client.py", line 160, in make_c_api_client
+    return _xla.get_c_api_client(
+           ^^^^^^^^^^^^^^^^^^^^^^
+jax.errors.JaxRuntimeError: INTERNAL: no supported devices found for platform CUDA
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/chenjunc/dacca_benchmark/ifad/benchmark_dacca_ifad.py", line 19, in <module>
+    import pypomp as pp
+  File "/home/chenjunc/pypomp_gpu.venv/lib/python3.11/site-packages/pypomp/__init__.py", line 2, in <module>
+    from .LG import LG
+  File "/home/chenjunc/pypomp_gpu.venv/lib/python3.11/site-packages/pypomp/LG.py", line 63, in <module>
+    [[jnp.cos(0.2), -jnp.sin(0.2)], [jnp.sin(0.2), jnp.cos(0.2)]]
+      ^^^^^^^^^^^^
+RuntimeError: Unable to initialize backend 'cuda': INTERNAL: no supported devices found for platform CUDA (set JAX_PLATFORMS='' to automatically choose an available backend)
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.

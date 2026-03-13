@@ -1,0 +1,31 @@
+#!/bin/bash
+#SBATCH --job-name=gridsearch_dacca_mif_gpu_test
+#SBATCH --mail-type=FAIL,END
+#SBATCH --mail-user=chenjunc@umich.edu
+
+#SBATCH --partition=spgpu
+#SBATCH --gpus=a40:1
+#SBATCH --cpus-per-gpu=1
+#SBATCH --mem=32G
+#SBATCH --time=0-24:00:00
+#SBATCH --account=ionides1
+#SBATCH --output=gpu_logs/%x_%j.out
+#SBATCH --error=gpu_logs/%x_%j.err
+#SBATCH --chdir=/home/chenjunc/dacca_benchmark/mif2
+
+set -euo pipefail
+mkdir -p gpu_logs
+
+module purge
+module load cuda
+
+source ~/pypomp_gpu.venv/bin/activate
+
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+export JAX_PLATFORMS=cuda
+
+echo "Running on $SLURM_JOB_NODELIST"
+echo "Running in $(pwd)"
+echo "Python: $(which python)"
+
+RUN_LEVEL=3 python gridsearch_dacca_mif.py

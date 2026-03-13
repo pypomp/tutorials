@@ -1,0 +1,15 @@
+Running on gl3072
+Running in /home/chenjunc/dacca_benchmark
+Running with 36 CPUs
+WARNING:2026-01-01 03:34:47,957:jax._src.xla_bridge:854: An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+Running at level 2
+[info] Running Dacca benchmark on backend=[CpuDevice(id=0)]
+[pfilter]  {'method': 'pfilter', 'backend': 'cpu', 'particles': 1000, 'logmeanexp_ll': -3749.5005061559837, 'logmeanexp_se': 0.49283903285679276, 'n_reps': 5, 'run_time': 3.5657041549682615}
+Traceback (most recent call last):
+  File "/home/chenjunc/dacca_benchmark/benchmark_dacca.py", line 511, in <module>
+    res_mop = bench_dacca_mop(J=NP_EVAL, reps=NREPS_EVAL, seed=SEED, alpha=MOP_ALPHA)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chenjunc/dacca_benchmark/benchmark_dacca.py", line 293, in bench_dacca_mop
+    ll_vec = out[0]
+             ^^^
+NameError: name 'out' is not defined. Did you mean: 'oct'?

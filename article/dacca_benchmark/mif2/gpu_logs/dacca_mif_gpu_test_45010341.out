@@ -1,0 +1,18 @@
+Running on gl1507
+Running in /home/chenjunc/dacca_benchmark/mif2
+Python: /home/chenjunc/pypomp_gpu.venv/bin/python
+Running at level 3
+[info] Running Dacca benchmark on backend=[CudaDevice(id=0)]
+[mif]      {'method': 'mif', 'backend': 'gpu', 'particles': 1000, 'logmeanexp_ll': -3755.291777040321, 'logmeanexp_se': 0.9973321442794219, 'n_reps': 20, 'n_iter': 100, 'run_time': 28.37041664123535, 'se_run_time': 0.4548722207546234}
+[info] Saved benchmark result to dacca_benchmark_L3_gpu_20260313_000423.pkl
+Job ID: 45010341
+Cluster: greatlakes
+User/Group: chenjunc/chenjunc
+State: RUNNING
+Cores: 1
+CPU Utilized: 00:00:00
+CPU Efficiency: 0.00% of 00:11:58 core-walltime
+Job Wall-clock time: 00:11:58
+Memory Utilized: 0.00 MB
+Memory Efficiency: 0.00% of 32.00 GB (32.00 GB/node)
+WARNING: Efficiency statistics can only be obtained after the job has ended as seff tool is based on the accounting database data.

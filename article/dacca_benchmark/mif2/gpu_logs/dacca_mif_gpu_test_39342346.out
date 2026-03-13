@@ -1,0 +1,7 @@
+Running on gl1500
+Running in /home/chenjunc/dacca_benchmark/mif2
+Python: /home/chenjunc/pypomp_gpu.venv/bin/python
+Running at level 2
+[info] Running Dacca benchmark on backend=[CudaDevice(id=0)]
+[mif]      {'method': 'mif', 'backend': 'gpu', 'particles': 500, 'logmeanexp_ll': -3770.4828896324175, 'logmeanexp_se': 0.9999999999989131, 'n_reps': 3, 'n_iter': 20, 'run_time': 6.731805324554443, 'se_run_time': 2.69897198677063}
+[info] Saved benchmark result to dacca_benchmark_L2_gpu_20260105_044932.pkl

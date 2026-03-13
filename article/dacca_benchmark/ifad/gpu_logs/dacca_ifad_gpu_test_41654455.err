@@ -1,0 +1,18 @@
+Traceback (most recent call last):
+  File "/home/chenjunc/dacca_benchmark/ifad/benchmark_dacca_ifad.py", line 281, in <module>
+    res_ifad = bench_dacca_ifad(J=NP_FITR, M1=NFITR_IFAD, M2=NFITR_IFAD, rw_sd=RW_SD, eta=ETA, cooling=COOLING_RATE, optimizer=TRAIN_OPTIMIZER, scale=TRAIN_SCALE, ls=TRAIN_LS, n_monitors=TRAIN_N_MONITORS, reps=NREPS_FITR, seed=SEED)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chenjunc/dacca_benchmark/ifad/benchmark_dacca_ifad.py", line 252, in bench_dacca_ifad
+    ll_vec, time_vec, subkey = ifad_loop(subkey)
+                               ^^^^^^^^^^^^^^^^^
+  File "/home/chenjunc/dacca_benchmark/ifad/benchmark_dacca_ifad.py", line 242, in ifad_loop
+    dacca.prune(n=10, refill=True)
+  File "/home/chenjunc/pypomp_gpu.venv/lib/python3.11/site-packages/pypomp/pomp_class.py", line 964, in prune
+    self.theta.prune(n=n, refill=refill)
+  File "/home/chenjunc/pypomp_gpu.venv/lib/python3.11/site-packages/pypomp/parameters.py", line 273, in prune
+    top_params = [self._params[i] for i in top_indices]
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/chenjunc/pypomp_gpu.venv/lib/python3.11/site-packages/pypomp/parameters.py", line 273, in <listcomp>
+    top_params = [self._params[i] for i in top_indices]
+                  ~~~~~~~~~~~~^^^
+TypeError: only integer scalar arrays can be converted to a scalar index

@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/chenjunc/dacca_benchmark/mif2/benchmark_dacca_mif.py", line 252, in <module>
+    res_mif = bench_dacca_mif(J=NP_FITR, np_eval=NP_EVAL, M=NFITR, rw_sd = RW_SD / 4, a=COOLING_RATE, reps=NREPS_FITR, reps_eval=NREPS_EVAL, seed=SEED)
+                                                                           ~~~~~~^~~
+TypeError: unsupported operand type(s) for /: 'RWSigma' and 'int'

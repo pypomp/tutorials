@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/chenjunc/dacca_benchmark/train/benchmark_dacca_train.py", line 250, in <module>
+    res_train = bench_dacca_train(J=NP_FITR, np_eval=NP_EVAL, M=NTRAIN, optimizer=TRAIN_OPTIMIZER, eta=ETA, scale=TRAIN_SCALE, ls=TRAIN_LS, n_monitors=TRAIN_N_MONITORS, reps=NREPS_FITR, np_reps=NREPS_EVAL, seed=SEED)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: bench_dacca_train() got an unexpected keyword argument 'np_reps'

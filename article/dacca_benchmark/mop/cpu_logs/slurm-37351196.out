@@ -1,0 +1,11 @@
+Running on gl3287
+Running in /home/chenjunc/dacca_benchmark/mop
+Running with 36 CPUs
+WARNING:2025-12-05 13:23:15,091:jax._src.xla_bridge:854: An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+Running at level 2
+[info] Running Dacca benchmark on backend=[CpuDevice(id=0)]
+Traceback (most recent call last):
+  File "/home/chenjunc/dacca_benchmark/mop/benchmark_dacca_mop.py", line 200, in <module>
+    res_mop = bench_dacca_mop(J=NP_EVAL, reps=NREPS_EVAL, seed=SEED, alpha=MOP_ALPHA)
+                                                                           ^^^^^^^^^
+NameError: name 'MOP_ALPHA' is not defined

@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# The name of the job:
+#SBATCH --job-name="dacca_cpu_test"
+
+# Send yourself an email when the job:
+# aborts abnormally (fails)
+#SBATCH --mail-type=FAIL
+# ends successfully
+#SBATCH --mail-type=END
+
+# Use this email address:
+#SBATCH --mail-user=chenjunc@umich.edu
+
+# CPU settings
+#SBATCH --partition=standard
+#SBATCH --cpus-per-task=36
+
+# Total memory
+#SBATCH --mem=30GB
+
+# The maximum running time of the job in days-hours:mins:sec
+#SBATCH --time=0-12:00:00
+
+# The account which this job should run under:
+#SBATCH --account="ionides1"
+
+#SBATCH --chdir=/home/chenjunc/dacca_benchmark/mop
+#SBATCH --output=cpu_logs/%x_%j.out
+#SBATCH --error=cpu_logs/%x_%j.err
+
+set -euo pipefail
+mkdir -p cpu_logs
+
+# The job command(s):
+echo "Running on $SLURM_JOB_NODELIST"
+echo "Running in $(pwd)"
+echo "Running with $SLURM_CPUS_PER_TASK CPUs"
+
+### Main commands ###
+source ~/pypomp.venv/bin/activate
+RUN_LEVEL=4 python benchmark_dacca_mop.py
+seff $SLURM_JOB_ID

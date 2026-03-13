@@ -1,0 +1,8 @@
+Running on gl3044
+Running in /home/chenjunc/dacca_benchmark/ifad
+Running with 36 CPUs
+WARNING:2026-01-01 08:30:42,494:jax._src.xla_bridge:854: An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+Running at level 3
+[info] Running Dacca benchmark on backend=[CpuDevice(id=0)]
+[ifad]     {'method': 'ifad', 'backend': 'cpu', 'particles': 1000, 'logmeanexp_ll': -24867.998046875, 'logmeanexp_se': 0.0, 'n_reps': 20, 'n_mif_iter': 50, 'n_train_iter': 50, 'run_time': 667.2930297851562, 'se_run_time': 4.597518444061279}
+[info] Saved benchmark result to dacca_benchmark_L3_cpu_20260101_121309.pkl

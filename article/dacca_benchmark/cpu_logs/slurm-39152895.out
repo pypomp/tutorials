@@ -1,0 +1,12 @@
+Running on gl3021
+Running in /home/chenjunc/dacca_benchmark
+Running with 36 CPUs
+WARNING:2026-01-01 04:04:22,360:jax._src.xla_bridge:854: An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+Running at level 2
+[info] Running Dacca benchmark on backend=[CpuDevice(id=0)]
+[pfilter]  {'method': 'pfilter', 'backend': 'cpu', 'particles': 1000, 'logmeanexp_ll': -3749.5005061559837, 'logmeanexp_se': 0.49283903285679276, 'n_reps': 5, 'run_time': 3.5672772407531737}
+[mop]      {'method': 'mop', 'backend': 'cpu', 'particles': 1000, 'logmeanexp_ll': -3749.619441324667, 'logmeanexp_se': 0.5741247914417991, 'n_reps': 5, 'run_time': 3.012210416793823}
+[mif]      {'method': 'mif', 'backend': 'cpu', 'particles': 500, 'logmeanexp_ll': -3809.287453463575, 'logmeanexp_se': 0.5827005671436639, 'n_reps': 3, 'n_iter': 20, 'run_time': 52.102725982666016, 'se_run_time': 1.1225533485412598}
+[train]    {'method': 'train', 'backend': 'cpu', 'particles': 500, 'logmeanexp_ll': -24867.998046875, 'logmeanexp_se': 0.0, 'n_reps': 3, 'n_iter': 20, 'run_time': 51.26140213012695, 'se_run_time': 3.5875015258789062}
+[ifad]     {'method': 'ifad', 'backend': 'cpu', 'particles': 500, 'logmeanexp_ll': -24867.998046875, 'logmeanexp_se': 0.0, 'n_reps': 3, 'n_mif_iter': 10, 'n_train_iter': 10, 'run_time': 54.28459548950195, 'se_run_time': 4.137338638305664}
+[info] Saved benchmark result to dacca_benchmark_L2_cpu_20260101_041253.pkl
