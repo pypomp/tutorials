@@ -882,12 +882,59 @@ Additionally, JAX's GPU compilation capabilities enable these optimization proce
 
 # Data Analysis with pypomp / Tutorials and data analysis examples {#sec-analysis}
 
+We first show the benchmarking results of our software running on the dacca dataset.
+
+<!-- 
+\Jun'snote{The benchmarking results are still being collected, and the table will be updated once we have more updated results. The code for running the benchmark is available in the `dacca_benchmark` folder of the repository.}
+ -->
+
+
+
+::: {#tbl-benchmark}
+Table: Main arguments to the `Pomp` class and related constructor objects.
+
+For mif2, train and ifad, we started with a param box including the true (defaulty) parameters, 0.5 x true parameters and 1.5 x true parameters. Each replicate, we chose the best loglikelihood estimae among the three starting points. 
+In this table, the pfilter and mop are evaluated at the true ()
+
+|  Software | Backend  | Run Level | Method  | Evaluated Logliklihood (logexpmean) |   SE    |  Average Run Time(s) | Maximum Memory Usage (MiB)|
+|---------- |----------|-----------|---------|--------------|---------|----------------------|---------------------|
+| pypomp    | CPU      |    3      | pfilter | -3748.41     |  0.43   |   2.23               |  739                |
+| pypomp    | CPU      |    3      | mop     | -3748.02     |  0.32   |   3.31               |  713                |
+| pypomp    | CPU      |    3      | IF2     | -3770.37     |  1.00   |   639.52             |  834                |
+| pypomp    | CPU      |    3      | pure train() |      |     |           |                 |
+| pypomp    | CPU      |    3      | IFAD    |     |     |                  |                 |
+
+| pypomp    | GPU      |    3      | pfilter |   -3747.58   |   0.35  |      0.26              |     947               |
+| pypomp    | GPU      |    3      | mop     |  -3747.61    | 0.71    |     0.39            |       745           |
+| pypomp    | GPU      |    3      | IF2     |  -3763.69   | 0.42    |  28.90            |        1638.4        |
+| pypomp    | GPU      |    3      | pure train() |    ～-20000  |     |                  |                 |
+| pypomp    | GPU      |    3      | IFAD    |     |     |                  |                 |
+
+
+| pypomp    | CPU      |    4      | pfilter | -3748.16     |  0.13   |   7.32               |  852                |
+| pypomp    | CPU      |    4      | mop | -3742.11     |  0.15   |   14.53             |  790                |
+| pypomp    | CPU      |    4      | mif2 |   -3752.48  | 0.27  | 198.41               |  1126.4
+
+| pypomp    | GPU      |    4      | pfilter | -3748.15     |  0.18   |   0.41               |  857                |
+
+| pypomp    | GPU      |    4      | mop |   -3748.34   | 0.12     |        0.49       |      821          |
+| pypomp    | GPU      |    4      | mif2 |   -3752.48  | 0.27     |       198.41       |      2048          |
+
+:::
+
+Here the optimizer for train() and ifad() is set to the Adam optimizer. The maximum memory usage is obtained from Greatlakes summary. From the table, we can see three points:
+1. **Statistical Correctness:** The log-likelihood estimates from `pfilter()` and `mop()` are close to each other, with `mop()` showing slightly higher values, which is expected as `mop()` is designed to provide a differentiable likelihood estimate that can be optimized. 
+2. **IF2 Performance:** The IF2 method shows a lower log-likelihood estimate compared to `pfilter()` and `mop()`, which may be due to the fact that IF2 is an iterative method that may not have fully converged within the given number of iterations, or it may be more sensitive to the choice of starting parameters and cooling schedule. But overall, the IF2 captures the overall likelihood structure and provides a reasonable estimate, albeit with higher variance.
+3. **GPU Acceleration:** The GPU implementations of `pfilter()` and `mop()` show significantly reduced run (give the CPU/GPU run time ratio). 
+4. **Method Comparison:** (Dmop, IFAD, IF2...)
+
+We also use the R package `pomp` to run the same methods as the baseline and compare the results with `pypomp`.
+
 This section demonstrates:
 
 - Log-likelihood profiling
 - GPU benchmarking
 - Conditional log-likelihood residuals
-
 # Discussion {#sec-discussion}
 
 
