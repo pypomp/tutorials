@@ -4,59 +4,48 @@ title: >
 author:
   - Aaron A. King
   - Edward L. Ionides
-  - Translated in pypomp by Kunyang He
+  - Kunyang He
+date: today
+date-format: full
 
-shortauthor: "King & Ionides et al."   
-shorttitle: "Lesson 3"  
-date: "December 23, 2025"
-
-bibliography: ../sbied.bib             
+bibliography: ../sbied.bib
 
 format:
   beamer:
-    code-block-font-size: \tiny                    
-    theme: AnnArbor
-    colortheme: default
+    code-block-font-size: \tiny
     fontsize: 11pt
     cite-method: natbib
     biblio-style: apalike
-    toc: true  
-    slide-level: 3
-    highlight-style: tango  
-  
+    toc: false
+    slide-level: 2
+    header-includes: |
+      \setbeamertemplate{footline}[page number]
+    output-file: slides.pdf
   pdf:
-    documentclass: article          
+    documentclass: article
     fontsize: 11pt
-    cite-method: natbib           
+    cite-method: natbib
     biblio-style: apalike
-    toc: true
+    toc: false
     geometry: margin=1in
-    
-jupyter: python3 
+    output-file: notes.pdf
 
+jupyter: python3
 
 header-includes: |
-  \providecommand{\AtBeginSection}[1]{}
-  \providecommand{\AtBeginSubsection}[1]{}
-  \providecommand{\framebreak}{}
-
-  \usepackage{fvextra}  
-  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{
-    commandchars=\\\{\}, 
-    fontsize=\scriptsize 
-  }
-  \AtBeginSection{}
-  \AtBeginSubsection{}
   \usepackage{amsmath,amssymb,amsfonts}
   \usepackage{graphicx}
   \usepackage{hyperref}
   \usepackage{xcolor}
+  \usepackage{fvextra}
+  \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
+    commandchars=\\\{\},
+    breaklines=true,
+    breakanywhere=true,
+    fontsize=\scriptsize
+  }
 
-  \newcommand{\myemph}[1]{\emph{#1}}
   \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
-  \newcommand{\pkg}[1]{\texttt{#1}}
-  \newcommand{\code}[1]{\texttt{#1}}
-  \newcommand{\Rlanguage}{\textsf{R}}
   \newcommand{\Rzero}{\mathcal{R}_{0}}
   \newcommand{\pr}{\mathbb{P}}
   \newcommand{\E}{\mathbb{E}}
@@ -67,23 +56,28 @@ header-includes: |
   \newcommand{\myexercise}{\paragraph{Exercise}}
 ---
 
-This lesson develops likelihood-based inference for POMP models, with a focus 
-on the particle filter algorithm for computing the likelihood.
-
-# Introduction
+```{python}
+#| echo: false
+#| output: false
+"trying an empty chunk to see if it helps compilation"
+```
 
 ## Objectives
 
-### Learning Objectives
+This lesson develops likelihood-based inference for POMP models, with a focus
+on the particle filter algorithm for computing the likelihood.
 
 Students completing this lesson will:
 
 1. Gain an understanding of the nature of the problem of likelihood computation for POMP models.
+
 2. Be able to explain the simplest particle filter algorithm.
+
 3. Gain experience in the visualization and exploration of likelihood surfaces.
+
 4. Be able to explain the tools of likelihood-based statistical inference that become available given numerical accessibility of the likelihood function.
 
-### Overview {.allowframebreaks}
+## Overview
 
 \begin{center}
 \textbf{Conceptual links in our methodological approach}
@@ -91,7 +85,7 @@ Students completing this lesson will:
 
 - The Monte Carlo technique called the **particle filter** is central for connecting the higher-level ideas of POMP models and likelihood-based inference to the lower-level tasks involved in carrying out data analysis.
 
-\framebreak
+##
 
 - We employ a standard toolkit for likelihood-based inference:
   - Maximum likelihood estimation
@@ -102,25 +96,25 @@ Students completing this lesson will:
 - We seek to better understand these tools, and to figure out how to implement and interpret them in the specific context of POMP models.
 
 
-# The Likelihood Function
-
-## General Considerations
-
-### The Likelihood Function {.allowframebreaks}
+## The Likelihood Function
 
 - The basis for modern frequentist, Bayesian, and information-theoretic inference.
-- Method of maximum likelihood introduced by \cite{Fisher1922}.
+
+- Method of maximum likelihood introduced by [@Fisher1922].
+
 - The likelihood function itself is a representation of what the data have to say about the parameters.
 
-\framebreak
+##
 
 **Definition of the likelihood function:**
 
 - Data are a sequence of $N$ observations, denoted $y^*_{1:N}$.
+
 - A statistical model is a density function $f_{Y_{1:N}}(y_{1:N}; \theta)$ which defines a probability distribution for each value of a parameter vector $\theta$.
+
 - To perform statistical inference, we must decide, among other things, for which (if any) values of $\theta$ it is reasonable to model $y^*_{1:N}$ as a random draw from $f_{Y_{1:N}}(y_{1:N}; \theta)$.
 
-\framebreak
+##
 
 **The likelihood function** is:
 $$
@@ -133,7 +127,7 @@ $$
 \loglik(\theta) = \log \lik(\theta) = \log f_{Y_{1:N}}(y^*_{1:N}; \theta).
 $$
 
-### A Simulator is Implicitly a Statistical Model
+## A Simulator is Implicitly a Statistical Model
 
 - For simple statistical models, we may describe the model by explicitly writing the density function $f_{Y_{1:N}}(y_{1:N}; \theta)$. One may then ask how to simulate a random variable $Y_{1:N} \sim f_{Y_{1:N}}(y_{1:N}; \theta)$.
 
@@ -143,25 +137,31 @@ $$
 
 - It is important to bear in mind that **the likelihood function exists even when we don't know what it is!**
 
-## Likelihood of a POMP Model
-
-### The Likelihood for a POMP Model {.allowframebreaks}
+## The Likelihood for a POMP Model
 
 Recall the structure of a POMP model:
 
 - Measurements, $Y_n$, at time $t_n$ depend on the latent process, $X_n$, at that time.
+
 - The Markov property asserts that latent process variables depend on their value at the previous timestep.
+
 - The distribution of $X_{n+1}$, conditional on $X_n$, is independent of $X_k$ for $k < n$ and $Y_k$ for $k \leq n$.
+
 - The distribution of $Y_n$, conditional on $X_n$, is independent of all other variables.
 
-\framebreak
+##
 
 The joint density factors as:
+\small
 $$
-f_{X_{0:N}, Y_{1:N}}(x_{0:N}, y_{1:N}; \theta) = f_{X_0}(x_0; \theta) \prod_{n=1}^{N} f_{X_n|X_{n-1}}(x_n|x_{n-1}; \theta) \, f_{Y_n|X_n}(y_n|x_n; \theta).
+\begin{aligned}
+&f_{X_{0:N}, Y_{1:N}}(x_{0:N}, y_{1:N}; \theta) \\
+&\quad = f_{X_0}(x_0; \theta) \prod_{n=1}^{N} f_{X_n|X_{n-1}}(x_n|x_{n-1}; \theta) \, f_{Y_n|X_n}(y_n|x_n; \theta).
+\end{aligned}
 $$
+\normalsize
 
-\framebreak
+##
 
 The marginal density for the sequence of measurements, $Y_{1:N}$, evaluated at the data, $y^*_{1:N}$, is:
 $$
@@ -171,15 +171,12 @@ $$
 This integral is **high dimensional** and, except for the simplest cases, cannot be reduced analytically.
 
 
-# Computing the Likelihood
-
-## Monte Carlo Algorithms
-
-### Monte Carlo Likelihood by Direct Simulation {.allowframebreaks}
+## Monte Carlo Likelihood by Direct Simulation
 
 - First, let's rewrite the likelihood integral using an equivalent factorization:
 $$
-\lik(\theta) = f_{Y_{1:N}}(y^*_{1:N}; \theta) = \int \left\{ \prod_{n=1}^{N} f_{Y_n|X_n}(y^*_n|x_n; \theta) \right\} f_{X_{0:N}}(x_{0:N}; \theta) \, dx_{0:N}.
+\lik(\theta) = \int \left\{ \prod_{n=1}^{N} f_{Y_n|X_n}(y^*_n|x_n; \theta) \right\}
+f_{X_{0:N}}(x_{0:N}; \theta) \, dx_{0:N}.
 $$
 
 - Notice that the likelihood can be written as an expectation:
@@ -188,7 +185,7 @@ $$
 $$
 where the expectation is taken with $X_{0:N} \sim f_{X_{0:N}}(x_{0:N}; \theta)$.
 
-\framebreak
+##
 
 - Using a law of large numbers, we can approximate:
 $$
@@ -196,50 +193,61 @@ $$
 $$
 where $\{X^j_{0:N}, j = 1, \ldots, J\}$ is a Monte Carlo sample drawn from $f_{X_{0:N}}(x_{0:N}; \theta)$.
 
-\framebreak
+##
 
 **Problems with this naive approach:**
 
 - This scales poorly with dimension. It requires Monte Carlo effort that scales **exponentially** with the length of the time series.
-- Once a simulated trajectory diverges from the data, it will seldom come back. 
+
+- Once a simulated trajectory diverges from the data, it will seldom come back.
+
 - Simulations that lose track of the data make negligible contributions to the likelihood estimate.
 
-## Sequential Monte Carlo
-
-### The Particle Filter {.allowframebreaks}
+## The Particle Filter
 
 Fortunately, we can compute the likelihood for a POMP model by a much more efficient algorithm.
 
 We proceed by factorizing the likelihood differently:
 $$
-\lik(\theta) = f_{Y_{1:N}}(y^*_{1:N}; \theta) = \prod_{n=1}^{N} f_{Y_n|Y_{1:n-1}}(y^*_n|y^*_{1:n-1}; \theta)
+\lik(\theta) = \prod_{n=1}^{N} f_{Y_n|Y_{1:n-1}}(y^*_n|y^*_{1:n-1}; \theta)
 $$
+\footnotesize
 $$
 = \prod_{n=1}^{N} \int f_{Y_n|X_n}(y^*_n|x_n; \theta) \, f_{X_n|Y_{1:n-1}}(x_n|y^*_{1:n-1}; \theta) \, dx_n.
 $$
+\normalsize
 
-\framebreak
+##
 
 **The prediction formula** (from Markov property):
+\footnotesize
 $$
-f_{X_n|Y_{1:n-1}}(x_n|y^*_{1:n-1}; \theta) = \int f_{X_n|X_{n-1}}(x_n|x_{n-1}; \theta) \, f_{X_{n-1}|Y_{1:n-1}}(x_{n-1}|y^*_{1:n-1}; \theta) \, dx_{n-1}.
+\begin{aligned}
+&f_{X_n|Y_{1:n-1}}(x_n|y^*_{1:n-1}; \theta) \\
+&= \int f_{X_n|X_{n-1}}(x_n|x_{n-1}; \theta) \, f_{X_{n-1}|Y_{1:n-1}}(x_{n-1}|y^*_{1:n-1}; \theta) \, dx_{n-1}.
+\end{aligned}
 $$
+\normalsize
 
 **The filtering formula** (from Bayes' theorem):
+\footnotesize
 $$
-f_{X_n|Y_{1:n}}(x_n|y^*_{1:n}; \theta) = \frac{f_{Y_n|X_n}(y^*_n|x_n; \theta) \, f_{X_n|Y_{1:n-1}}(x_n|y^*_{1:n-1}; \theta)}{\int f_{Y_n|X_n}(y^*_n|u_n; \theta) \, f_{X_n|Y_{1:n-1}}(u_n|y^*_{1:n-1}; \theta) \, du_n}.
+f_{X_n|Y_{1:n}}(x_n|y^*_{1:n}; \theta) = \frac{f_{Y_n|X_n}(y^*_n|x_n; \theta) \, f_{X_n|Y_{1:n-1}}(x_n|y^*_{1:n-1}; \theta)}
+{\int f_{Y_n|X_n}(y^*_n|u_n; \theta) \, f_{X_n|Y_{1:n-1}}(u_n|y^*_{1:n-1}; \theta) \, du_n}.
 $$
+\normalsize
 
-\framebreak
+##
 
 This suggests we keep track of two key distributions at each time $t_n$:
 
 - The **prediction distribution**: $f_{X_n|Y_{1:n-1}}(x_n|y^*_{1:n-1})$
+
 - The **filtering distribution**: $f_{X_n|Y_{1:n}}(x_n|y^*_{1:n})$
 
 The particle filter uses Monte Carlo techniques to sequentially estimate these integrals. Hence, the alternative name of **sequential Monte Carlo (SMC)**.
 
-### Basic Particle Filter Algorithm {.allowframebreaks}
+## Basic Particle Filter Algorithm
 
 1. Suppose $X^F_{n-1,j}$, $j = 1, \ldots, J$ is a set of $J$ points drawn from the filtering distribution at time $t_{n-1}$.
 
@@ -248,7 +256,7 @@ $$
 X^P_{n,j} \sim \text{process}(X^F_{n-1,j}, \theta), \quad j = 1, \ldots, J.
 $$
 
-\framebreak
+##
 
 3. Having obtained $X^P_{n,j}$, we obtain a sample from the filtering distribution at time $t_n$ by **resampling** from $\{X^P_{n,j}, j \in 1:J\}$ with weights:
 $$
@@ -264,7 +272,7 @@ $$
 \hat{\lik}_n(\theta) \approx \frac{1}{J} \sum_{j} f_{Y_n|X_n}(y^*_n|X^P_{n,j}; \theta).
 $$
 
-\framebreak
+##
 
 5. We iterate this procedure through the data, one step at a time, alternately simulating and resampling, until we reach $n = N$.
 
@@ -273,26 +281,26 @@ $$
 \loglik(\theta) = \log \lik(\theta) = \sum_{n} \log \lik_n(\theta) \approx \sum_{n} \log \hat{\lik}_n(\theta).
 $$
 
-### Block Diagram of Particle Filter
+## Block Diagram of Particle Filter
 
 \begin{center}
 \textbf{Particle Filter Steps}
 \end{center}
 
-1. **Initialize**: \code{rinit}
-2. **Predict**: \code{rproc} (simulate forward)
-3. **Weight**: \code{dmeas} (evaluate measurement density)
+1. **Initialize**: `rinit`
+
+2. **Predict**: `rproc` (simulate forward)
+
+3. **Weight**: `dmeas` (evaluate measurement density)
+
 4. **Filter**: resample particles according to weights
+
 5. Repeat steps 2-4 for $N$ observations
 
 The particle filter provides an **unbiased** estimate of the likelihood. This implies a consistent but biased estimate of the log-likelihood.
 
 
-# Particle Filtering in pypomp
-
-## Setup
-
-### Import Required Packages
+## Import Required Packages
 
 ```{python}
 #| echo: true
@@ -305,66 +313,72 @@ import matplotlib.pyplot as plt
 import time
 ```
 
-### Load Data and Build Model {.allowframebreaks}
+## Load Data and Build Model
 
 ```{python}
 #| echo: true
-# Download and prepare data
-meas = (pd.read_csv(
-          "https://kingaa.github.io/sbied/stochsim/Measles_Consett_1948.csv")
-          .loc[:, ["week", "cases"]]
-          .rename(columns={"week": "time", "cases": "reports"})
-          .set_index("time")
-          .astype(float))
+# Load local data
+meas = (
+    pd.read_csv("Measles_Consett_1948.csv")
+    .loc[:, ["week", "cases"]]
+    .rename(columns={"week": "time",
+                      "cases": "reports"})
+    .set_index("time")
+    .astype(float)
+)
 
 ys = meas.copy()
 ys.columns = pd.Index(["reports"])
 ```
 
-\framebreak
+## Helper Functions
 
 ```{python}
 #| echo: true
-# Helper functions for negative binomial
 def nbinom_logpmf(x, k, mu):
-    """Log PMF of NegBin(k, mu) that is robust when mu == 0."""
-    x = jnp.asarray(x)
-    k = jnp.asarray(k)
-    mu = jnp.asarray(mu)
+    """Log PMF of NegBin(k, mu)."""
+    x, k, mu = (jnp.asarray(v) for v in (x, k, mu))
     logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
     safe_mu = jnp.where(mu == 0.0, 1.0, mu)
-    core = (jax.scipy.special.gammaln(k + x) 
-            - jax.scipy.special.gammaln(k)
-            - jax.scipy.special.gammaln(x + 1)
+    gammaln = jax.scipy.special.gammaln
+    core = (gammaln(k + x) - gammaln(k)
+            - gammaln(x + 1)
             + k * jnp.log(k / (k + safe_mu))
             + x * jnp.log(safe_mu / (k + safe_mu)))
     return jnp.where(mu == 0.0, logp_zero, core)
 
 def rnbinom(key, k, mu):
-    """Sample from NegBin(k, mu) via Gamma-Poisson mixture."""
+    """Sample NegBin(k, mu) via Gamma-Poisson."""
     key_g, key_p = jax.random.split(key)
     lam = jax.random.gamma(key_g, k) * (mu / k)
     return jax.random.poisson(key_p, lam)
 ```
 
-\framebreak
+## SIR Model Components
 
 ```{python}
 #| echo: true
-# SIR model components
 def rinit(theta_, key, covars, t0):
     """Initial state simulator for SIR model."""
     N = theta_["N"]
     eta = theta_["eta"]
     S0 = jnp.round(N * eta)
     I0 = 1.0
-    R0 = jnp.round(N * (1 - eta)) - 1.0   
-    H0 = 0.0                           
+    R0 = jnp.round(N * (1 - eta)) - 1.0
+    H0 = 0.0
     return {"S": S0, "I": I0, "R": R0, "H": H0}
+```
 
+##
+
+```{python}
+#| echo: true
 def rproc(X_, theta_, key, covars, t, dt):
     """Process simulator for SIR model."""
-    S, I, R, H = X_["S"], X_["I"], X_["R"], X_["H"]
+    S = jnp.asarray(X_["S"])
+    I = jnp.asarray(X_["I"])
+    R = jnp.asarray(X_["R"])
+    H = jnp.asarray(X_["H"])
     Beta = theta_["Beta"]
     mu_IR = theta_["mu_IR"]
     N = theta_["N"]
@@ -373,14 +387,18 @@ def rproc(X_, theta_, key, covars, t, dt):
     p_IR = 1.0 - jnp.exp(-mu_IR * dt)
 
     key_SI, key_IR = jax.random.split(key)
-    dN_SI = jax.random.binomial(key_SI, n=S.astype(jnp.int32), p=p_SI)
-    dN_IR = jax.random.binomial(key_IR, n=I.astype(jnp.int32), p=p_IR)
+    dN_SI = jax.random.binomial(
+        key_SI, n=jnp.int32(S), p=p_SI)
+    dN_IR = jax.random.binomial(
+        key_IR, n=jnp.int32(I), p=p_IR)
 
-    return {"S": S - dN_SI, "I": I + dN_SI - dN_IR, 
-            "R": R + dN_IR, "H": H + dN_IR}
+    return {"S": S - dN_SI,
+            "I": I + dN_SI - dN_IR,
+            "R": R + dN_IR,
+            "H": H + dN_IR}
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
@@ -402,11 +420,10 @@ def rmeas(X_, theta_, key, covars, t):
     return jnp.array([reports])
 ```
 
-\framebreak
+## Create POMP Object
 
 ```{python}
 #| echo: true
-# Define parameters
 theta = {
     "Beta": 15.0,    # Transmission rate (per week)
     "mu_IR": 0.5,    # Recovery rate (per week)
@@ -418,7 +435,6 @@ theta = {
 
 statenames = ["S", "I", "R", "H"]
 
-# Create the POMP object
 measSIR = pp.Pomp(
     rinit=rinit,
     rproc=rproc,
@@ -429,15 +445,13 @@ measSIR = pp.Pomp(
     statenames=statenames,
     t0=0.0,
     nstep=7,
-    accumvars=(3,),
+    accumvars=("H",),
     ydim=1,
     covars=None
 )
 ```
 
-## Running the Particle Filter
-
-### Basic Particle Filter {.allowframebreaks}
+## Basic Particle Filter
 
 In `pypomp`, the particle filter is implemented via the `pfilter` method. We must choose the number of particles to use by setting the `J` argument.
 
@@ -455,7 +469,7 @@ loglik = float(result.logLiks.values[0, 0])
 print(f"Log-likelihood: {loglik:.4f}")
 ```
 
-\framebreak
+##
 
 We can run multiple particle filters to get an estimate of the Monte Carlo variability:
 
@@ -467,14 +481,13 @@ measSIR.pfilter(key=key, J=5000, reps=10)
 
 # Get results
 result = measSIR.results_history.last()
-logliks = result.logLiks.values[0, :]  # All replicates for first theta
+logliks = result.logLiks.values[0, :]
 print(f"Log-likelihoods: {logliks}")
-print(f"Mean: {np.mean(logliks):.4f}, SE: {np.std(logliks):.4f}")
+print(f"Mean: {np.mean(logliks):.4f}",
+      f"SE: {np.std(logliks):.4f}")
 ```
 
-\framebreak
-
-### The logmeanexp Function
+## The logmeanexp Function
 
 To combine multiple log-likelihood estimates, we use the `logmeanexp` function from `pypomp`, which computes:
 $$
@@ -487,10 +500,11 @@ in a numerically stable way.
 # pypomp provides logmeanexp and logmeanexp_se
 ll_est = pp.logmeanexp(logliks)
 ll_se = pp.logmeanexp_se(logliks)
-print(f"Log-likelihood estimate: {ll_est:.4f} (SE: {ll_se:.4f})")
+print(f"Log-lik estimate: {ll_est:.4f}",
+      f"(SE: {ll_se:.4f})")
 ```
 
-\framebreak
+##
 
 Alternatively, use the `to_dataframe()` method which automatically applies `logmeanexp`:
 
@@ -502,11 +516,7 @@ print(df)
 ```
 
 
-# Likelihood-based Inference
-
-## Parameter Estimation
-
-### Maximum Likelihood Estimation {.allowframebreaks}
+## Maximum Likelihood Estimation
 
 A maximum likelihood estimate (MLE) is:
 $$
@@ -514,15 +524,17 @@ $$
 $$
 where $\arg\max_\theta g(\theta)$ means the value of $\theta$ at which the maximum of $g$ is attained.
 
-\framebreak
+## Standard Errors for the MLE
 
-**Standard errors for the MLE** — There are three main approaches:
+There are three main approaches:
 
 1. **Fisher information**: Computationally quick but often unreliable for POMP models
+
 2. **Profile likelihood estimation**: Generally preferable for POMP models
+
 3. **Bootstrap/simulation study**: Most effort but can be the best approach
 
-### Confidence Intervals via Profile Likelihood {.allowframebreaks}
+## Confidence Intervals via Profile Likelihood
 
 Let $\theta = (\phi, \psi)$, where we want a confidence interval for $\phi$.
 
@@ -539,61 +551,62 @@ $$
 This is known as a **profile likelihood confidence interval**. The cutoff 1.92 is derived from Wilks' theorem.
 
 
-# Geometry of the Likelihood Function
-
-## Likelihood Surfaces
-
-### Visualizing the Likelihood Surface {.allowframebreaks}
+## Visualizing the Likelihood Surface
 
 - If $\Theta$ is two-dimensional, then the surface $\loglik(\theta)$ has features like a landscape.
+
 - Local maxima of $\loglik(\theta)$ are **peaks**.
+
 - Local minima are **valleys**.
+
 - Peaks may be separated by a valley or may be joined by a **ridge**.
 
-\framebreak
+##
 
 Key features to notice:
 
 - **Wedge-shaped relationships** between parameters are common in epidemiological models
+
 - **Monte Carlo noise** in likelihood evaluation makes it hard to pick out exactly where the likelihood is maximized
+
 - Nevertheless, major features of the likelihood surface are evident despite the noise
 
-### Computing Likelihood Slices {.allowframebreaks}
+## Computing Likelihood Slices
 
 A likelihood slice is a cross-section through the likelihood surface. Let's make slices in the $\beta$ and $\mu_{IR}$ directions.
 
 ```{python}
-#| echo: true
-def compute_likelihood_slice(param_name, param_values, base_theta, 
-                             J=5000, n_reps=3):
-    """Compute log-likelihood for a slice of parameter values."""
+#| echo: false
+def compute_likelihood_slice(
+        param_name, param_values,
+        base_theta, J=5000, n_reps=3):
+    """Compute log-lik for a parameter slice."""
     results = []
     for val in param_values:
         theta_test = base_theta.copy()
         theta_test[param_name] = val
-        
         pomp_test = pp.Pomp(
-            rinit=rinit, rproc=rproc, dmeas=dmeas, rmeas=rmeas,
-            ys=ys, theta=theta_test, statenames=statenames,
-            t0=0.0, nstep=7, accumvars=(3,), ydim=1, covars=None
-        )
-        
+            rinit=rinit, rproc=rproc,
+            dmeas=dmeas, rmeas=rmeas,
+            ys=ys, theta=theta_test,
+            statenames=statenames,
+            t0=0.0, nstep=7,
+            accumvars=("H",),
+            ydim=1, covars=None)
         key = jax.random.key(int(val * 1000))
-        pomp_test.pfilter(key=key, J=J, reps=n_reps)
-        
-        pf_result = pomp_test.results_history.last()
-        logliks_arr = pf_result.logLiks.values[0, :]
-        
+        pomp_test.pfilter(
+            key=key, J=J, reps=n_reps)
+        pf = pomp_test.results_history.last()
+        ll = pf.logLiks.values[0, :]
         results.append({
             param_name: val,
-            'loglik': pp.logmeanexp(logliks_arr),
-            'loglik_se': pp.logmeanexp_se(logliks_arr)
+            'loglik': pp.logmeanexp(ll),
+            'loglik_se': pp.logmeanexp_se(ll)
         })
-    
     return pd.DataFrame(results)
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
@@ -605,21 +618,25 @@ beta_slice = compute_likelihood_slice(
 ```
 
 ```{python}
-#| echo: true
+#| echo: false
 # Plot Beta slice
 fig, ax = plt.subplots(figsize=(4, 3))
-ax.errorbar(beta_slice["Beta"], beta_slice["loglik"], 
-            yerr=beta_slice["loglik_se"], fmt='o-', capsize=3)
-ax.axvline(theta["Beta"], color='red', linestyle='--', label='current value')
-ax.set(xlabel=r"$\beta$", ylabel="Log-likelihood", 
-       title=r"Likelihood slice in $\beta$ direction")
+ax.errorbar(beta_slice["Beta"],
+    beta_slice["loglik"],
+    yerr=beta_slice["loglik_se"],
+    fmt='o-', capsize=3)
+ax.axvline(theta["Beta"], color='red',
+    linestyle='--', label='current value')
+ax.set(xlabel=r"$\beta$",
+    ylabel="Log-likelihood",
+    title=r"Slice in $\beta$ direction")
 ax.legend()
 ax.grid(alpha=0.3)
 plt.tight_layout()
 plt.show()
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
@@ -631,125 +648,131 @@ mu_IR_slice = compute_likelihood_slice(
 ```
 
 ```{python}
-#| echo: true
+#| echo: false
 # Plot mu_IR slice
 fig, ax = plt.subplots(figsize=(4, 3))
-ax.errorbar(mu_IR_slice["mu_IR"], mu_IR_slice["loglik"], 
-            yerr=mu_IR_slice["loglik_se"], fmt='o-', capsize=3)
-ax.axvline(theta["mu_IR"], color='red', linestyle='--', label='current value')
-ax.set(xlabel=r"$\mu_{IR}$", ylabel="Log-likelihood",
-       title=r"Likelihood slice in $\mu_{IR}$ direction")
+ax.errorbar(mu_IR_slice["mu_IR"],
+    mu_IR_slice["loglik"],
+    yerr=mu_IR_slice["loglik_se"],
+    fmt='o-', capsize=3)
+ax.axvline(theta["mu_IR"], color='red',
+    linestyle='--', label='current value')
+ax.set(xlabel=r"$\mu_{IR}$",
+    ylabel="Log-likelihood",
+    title=r"Slice in $\mu_{IR}$ direction")
 ax.legend()
 ax.grid(alpha=0.3)
 plt.tight_layout()
 plt.show()
 ```
 
-### Two-Dimensional Likelihood Surface {.allowframebreaks}
-
 ```{python}
-#| echo: true
-def compute_2d_likelihood_surface(beta_vals, mu_IR_vals, base_theta, 
-                                  J=2000, n_reps=2):
+#| echo: false
+def compute_2d_surface(
+        beta_vals, mu_IR_vals,
+        base_theta, J=2000, n_reps=2):
     """Compute 2D log-likelihood surface."""
     results = []
     for beta in beta_vals:
         for mu_IR in mu_IR_vals:
-            theta_test = base_theta.copy()
-            theta_test["Beta"] = beta
-            theta_test["mu_IR"] = mu_IR
-            
-            pomp_test = pp.Pomp(
-                rinit=rinit, rproc=rproc, dmeas=dmeas, rmeas=rmeas,
-                ys=ys, theta=theta_test, statenames=statenames,
-                t0=0.0, nstep=7, accumvars=(3,), ydim=1, covars=None
-            )
-            
-            key = jax.random.key(int(beta * 100) + int(mu_IR * 1000))
-            pomp_test.pfilter(key=key, J=J, reps=n_reps)
-            
-            pf_result = pomp_test.results_history.last()
-            logliks_arr = pf_result.logLiks.values[0, :]
-            
+            th = base_theta.copy()
+            th["Beta"] = beta
+            th["mu_IR"] = mu_IR
+            mod = pp.Pomp(
+                rinit=rinit, rproc=rproc,
+                dmeas=dmeas, rmeas=rmeas,
+                ys=ys, theta=th,
+                statenames=statenames,
+                t0=0.0, nstep=7,
+                accumvars=("H",),
+                ydim=1, covars=None)
+            seed = int(beta*100 + mu_IR*1000)
+            key = jax.random.key(seed)
+            mod.pfilter(
+                key=key, J=J, reps=n_reps)
+            pf = mod.results_history.last()
+            ll = pf.logLiks.values[0, :]
             results.append({
                 'Beta': beta,
                 'mu_IR': mu_IR,
-                'loglik': pp.logmeanexp(logliks_arr)
-            })
-    
+                'loglik': pp.logmeanexp(ll)})
     return pd.DataFrame(results)
 ```
 
-\framebreak
+## Two-Dimensional Likelihood Surface
 
 ```{python}
 #| echo: true
-# Compute 2D surface (reduced grid for speed)
+# Compute 2D surface (reduced grid)
 beta_grid = np.linspace(10, 30, 10)
 mu_IR_grid = np.linspace(0.4, 1.5, 10)
 
-surface_df = compute_2d_likelihood_surface(
-    beta_grid, mu_IR_grid, theta, J=1000, n_reps=2
-)
+surface_df = compute_2d_surface(
+    beta_grid, mu_IR_grid, theta,
+    J=1000, n_reps=2)
 ```
 
 ```{python}
-#| echo: true
+#| echo: false
 # Plot as contour
-pivot = surface_df.pivot(index='mu_IR', columns='Beta', values='loglik')
-
-fig, ax = plt.subplots(figsize=(5, 4))
-X, Y = np.meshgrid(pivot.columns, pivot.index)
+pivot = surface_df.pivot(
+    index='mu_IR', columns='Beta',
+    values='loglik')
+fig, ax = plt.subplots(figsize=(4, 3))
+X, Y = np.meshgrid(
+    pivot.columns, pivot.index)
 Z = pivot.values
-
-# Mask values too far from maximum
 max_ll = np.nanmax(Z)
-Z_masked = np.where(Z > max_ll - 25, Z, np.nan)
-
-contour = ax.contourf(X, Y, Z_masked, levels=20, cmap='viridis')
-plt.colorbar(contour, ax=ax, label='Log-likelihood')
-ax.set(xlabel=r'$\beta$', ylabel=r'$\mu_{IR}$',
-       title='2D Likelihood Surface')
-ax.plot(theta["Beta"], theta["mu_IR"], 'r*', markersize=15, 
-        label='current params')
+Z_masked = np.where(
+    Z > max_ll - 25, Z, np.nan)
+contour = ax.contourf(
+    X, Y, Z_masked, levels=20,
+    cmap='viridis')
+plt.colorbar(contour, ax=ax,
+    label='Log-likelihood')
+ax.set(xlabel=r'$\beta$',
+    ylabel=r'$\mu_{IR}$',
+    title='2D Likelihood Surface')
+ax.plot(theta["Beta"], theta["mu_IR"],
+    'r*', markersize=15,
+    label='current params')
 ax.legend()
 plt.tight_layout()
 plt.show()
 ```
 
 
-# More on Likelihood-based Inference
-
-## Maximizing the Likelihood
-
-### Maximizing the Particle Filter Likelihood {.allowframebreaks}
+## Maximizing the Particle Filter Likelihood
 
 - Likelihood maximization is key to profile intervals, likelihood ratio tests, and AIC, as well as computation of the MLE.
+
 - An initial approach might be to use the particle filter log-likelihood estimate with a standard numerical optimizer (e.g., Nelder-Mead).
+
 - In practice, this approach is unsatisfactory on all but the smallest POMP models.
+
 - Standard numerical optimizers are not designed to maximize **noisy** and **computationally expensive** Monte Carlo functions.
 
-\framebreak
+##
 
 **Trade-offs:**
 
 - If we use a deterministic optimizer and fix the RNG seed, the objective function becomes **jagged** (many small local knolls and pits).
+
 - If we use a stochastic optimization algorithm, we can only obtain **estimates** of the MLE.
 
 We'll present **iterated filtering** in the next lesson as a better approach.
 
-## Likelihood Ratio Tests
-
-### Likelihood Ratio Tests for Nested Hypotheses {.allowframebreaks}
+## Likelihood Ratio Tests for Nested Hypotheses
 
 Suppose we have two nested hypotheses:
 
 - $H^{\langle 0 \rangle}$: $\theta \in \Theta^{\langle 0 \rangle}$ (dimension $D^{\langle 0 \rangle}$)
+
 - $H^{\langle 1 \rangle}$: $\theta \in \Theta^{\langle 1 \rangle}$ (dimension $D^{\langle 1 \rangle}$)
 
 where $\Theta^{\langle 0 \rangle} \subset \Theta^{\langle 1 \rangle}$.
 
-\framebreak
+##
 
 **Wilks' approximation:** Under the null hypothesis $H^{\langle 0 \rangle}$:
 $$
@@ -758,9 +781,7 @@ $$
 
 This can be used to construct a **likelihood ratio test**.
 
-## Information Criteria
-
-### Akaike's Information Criterion (AIC) {.allowframebreaks}
+## Akaike's Information Criterion (AIC)
 
 For non-nested hypotheses, we can compare likelihoods using AIC:
 $$
@@ -769,38 +790,34 @@ $$
 "Minus twice the maximized log-likelihood plus twice the number of parameters."
 
 - Select the model with the **lowest AIC** score.
+
 - AIC was derived as an approach to minimizing prediction error.
+
 - Increasing parameters leads to overfitting which can decrease predictive skill.
 
-\framebreak
+##
 
 **Practical guidance:**
 
 - AIC is useful for selecting a model with reasonable predictive skill from a range of possibilities.
+
 - View it as a procedure to select a reasonable predictive model, not as a formal hypothesis test.
+
 - BIC provides a more severe penalty for complexity.
 
 
-# Exercises
-
-## Exercise 3.1
-
-### Exercise 3.1: Slices and Profiles
+## Exercise 3.1: Slices and Profiles
 
 What is the difference between a likelihood **slice** and a **profile**? What is the consequence of this difference for the statistical interpretation of these plots? How should you decide whether to compute a profile or a slice?
 
-## Exercise 3.2
-
-### Exercise 3.2: Cost of a Particle Filter Calculation {.allowframebreaks}
+## Exercise 3.2: Cost of a Particle Filter Calculation
 
 - How much computer processing time does a particle filter take?
 - How does this scale with the number of particles?
 
 Form a conjecture based upon your understanding of the algorithm. Test your conjecture by running a sequence of particle filter operations, with increasing numbers of particles ($J$), measuring the time taken for each one. Plot and interpret your results.
 
-## Exercise 3.3
-
-### Exercise 3.3: Log-likelihood Estimation {.allowframebreaks}
+## Exercise 3.3: Log-likelihood Estimation
 
 Here are some desiderata for a Monte Carlo log-likelihood approximation:
 
@@ -808,29 +825,18 @@ Here are some desiderata for a Monte Carlo log-likelihood approximation:
 - It should be presented together with estimates of the bias and variance so that we know the extent of Monte Carlo uncertainty in our results.
 - It should be computed in a length of time appropriate for the circumstances.
 
-\framebreak
+Set up a likelihood evaluation for the measles model, choosing the numbers of particles and replications so that your evaluation takes approximately one minute on your machine. Provide a Monte Carlo standard error for your estimate. Comment on the bias of your estimate.
 
-Set up a likelihood evaluation for the measles model, choosing the numbers of particles and replications so that your evaluation takes approximately one minute on your machine.
-
-- Provide a Monte Carlo standard error for your estimate.
-- Comment on the bias of your estimate.
-
-## Exercise 3.4 & 3.5
-
-### Exercise 3.4: One-dimensional Likelihood Slice
+## Exercise 3.4: One-dimensional Likelihood Slice
 
 Compute several likelihood slices in the $\eta$ direction.
 
-### Exercise 3.5: Two-dimensional Likelihood Slice
+## Exercise 3.5: Two-dimensional Likelihood Slice
 
 Compute a slice of the likelihood in the $\beta$-$\eta$ plane.
 
 
-# Summary
-
-## Key Takeaways
-
-### Summary {.allowframebreaks}
+## Summary
 
 1. The **likelihood function** is central to frequentist, Bayesian, and information-theoretic inference.
 
@@ -839,8 +845,6 @@ Compute a slice of the likelihood in the $\beta$-$\eta$ plane.
 3. The **particle filter** provides an efficient Monte Carlo algorithm for computing the likelihood:
    - Alternates between prediction (simulation) and filtering (resampling)
    - Provides an unbiased estimate of the likelihood
-
-\framebreak
 
 4. **Likelihood-based inference** provides tools for:
    - Maximum likelihood estimation

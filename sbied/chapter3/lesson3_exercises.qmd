@@ -4,59 +4,41 @@ title: >
 author:
   - Aaron A. King
   - Edward L. Ionides
-  - Translated in pypomp by Kunyang He
+  - Kunyang He
+date: today
+date-format: full
 
-shortauthor: "King & Ionides et al."   
-shorttitle: "Lesson 3 Exercises"  
-date: "December 23, 2025"
-
-bibliography: ../sbied.bib             
+bibliography: ../sbied.bib
 
 format:
   beamer:
-    code-block-font-size: \tiny                    
-    theme: AnnArbor
-    colortheme: default
+    code-block-font-size: \tiny
     fontsize: 11pt
     cite-method: natbib
     biblio-style: apalike
-    toc: true  
-    slide-level: 3
-    highlight-style: tango  
-  
+    toc: false
+    slide-level: 2
+    header-includes: |
+      \setbeamertemplate{footline}[page number]
+    output-file: exercises_slides.pdf
   pdf:
-    documentclass: article          
+    documentclass: article
     fontsize: 11pt
-    cite-method: natbib           
+    cite-method: natbib
     biblio-style: apalike
-    toc: true
+    toc: false
     geometry: margin=1in
-    
-jupyter: python3 
+    output-file: exercises_notes.pdf
 
+jupyter: python3
 
 header-includes: |
-  \providecommand{\AtBeginSection}[1]{}
-  \providecommand{\AtBeginSubsection}[1]{}
-  \providecommand{\framebreak}{}
-
-  \usepackage{fvextra}  
-  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{
-    commandchars=\\\{\}, 
-    fontsize=\scriptsize 
-  }
-  \AtBeginSection{}
-  \AtBeginSubsection{}
   \usepackage{amsmath,amssymb,amsfonts}
   \usepackage{graphicx}
   \usepackage{hyperref}
   \usepackage{xcolor}
 
-  \newcommand{\myemph}[1]{\emph{#1}}
   \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
-  \newcommand{\pkg}[1]{\texttt{#1}}
-  \newcommand{\code}[1]{\texttt{#1}}
-  \newcommand{\Rlanguage}{\textsf{R}}
   \newcommand{\Rzero}{\mathcal{R}_{0}}
   \newcommand{\pr}{\mathbb{P}}
   \newcommand{\E}{\mathbb{E}}
@@ -67,10 +49,14 @@ header-includes: |
   \newcommand{\myexercise}{\paragraph{Exercise}}
 ---
 
-This document contains worked solutions to the exercises from Lesson 3 on 
-likelihood-based inference for POMP models, implemented using `pypomp`.
+```{python}
+#| echo: false
+#| output: false
+"trying an empty chunk to see if it helps compilation"
+```
 
-# Setup
+This document contains worked solutions to the exercises from Lesson 3 on
+likelihood-based inference for POMP models, implemented using `pypomp`.
 
 ## Import Required Packages
 
@@ -90,9 +76,8 @@ from scipy import stats
 
 ```{python}
 #| echo: true
-# Download and prepare data
-meas = (pd.read_csv(
-          "https://kingaa.github.io/sbied/stochsim/Measles_Consett_1948.csv")
+# Load local data
+meas = (pd.read_csv("Measles_Consett_1948.csv")
           .loc[:, ["week", "cases"]]
           .rename(columns={"week": "time", "cases": "reports"})
           .set_index("time")
@@ -113,7 +98,7 @@ def nbinom_logpmf(x, k, mu):
     mu = jnp.asarray(mu)
     logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
     safe_mu = jnp.where(mu == 0.0, 1.0, mu)
-    core = (jax.scipy.special.gammaln(k + x) 
+    core = (jax.scipy.special.gammaln(k + x)
             - jax.scipy.special.gammaln(k)
             - jax.scipy.special.gammaln(x + 1)
             + k * jnp.log(k / (k + safe_mu))
@@ -137,13 +122,16 @@ def rinit(theta_, key, covars, t0):
     eta = theta_["eta"]
     S0 = jnp.round(N * eta)
     I0 = 1.0
-    R0 = jnp.round(N * (1 - eta)) - 1.0   
-    H0 = 0.0                           
+    R0 = jnp.round(N * (1 - eta)) - 1.0
+    H0 = 0.0
     return {"S": S0, "I": I0, "R": R0, "H": H0}
 
 def rproc(X_, theta_, key, covars, t, dt):
     """Process simulator for SIR model."""
-    S, I, R, H = X_["S"], X_["I"], X_["R"], X_["H"]
+    S = jnp.asarray(X_["S"])
+    I = jnp.asarray(X_["I"])
+    R = jnp.asarray(X_["R"])
+    H = jnp.asarray(X_["H"])
     Beta = theta_["Beta"]
     mu_IR = theta_["mu_IR"]
     N = theta_["N"]
@@ -152,10 +140,10 @@ def rproc(X_, theta_, key, covars, t, dt):
     p_IR = 1.0 - jnp.exp(-mu_IR * dt)
 
     key_SI, key_IR = jax.random.split(key)
-    dN_SI = jax.random.binomial(key_SI, n=S.astype(jnp.int32), p=p_SI)
-    dN_IR = jax.random.binomial(key_IR, n=I.astype(jnp.int32), p=p_IR)
+    dN_SI = jax.random.binomial(key_SI, n=jnp.int32(S), p=p_SI)
+    dN_IR = jax.random.binomial(key_IR, n=jnp.int32(I), p=p_IR)
 
-    return {"S": S - dN_SI, "I": I + dN_SI - dN_IR, 
+    return {"S": S - dN_SI, "I": I + dN_SI - dN_IR,
             "R": R + dN_IR, "H": H + dN_IR}
 
 def dmeas(Y_, X_, theta_, covars, t):
@@ -201,20 +189,18 @@ measSIR = pp.Pomp(
     statenames=statenames,
     t0=0.0,
     nstep=7,
-    accumvars=(3,),
+    accumvars=("H",),
     ydim=1,
     covars=None
 )
 ```
 
 
-# Exercise 3.1: Slices and Profiles
-
-## Problem Statement
+## Exercise 3.1: Slices and Profiles
 
 What is the difference between a likelihood **slice** and a **profile**? What is the consequence of this difference for the statistical interpretation of these plots? How should you decide whether to compute a profile or a slice?
 
-## Solution {.allowframebreaks}
+## Solution: Slices vs Profiles
 
 **Likelihood Slice:**
 
@@ -230,7 +216,7 @@ $$
 \loglik^{\text{profile}}(\beta) = \max_{\mu_{IR}, \eta, \rho, k, N} \loglik(\beta, \mu_{IR}, \eta, \rho, k, N)
 $$
 
-\framebreak
+##
 
 **Consequences for Statistical Interpretation:**
 
@@ -240,7 +226,7 @@ $$
 
 3. A slice can **underestimate** how good the likelihood can be at a parameter value, because it doesn't optimize over other parameters.
 
-\framebreak
+##
 
 **When to Use Which:**
 
@@ -254,16 +240,14 @@ $$
 Profiles are computationally much more expensive (require optimization at each point) but are necessary for proper statistical inference.
 
 
-# Exercise 3.2: Cost of Particle Filter
-
-## Problem Statement
+## Exercise 3.2: Cost of Particle Filter
 
 - How much computer processing time does a particle filter take?
 - How does this scale with the number of particles?
 
 Form a conjecture based upon your understanding of the algorithm. Test your conjecture by running a sequence of particle filter operations, with increasing numbers of particles ($J$), measuring the time taken for each one. Plot and interpret your results.
 
-## Conjecture {.allowframebreaks}
+## Conjecture
 
 **Theoretical Analysis:**
 
@@ -277,16 +261,9 @@ The particle filter algorithm consists of:
 
 Total complexity: $O(N \times J)$
 
-\framebreak
-
 **Conjecture:** The computational time should scale **linearly** with the number of particles $J$.
 
-With JAX, there may be:
-- Some fixed overhead from JIT compilation
-- Potentially better-than-linear scaling for small $J$ due to vectorization
-- Linear scaling for large $J$
-
-## Testing the Conjecture {.allowframebreaks}
+## Testing the Conjecture
 
 ```{python}
 #| echo: true
@@ -315,12 +292,12 @@ for J in J_values:
         'time_mean': mean_time,
         'time_std': std_time
     })
-    print(f"J = {J:6d}: {mean_time:.4f} ± {std_time:.4f} seconds")
+    print(f"J = {J:6d}: {mean_time:.4f} +/- {std_time:.4f} seconds")
 
 timing_df = pd.DataFrame(timing_results)
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
@@ -329,7 +306,7 @@ fig, axes = plt.subplots(1, 2, figsize=(8, 3.5))
 
 # Linear scale
 ax = axes[0]
-ax.errorbar(timing_df['J'], timing_df['time_mean'], 
+ax.errorbar(timing_df['J'], timing_df['time_mean'],
             yerr=timing_df['time_std'], fmt='o-', capsize=3)
 ax.set(xlabel='Number of particles (J)', ylabel='Time (seconds)',
        title='Particle Filter Timing')
@@ -346,7 +323,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
@@ -356,14 +333,14 @@ from scipy.stats import linregress
 # For larger J values (to avoid overhead effects)
 mask = timing_df['J'] >= 1000
 slope, intercept, r_value, p_value, std_err = linregress(
-    timing_df.loc[mask, 'J'], 
+    timing_df.loc[mask, 'J'],
     timing_df.loc[mask, 'time_mean']
 )
 
 print(f"Linear fit (J >= 1000):")
 print(f"  Time = {intercept:.4f} + {slope:.2e} * J")
-print(f"  R² = {r_value**2:.4f}")
-print(f"  Time per 1000 particles: {slope * 1000 * 1000:.1f} μs")
+print(f"  R-squared = {r_value**2:.4f}")
+print(f"  Time per 1000 particles: {slope * 1000 * 1000:.1f} microseconds")
 ```
 
 ## Interpretation
@@ -379,16 +356,11 @@ The results confirm that:
 4. **Practical implication**: Doubling the number of particles approximately doubles the computation time
 
 
-# Exercise 3.3: Log-likelihood Estimation
+## Exercise 3.3: Log-likelihood Estimation
 
-## Problem Statement {.allowframebreaks}
+Set up a likelihood evaluation for the measles model, choosing the numbers of particles and replications so that your evaluation takes approximately one minute on your machine. Provide a Monte Carlo standard error for your estimate. Comment on the bias of your estimate.
 
-Set up a likelihood evaluation for the measles model, choosing the numbers of particles and replications so that your evaluation takes approximately one minute on your machine.
-
-- Provide a Monte Carlo standard error for your estimate.
-- Comment on the bias of your estimate.
-
-## Solution {.allowframebreaks}
+## Solution
 
 First, let's estimate how many replications we can do in one minute:
 
@@ -412,7 +384,7 @@ estimated_reps = int(target_time / test_time)
 print(f"Estimated replications in {target_time}s: {estimated_reps}")
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
@@ -434,7 +406,7 @@ total_time = time.time() - start_time
 print(f"Total time: {total_time:.1f} seconds")
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
@@ -456,16 +428,16 @@ print(f"  Simple mean log-likelihood: {mean_ll:.4f} (SE: {se_ll:.4f})")
 print(f"  logmeanexp estimate: {lme_ll:.4f} (SE: {lme_se:.4f})")
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
 # Visualize the distribution of log-likelihoods
 fig, ax = plt.subplots(figsize=(5, 3.5))
 ax.hist(ll_array, bins=15, edgecolor='black', alpha=0.7)
-ax.axvline(mean_ll, color='red', linestyle='--', 
+ax.axvline(mean_ll, color='red', linestyle='--',
            label=f'Mean: {mean_ll:.2f}')
-ax.axvline(lme_ll, color='blue', linestyle='-', 
+ax.axvline(lme_ll, color='blue', linestyle='-',
            label=f'logmeanexp: {lme_ll:.2f}')
 ax.set(xlabel='Log-likelihood', ylabel='Count',
        title=f'Distribution of log-likelihood estimates (J={J})')
@@ -475,7 +447,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-## Comment on Bias {.allowframebreaks}
+## Comment on Bias
 
 **The particle filter provides:**
 
@@ -492,9 +464,9 @@ $$
 \E[\log \hat{\lik}] \leq \log \E[\hat{\lik}]
 $$
 
-**The bias is negative** — the simple average of log-likelihoods underestimates the true log-likelihood.
+**The bias is negative** --- the simple average of log-likelihoods underestimates the true log-likelihood.
 
-\framebreak
+##
 
 **The `logmeanexp` function helps:**
 
@@ -505,57 +477,57 @@ $$
 
 This averages the likelihoods (unbiased) and then takes the log, reducing bias.
 
-\framebreak
+##
 
 **Reducing bias:**
 
-1. **Increase particles ($J$)**: More particles → lower variance → less bias
+1. **Increase particles ($J$)**: More particles leads to lower variance and less bias
+
 2. **Use logmeanexp**: Average likelihoods instead of log-likelihoods
+
 3. **More replications**: Better estimate of the mean
 
 The difference between `mean_ll` and `lme_ll` in our results illustrates this bias.
 
 
-# Exercise 3.4: Likelihood Slice in η Direction
-
-## Problem Statement
+## Exercise 3.4: Likelihood Slice in eta Direction
 
 Compute several likelihood slices in the $\eta$ direction.
 
-## Solution {.allowframebreaks}
+## Solution
 
 ```{python}
 #| echo: true
-def compute_likelihood_slice(param_name, param_values, base_theta, 
+def compute_likelihood_slice(param_name, param_values, base_theta,
                              J=5000, n_reps=3):
     """Compute log-likelihood for a slice of parameter values."""
     results = []
     for val in param_values:
         theta_test = base_theta.copy()
         theta_test[param_name] = val
-        
+
         pomp_test = pp.Pomp(
             rinit=rinit, rproc=rproc, dmeas=dmeas, rmeas=rmeas,
             ys=ys, theta=theta_test, statenames=statenames,
-            t0=0.0, nstep=7, accumvars=(3,), ydim=1, covars=None
+            t0=0.0, nstep=7, accumvars=("H",), ydim=1, covars=None
         )
-        
+
         key = jax.random.key(int(val * 10000))
         pomp_test.pfilter(key=key, J=J, reps=n_reps)
-        
+
         pf_result = pomp_test.results_history.last()
         logliks_arr = pf_result.logLiks.values[0, :]
-        
+
         results.append({
             param_name: val,
             'loglik': pp.logmeanexp(logliks_arr),
             'loglik_se': pp.logmeanexp_se(logliks_arr)
         })
-    
+
     return pd.DataFrame(results)
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
@@ -568,7 +540,7 @@ eta_slice1 = compute_likelihood_slice("eta", eta_values, theta, J=3000, n_reps=3
 # Slice at higher Beta
 theta_high_beta = theta.copy()
 theta_high_beta["Beta"] = 25.0
-eta_slice2 = compute_likelihood_slice("eta", eta_values, theta_high_beta, 
+eta_slice2 = compute_likelihood_slice("eta", eta_values, theta_high_beta,
                                        J=3000, n_reps=3)
 
 # Slice at lower Beta
@@ -578,25 +550,25 @@ eta_slice3 = compute_likelihood_slice("eta", eta_values, theta_low_beta,
                                        J=3000, n_reps=3)
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
 # Plot all slices
 fig, ax = plt.subplots(figsize=(5, 4))
 
-ax.errorbar(eta_slice1["eta"], eta_slice1["loglik"], 
-            yerr=eta_slice1["loglik_se"], fmt='o-', 
+ax.errorbar(eta_slice1["eta"], eta_slice1["loglik"],
+            yerr=eta_slice1["loglik_se"], fmt='o-',
             capsize=3, label=r'$\beta=15$')
-ax.errorbar(eta_slice2["eta"], eta_slice2["loglik"], 
-            yerr=eta_slice2["loglik_se"], fmt='s-', 
+ax.errorbar(eta_slice2["eta"], eta_slice2["loglik"],
+            yerr=eta_slice2["loglik_se"], fmt='s-',
             capsize=3, label=r'$\beta=25$')
-ax.errorbar(eta_slice3["eta"], eta_slice3["loglik"], 
-            yerr=eta_slice3["loglik_se"], fmt='^-', 
+ax.errorbar(eta_slice3["eta"], eta_slice3["loglik"],
+            yerr=eta_slice3["loglik_se"], fmt='^-',
             capsize=3, label=r'$\beta=10$')
 
 ax.axvline(theta["eta"], color='gray', linestyle='--', alpha=0.5)
-ax.set(xlabel=r'$\eta$ (initial susceptible fraction)', 
+ax.set(xlabel=r'$\eta$ (initial susceptible fraction)',
        ylabel='Log-likelihood',
        title=r'Likelihood slices in $\eta$ direction')
 ax.legend()
@@ -610,17 +582,17 @@ plt.show()
 The slices reveal:
 
 1. The optimal $\eta$ depends on the value of $\beta$
+
 2. There is a ridge-like relationship between $\eta$ and $\beta$
+
 3. This suggests these parameters may be partially **non-identifiable** or have a **functional relationship**
 
 
-# Exercise 3.5: 2D Likelihood Surface
-
-## Problem Statement
+## Exercise 3.5: 2D Likelihood Surface
 
 Compute a slice of the likelihood in the $\beta$-$\eta$ plane.
 
-## Solution {.allowframebreaks}
+## Solution
 
 ```{python}
 #| echo: true
@@ -628,35 +600,35 @@ def compute_2d_surface(param1_name, param1_vals, param2_name, param2_vals,
                        base_theta, J=2000, n_reps=2):
     """Compute 2D log-likelihood surface."""
     results = []
-    
+
     for v1 in param1_vals:
         for v2 in param2_vals:
             theta_test = base_theta.copy()
             theta_test[param1_name] = v1
             theta_test[param2_name] = v2
-            
+
             pomp_test = pp.Pomp(
                 rinit=rinit, rproc=rproc, dmeas=dmeas, rmeas=rmeas,
                 ys=ys, theta=theta_test, statenames=statenames,
-                t0=0.0, nstep=7, accumvars=(3,), ydim=1, covars=None
+                t0=0.0, nstep=7, accumvars=("H",), ydim=1, covars=None
             )
-            
+
             key = jax.random.key(int(v1 * 1000) + int(v2 * 10000))
             pomp_test.pfilter(key=key, J=J, reps=n_reps)
-            
+
             pf_result = pomp_test.results_history.last()
             logliks_arr = pf_result.logLiks.values[0, :]
-            
+
             results.append({
                 param1_name: v1,
                 param2_name: v2,
                 'loglik': pp.logmeanexp(logliks_arr)
             })
-    
+
     return pd.DataFrame(results)
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
@@ -671,7 +643,7 @@ surface_df = compute_2d_surface(
 print("Done!")
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
@@ -691,14 +663,14 @@ contour = ax.contourf(X, Y, Z_masked, levels=20, cmap='viridis')
 plt.colorbar(contour, ax=ax, label='Log-likelihood')
 
 # Add contour lines
-contour_lines = ax.contour(X, Y, Z_masked, levels=10, colors='white', 
+contour_lines = ax.contour(X, Y, Z_masked, levels=10, colors='white',
                            linewidths=0.5, alpha=0.5)
 
 # Mark current parameters
-ax.plot(theta["Beta"], theta["eta"], 'r*', markersize=15, 
+ax.plot(theta["Beta"], theta["eta"], 'r*', markersize=15,
         label='Current params')
 
-ax.set(xlabel=r'$\beta$ (transmission rate)', 
+ax.set(xlabel=r'$\beta$ (transmission rate)',
        ylabel=r'$\eta$ (initial susceptible fraction)',
        title=r'Likelihood surface in $\beta$-$\eta$ plane')
 ax.legend()
@@ -706,7 +678,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
@@ -722,7 +694,7 @@ print(f"  eta = {mle_eta:.4f}")
 print(f"  Log-likelihood = {mle_ll:.2f}")
 ```
 
-## Interpretation {.allowframebreaks}
+## Interpretation
 
 The 2D likelihood surface reveals several important features:
 
@@ -730,23 +702,16 @@ The 2D likelihood surface reveals several important features:
 
 2. **Parameter correlation**: Higher $\beta$ (transmission rate) tends to be associated with lower $\eta$ (initial susceptibles) at the maximum likelihood.
 
-3. **Non-identifiability**: The elongated ridge suggests that $\beta$ and $\eta$ are not fully identifiable from these data alone — many combinations give similar likelihoods.
-
-\framebreak
+3. **Non-identifiability**: The elongated ridge suggests that $\beta$ and $\eta$ are not fully identifiable from these data alone.
 
 4. **Monte Carlo noise**: Despite the noise in individual likelihood evaluations, the major structure of the surface is clearly visible.
 
 5. **Optimization challenges**: The wedge shape means that gradient-based optimization may converge slowly along the ridge direction.
 
-These features are **typical** of epidemiological models and motivate:
-- Using profile likelihoods for inference
-- Fixing some parameters at known values
-- Employing specialized optimization algorithms (like iterated filtering)
+These features are **typical** of epidemiological models and motivate using profile likelihoods for inference, fixing some parameters at known values, and employing specialized optimization algorithms (like iterated filtering).
 
 
-# Summary
-
-## Key Takeaways
+## Summary
 
 1. **Slices vs Profiles**: Slices fix other parameters; profiles optimize them. Profiles are needed for valid statistical inference.
 
@@ -755,6 +720,5 @@ These features are **typical** of epidemiological models and motivate:
 3. **Bias in log-likelihood**: Particle filter estimates of log-likelihood are negatively biased; use `logmeanexp` and large $J$ to reduce bias.
 
 4. **2D surfaces**: Reveal relationships between parameters and potential identifiability issues.
-
 
 # References

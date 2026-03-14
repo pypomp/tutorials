@@ -6,8 +6,8 @@ Aaron A. King, Edward L. Ionides and Kunyang He
 
 | &nbsp;                            | &nbsp;                                                                                     |
 |:----------------------------------|:------------------------------------------------------------------------------------------:|
-| Lecture slides                     | [PDF](lesson3_beamer.pdf)                                                                           |
-
-
+| Lecture slides                     | [PDF](slides.pdf)                                                                           |
+| Lecture notes                      | [PDF](notes.pdf)                                                                            |
+| Exercises                          | [PDF](exercises_notes.pdf)                                                                  |
 
 
