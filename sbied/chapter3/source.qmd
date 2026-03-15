@@ -84,9 +84,9 @@ Students completing this lesson will:
 
 ## 
 
-![Schematic diagram](flowchart.jpg){width=8cm}
+![Schematic diagram. The Monte Carlo technique called the **particle filter** is central for connecting the higher-level ideas of POMP models and likelihood-based inference to the lower-level tasks involved in carrying out data analysis.](flowchart.jpg){width=8cm}
 
-The Monte Carlo technique called the **particle filter** is central for connecting the higher-level ideas of POMP models and likelihood-based inference to the lower-level tasks involved in carrying out data analysis.
+
 
 ##
 
@@ -103,23 +103,23 @@ We employ a standard toolkit for likelihood-based inference:
 We seek to better understand these tools, and to figure out how to implement and interpret them in the specific context of POMP models.
 
 
-## The Likelihood Function
+## The likelihood function
 
 Data are a sequence of $N$ observations, denoted $y^*_{1:N}$.
 A statistical model is a density function $f_{Y_{1:N}}(y_{1:N}; \theta)$ which defines a probability distribution for each value of a parameter vector $\theta$. To perform statistical inference, we must decide, among other things, for which (if any) values of $\theta$ it is reasonable to model $y^*_{1:N}$ as a random draw from $f_{Y_{1:N}}(y_{1:N}; \theta)$.
 
-**The likelihood function** is:
+**The likelihood function** [@Fisher1922] is:
 $$
 \lik(\theta) = f_{Y_{1:N}}(y^*_{1:N}; \theta),
 $$
 the density function evaluated at the data. It is often convenient to work with the **log-likelihood function**:
 $$
-\loglik(\theta) = \log \lik(\theta) = \log f_{Y_{1:N}}(y^*_{1:N}; \theta).
+\loglik(\theta) = \log \lik(\theta) = \log f_{Y_{1:N}}(y^*_{1:N}; \theta),
 $$
-- The basis for modern frequentist, Bayesian, and information-theoretic inference. Introduced by [@Fisher1922].
+the basis for modern frequentist, Bayesian, and information-theoretic inference.
 
 
-## A Simulator is Implicitly a Statistical Model
+## A simulator is implicitly a statistical model
 
 For simple statistical models, we may describe the model by explicitly writing the density function $f_{Y_{1:N}}(y_{1:N}; \theta)$. One may then ask how to simulate a random variable $Y_{1:N} \sim f_{Y_{1:N}}(y_{1:N}; \theta)$.
 
@@ -148,7 +148,7 @@ Recall the structure of a POMP model:
 \begin{figure}[htbp]     
   \centering             
   \begin{tikzpicture}[
-      scale=0.5,
+      scale=0.8,
       every node/.style={transform shape},
       node distance=1.5cm, auto, >=Stealth]
     
@@ -313,15 +313,14 @@ f_{X_n|Y_{1:n}}(x_n|y^*_{1:n}; \theta) = \frac{f_{Y_n|X_n}(y^*_n|x_n; \theta) \,
 $$
 \normalsize
 
-##
-
 This suggests we keep track of two distributions at each time $t_n$:
 
 - The **prediction distribution**: $f_{X_n|Y_{1:n-1}}(x_n|y^*_{1:n-1})$
 
 - The **filtering distribution**: $f_{X_n|Y_{1:n}}(x_n|y^*_{1:n})$
 
-The particle filter uses Monte Carlo techniques to sequentially estimate these integrals. Hence, the alternative name of **sequential Monte Carlo (SMC)**.
+The particle filter uses a **sequential Monte Carlo (SMC)** approach to recursively estimate these integrals. 
+
 
 ## Basic Particle Filter Algorithm
 
@@ -332,12 +331,13 @@ $$
 X^P_{n,j} \sim \text{process}(X^F_{n-1,j}, \theta), \quad j = 1, \ldots, J.
 $$
 
-##
-
 3. Having obtained $X^P_{n,j}$, we obtain a sample from the filtering distribution at time $t_n$ by **resampling** from $\{X^P_{n,j}, j \in 1:J\}$ with weights:
 $$
 w_{n,j} = f_{Y_n|X_n}(y^*_n|X^P_{n,j}; \theta).
 $$
+
+
+## 
 
 4. The conditional likelihood
 $$
@@ -347,9 +347,6 @@ is approximated by:
 $$
 \hat{\lik}_n(\theta) \approx \frac{1}{J} \sum_{j} f_{Y_n|X_n}(y^*_n|X^P_{n,j}; \theta).
 $$
-
-##
-
 5. We iterate this procedure through the data, one step at a time, alternately simulating and resampling, until we reach $n = N$.
 
 6. The full log-likelihood then has approximation:
@@ -382,7 +379,7 @@ $$
 \end{center}
 
 
-## Particle filter steps
+## Particle filter steps via `pypomp` model components
 
 1. **Initialize**: `rinit`
 
@@ -443,29 +440,6 @@ ys = meas.copy()
 ys.columns = pd.Index(["reports"])
 ```
 
-## Helper Functions
-
-```{python}
-#| echo: true
-#| label: nbinom functions
-def nbinom_logpmf(x, k, mu):
-    """Log PMF of NegBin(k, mu)."""
-    x, k, mu = (jnp.asarray(v) for v in (x, k, mu))
-    logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
-    safe_mu = jnp.where(mu == 0.0, 1.0, mu)
-    gammaln = jax.scipy.special.gammaln
-    core = (gammaln(k + x) - gammaln(k)
-            - gammaln(x + 1)
-            + k * jnp.log(k / (k + safe_mu))
-            + x * jnp.log(safe_mu / (k + safe_mu)))
-    return jnp.where(mu == 0.0, logp_zero, core)
-
-def rnbinom(key, k, mu):
-    """Sample NegBin(k, mu) via Gamma-Poisson."""
-    key_g, key_p = jax.random.split(key)
-    lam = jax.random.gamma(key_g, k) * (mu / k)
-    return jax.random.poisson(key_p, lam)
-```
 
 ## SIR Model Components
 
@@ -512,6 +486,34 @@ def rproc(X_, theta_, key, covars, t, dt):
             "R": R + dN_IR,
             "H": H + dN_IR}
 ```
+
+
+## Negative binomial functions
+
+* These allow for overdispersed measurement distributions
+
+```{python}
+#| echo: true
+#| label: nbinom functions
+def nbinom_logpmf(x, k, mu):
+    """Log PMF of NegBin(k, mu)."""
+    x, k, mu = (jnp.asarray(v) for v in (x, k, mu))
+    logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
+    safe_mu = jnp.where(mu == 0.0, 1.0, mu)
+    gammaln = jax.scipy.special.gammaln
+    core = (gammaln(k + x) - gammaln(k)
+            - gammaln(x + 1)
+            + k * jnp.log(k / (k + safe_mu))
+            + x * jnp.log(safe_mu / (k + safe_mu)))
+    return jnp.where(mu == 0.0, logp_zero, core)
+
+def rnbinom(key, k, mu):
+    """Sample NegBin(k, mu) via Gamma-Poisson."""
+    key_g, key_p = jax.random.split(key)
+    lam = jax.random.gamma(key_g, k) * (mu / k)
+    return jax.random.poisson(key_p, lam)
+```
+
 
 ##
 
@@ -605,9 +607,17 @@ else:
     with open(cache_file, 'wb') as f:
         pickle.dump(result,f)
 logliks = result.logLiks.values[0, :]
-print(f"Log-likelihoods: {logliks}")
 print(f"Mean: {np.mean(logliks):.1f}",
       f"SE: {np.std(logliks):.1f}")
+```
+Individual log-likelihoods:
+```{python}
+arr_str = np.array2string(logliks.reshape(2,5),
+    separator=' ',
+    max_line_width=50,
+    formatter={'float': lambda x: f'{x:.1f}'})
+formatted_str = arr_str.replace('[', '').replace(']', '')
+print(f"Log-likelihoods:\n{formatted_str}")
 ```
 
 
@@ -649,6 +659,7 @@ $$
 $$
 where $\arg\max_\theta g(\theta)$ means the value of $\theta$ at which the maximum of $g$ is attained.
 
+
 ## Standard Errors for the MLE
 
 There are three main approaches:
@@ -658,6 +669,7 @@ There are three main approaches:
 2. **Profile likelihood estimation**: Generally preferable for POMP models
 
 3. **Bootstrap/simulation study**: Most effort but can be the best approach
+
 
 ## Confidence Intervals via Profile Likelihood
 
@@ -686,6 +698,7 @@ This is known as a **profile likelihood confidence interval**. The cutoff 1.92 i
 
 - Peaks may be separated by a valley or may be joined by a **ridge**.
 
+
 ##
 
 Key features to notice:
@@ -695,6 +708,7 @@ Key features to notice:
 - **Monte Carlo noise** in likelihood evaluation makes it hard to pick out exactly where the likelihood is maximized
 
 - Nevertheless, major features of the likelihood surface are evident despite the noise
+
 
 ## Computing Likelihood Slices
 
@@ -732,8 +746,6 @@ def compute_likelihood_slice(
     return pd.DataFrame(results)
 ```
 
-##
-
 ```{python}
 #| echo: true
 #| label: compute beta slice
@@ -748,6 +760,9 @@ else:
     with open(cache_file, 'wb') as f:
         pickle.dump(beta_slice,f)
 ```
+
+
+##
 
 ```{python}
 #| echo: false
@@ -771,7 +786,7 @@ plt.show()
 ##
 
 ```{python}
-#| echo: true
+#| echo: false
 #| label: compute mu_IR slice
 mu_IR_values = np.linspace(0.2, 2.0, 15)
 cache_file = cache_dir + "/mu_IR_slice.pkl"
@@ -859,6 +874,9 @@ else:
         pickle.dump(surface_df,f)
 ```
 
+
+##
+
 ```{python}
 #| echo: false
 #| label: plot as contour
@@ -919,14 +937,13 @@ Suppose we have two nested hypotheses:
 
 where $\Theta^{\langle 0 \rangle} \subset \Theta^{\langle 1 \rangle}$.
 
-##
-
 **Wilks' approximation:** Under the null hypothesis $H^{\langle 0 \rangle}$:
 $$
 \loglik^{\langle 1 \rangle} - \loglik^{\langle 0 \rangle} \approx \frac{1}{2} \chi^2_{D^{\langle 1 \rangle} - D^{\langle 0 \rangle}}
 $$
 
 This can be used to construct a **likelihood ratio test**.
+
 
 ## Akaike's Information Criterion (AIC)
 
@@ -985,22 +1002,17 @@ Compute a slice of the likelihood in the $\beta$-$\eta$ plane.
 
 ## Summary
 
-1. The **likelihood function** is central to frequentist, Bayesian, and information-theoretic inference.
+**1.** The **likelihood function** is central to frequentist, Bayesian, and information-theoretic inference.
 
-2. For POMP models, the likelihood involves a high-dimensional integral that cannot be computed analytically.
+**2.** For POMP models, the likelihood involves a high-dimensional integral that cannot be computed analytically.
 
-3. The **particle filter** provides an efficient Monte Carlo algorithm for computing the likelihood:
-   - Alternates between prediction (simulation) and filtering (resampling)
-   - Provides an unbiased estimate of the likelihood
+**3.** The **particle filter** provides an efficient Monte Carlo algorithm for computing the likelihood:
 
-4. **Likelihood-based inference** provides tools for:
-   - Maximum likelihood estimation
-   - Profile likelihood confidence intervals
-   - Likelihood ratio tests
-   - Model comparison via AIC
+* Alternates between prediction (simulation) and filtering (resampling)
+* Provides an unbiased estimate of the likelihood
 
-5. The **geometry of the likelihood surface** reveals important features:
-   - Wedge-shaped relationships between parameters
-   - Monte Carlo noise affects optimization
+**4.** **Likelihood-based inference** provides tools for: **Maximum likelihood estimation**,  **Profile likelihood confidence intervals**, **Likelihood ratio tests**, **Model comparison via AIC**
+
+**5.** The **geometry of the likelihood surface** reveals important features, e.g., **Wedge-shaped relationships between parameters**.
 
 # References
