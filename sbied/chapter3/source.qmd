@@ -38,6 +38,10 @@ header-includes: |
   \usepackage{hyperref}
   \usepackage{xcolor}
   \usepackage{fvextra}
+  \usepackage{tikz}
+  \usetikzlibrary{positioning,calc,arrows.meta}
+  \usetikzlibrary{shapes.geometric} % for tikz diamond nodes, etc
+
   \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
     commandchars=\\\{\},
     breaklines=true,
@@ -77,65 +81,54 @@ Students completing this lesson will:
 
 4. Be able to explain the tools of likelihood-based statistical inference that become available given numerical accessibility of the likelihood function.
 
-## Overview
 
-\begin{center}
-\textbf{Conceptual links in our methodological approach}
-\end{center}
+## 
 
-- The Monte Carlo technique called the **particle filter** is central for connecting the higher-level ideas of POMP models and likelihood-based inference to the lower-level tasks involved in carrying out data analysis.
+![Schematic diagram](flowchart.jpg){width=8cm}
+
+The Monte Carlo technique called the **particle filter** is central for connecting the higher-level ideas of POMP models and likelihood-based inference to the lower-level tasks involved in carrying out data analysis.
 
 ##
 
-- We employ a standard toolkit for likelihood-based inference:
-  - Maximum likelihood estimation
-  - Profile likelihood confidence intervals
-  - Likelihood ratio tests for model selection
-  - Other likelihood-based model comparison tools such as AIC
+We employ a standard toolkit for likelihood-based inference:
 
-- We seek to better understand these tools, and to figure out how to implement and interpret them in the specific context of POMP models.
+* Maximum likelihood estimation
+
+* Profile likelihood confidence intervals
+
+* Likelihood ratio tests for model selection
+
+* Other likelihood-based model comparison tools such as AIC
+
+We seek to better understand these tools, and to figure out how to implement and interpret them in the specific context of POMP models.
 
 
 ## The Likelihood Function
 
-- The basis for modern frequentist, Bayesian, and information-theoretic inference.
-
-- Method of maximum likelihood introduced by [@Fisher1922].
-
-- The likelihood function itself is a representation of what the data have to say about the parameters.
-
-##
-
-**Definition of the likelihood function:**
-
-- Data are a sequence of $N$ observations, denoted $y^*_{1:N}$.
-
-- A statistical model is a density function $f_{Y_{1:N}}(y_{1:N}; \theta)$ which defines a probability distribution for each value of a parameter vector $\theta$.
-
-- To perform statistical inference, we must decide, among other things, for which (if any) values of $\theta$ it is reasonable to model $y^*_{1:N}$ as a random draw from $f_{Y_{1:N}}(y_{1:N}; \theta)$.
-
-##
+Data are a sequence of $N$ observations, denoted $y^*_{1:N}$.
+A statistical model is a density function $f_{Y_{1:N}}(y_{1:N}; \theta)$ which defines a probability distribution for each value of a parameter vector $\theta$. To perform statistical inference, we must decide, among other things, for which (if any) values of $\theta$ it is reasonable to model $y^*_{1:N}$ as a random draw from $f_{Y_{1:N}}(y_{1:N}; \theta)$.
 
 **The likelihood function** is:
 $$
 \lik(\theta) = f_{Y_{1:N}}(y^*_{1:N}; \theta),
 $$
-the density function evaluated at the data.
-
-It is often convenient to work with the **log-likelihood function**:
+the density function evaluated at the data. It is often convenient to work with the **log-likelihood function**:
 $$
 \loglik(\theta) = \log \lik(\theta) = \log f_{Y_{1:N}}(y^*_{1:N}; \theta).
 $$
+- The basis for modern frequentist, Bayesian, and information-theoretic inference. Introduced by [@Fisher1922].
+
 
 ## A Simulator is Implicitly a Statistical Model
 
-- For simple statistical models, we may describe the model by explicitly writing the density function $f_{Y_{1:N}}(y_{1:N}; \theta)$. One may then ask how to simulate a random variable $Y_{1:N} \sim f_{Y_{1:N}}(y_{1:N}; \theta)$.
+For simple statistical models, we may describe the model by explicitly writing the density function $f_{Y_{1:N}}(y_{1:N}; \theta)$. One may then ask how to simulate a random variable $Y_{1:N} \sim f_{Y_{1:N}}(y_{1:N}; \theta)$.
 
-- For many dynamic models it is much more convenient to define the model via a procedure to **simulate** the random variable $Y_{1:N}$. This implicitly defines the corresponding density $f_{Y_{1:N}}(y_{1:N}; \theta)$.
+* For many dynamic models it is much more convenient to define the model via a procedure to **simulate** the random variable $Y_{1:N}$. This implicitly defines the corresponding density $f_{Y_{1:N}}(y_{1:N}; \theta)$.
 
-- For a complicated simulation procedure, it may be difficult or impossible to write down or even compute $f_{Y_{1:N}}(y_{1:N}; \theta)$ exactly.
+* For a complicated simulation procedure, it may be difficult or impossible to write down or even compute $f_{Y_{1:N}}(y_{1:N}; \theta)$ exactly.
 
-- It is important to bear in mind that **the likelihood function exists even when we don't know what it is!**
+It is important to bear in mind that **the likelihood function exists even when we don't know what it is!**
+
 
 ## The Likelihood for a POMP Model
 
@@ -149,6 +142,92 @@ Recall the structure of a POMP model:
 
 - The distribution of $Y_n$, conditional on $X_n$, is independent of all other variables.
 
+
+##
+
+\begin{figure}[htbp]     
+  \centering             
+  \begin{tikzpicture}[
+      scale=0.5,
+      every node/.style={transform shape},
+      node distance=1.5cm, auto, >=Stealth]
+    
+      % Styles
+  \tikzstyle{state} = [rectangle, draw, minimum size=1cm, font=\small]
+  \tikzstyle{observation} = [rectangle, draw, minimum size=1cm, font=\small]
+  \tikzstyle{label} = [font=\bfseries\small, align=center]
+  \tikzstyle{model} = [font=\itshape\small]
+
+  % Nodes
+  \node[state] (x0) {$X_0$};
+  \node[state, right=of x0] (x1) {$X_1$};
+  \node[right=1cm of x1] (dots1) {$\cdots$};
+  \node[state, right=1cm of dots1] (xn1) {$X_{n-1}$};
+  \node[state, right=of xn1] (xn) {$X_n$};
+  \node[state, right=of xn] (xnp1) {$X_{n+1}$};
+  \node[observation, above=of x1] (y1) {$Y_1$};
+  \node[observation, above=of xn1] (yn1) {$Y_{n-1}$};
+  \node[observation, above=of xn] (yn) {$Y_n$};
+  \node[observation, above=of xnp1] (ynp1) {$Y_{n+1}$};
+
+  % Labels
+  \node[label, left=1cm of x0] {States};
+  \node[label, left=2.25cm of y1] {Observations};
+
+  % Time Labels
+  \node[below=1.5cm of x0] {$t_0$};
+  \node[below=1.5cm of x1] {$t_1$};
+  \node[below=1.8cm of dots1] {$\cdots$};
+  \node[below=1.5cm of xn1] {$t_{n-1}$};
+  \node[below=1.5cm of xn] {$t_n$};
+  \node[below=1.5cm of xnp1] {$t_{n+1}$};
+
+  % Paths
+  \path[->]
+    (x0) edge (x1)
+    (x1) edge (dots1)
+    (dots1) edge (xn1)
+    (xn1) edge (xn)
+    (xn) edge (xnp1)
+    (x1) edge[dashed] (y1)
+    (xn1) edge[dashed] (yn1)
+    (xn) edge[dashed] (yn)
+    (xnp1) edge[dashed] (ynp1);
+
+  % Model Labels
+  \node[model, below=1.0cm of dots1, align=center] (processmodel) {Process model};
+  \node[model, above=3.3cm of dots1, align=center] (measurementmodel) {Measurement model}; 
+
+\usetikzlibrary{calc} 
+  % Coordinate for new arrow
+  \coordinate (midarrow) at ($(x1)!0.5!(y1)$);
+  \coordinate (midbrrow) at ($(xn1)!0.5!(yn1)$);
+  \coordinate (midcrrow) at ($(xn)!0.5!(yn)$);
+  \coordinate (middrrow) at ($(xnp1)!0.5!(ynp1)$);
+  \coordinate (miderrow) at ($(x0)!0.5!(x1)$);
+  \coordinate (midfrrow) at ($(x1)!0.5!(xn1)$);
+  \coordinate (midgrrow) at ($(xn1)!0.5!(xn)$);
+  \coordinate (midhrrow) at ($(xn)!0.5!(xnp1)$);
+  
+  % New arrow
+  \draw[->, dashed] (midarrow) -- (measurementmodel);
+  \draw[->, dashed] (midbrrow) -- (measurementmodel);
+  \draw[->, dashed] (midcrrow) -- (measurementmodel);
+  \draw[->, dashed] (middrrow) -- (measurementmodel);
+  \draw[->, dashed] (miderrow) -- (processmodel);
+  \draw[->, dashed] (midfrrow) -- (processmodel);
+  \draw[->, dashed] (midgrrow) -- (processmodel);
+  \draw[->, dashed] (midhrrow) -- (processmodel);
+
+  
+  % Add horizontal arrow between t_n and process model
+  \coordinate (startarrow) at ($(x0) - (0,2)$);
+  \coordinate (endarrow) at ($(xnp1) - (0,2)$);
+  \draw[->] (startarrow) -- (endarrow) node[midway, below] {};
+  \end{tikzpicture}
+  \label{fig:pomp-centered}
+\end{figure}
+
 ##
 
 The joint density factors as:
@@ -160,9 +239,6 @@ $$
 \end{aligned}
 $$
 \normalsize
-
-##
-
 The marginal density for the sequence of measurements, $Y_{1:N}$, evaluated at the data, $y^*_{1:N}$, is:
 $$
 \lik(\theta) = f_{Y_{1:N}}(y^*_{1:N}; \theta) = \int f_{X_{0:N}, Y_{1:N}}(x_{0:N}, y^*_{1:N}; \theta) \, dx_{0:N}.
@@ -239,7 +315,7 @@ $$
 
 ##
 
-This suggests we keep track of two key distributions at each time $t_n$:
+This suggests we keep track of two distributions at each time $t_n$:
 
 - The **prediction distribution**: $f_{X_n|Y_{1:n-1}}(x_n|y^*_{1:n-1})$
 
@@ -281,11 +357,32 @@ $$
 \loglik(\theta) = \log \lik(\theta) = \sum_{n} \log \lik_n(\theta) \approx \sum_{n} \log \hat{\lik}_n(\theta).
 $$
 
-## Block Diagram of Particle Filter
+## Block diagram of a particle filter
 
 \begin{center}
-\textbf{Particle Filter Steps}
+\begin{tikzpicture}[
+  square/.style={rectangle, draw=black, minimum width=4.2cm, minimum height=0.7cm, rounded corners=.1cm,font=\ttfamily},
+  >/.style={shorten >=0.4mm}, % redefine arrow to stop short of node
+  >/.tip={Stealth[length=2.5mm,width=1.5mm]} % redefine arrow style
+]
+\tikzset{>={}}; % this is needed to implement the arrow redefinition
+  \node (initialize)   at (0,6)  [square] {initialize: rinit};
+  \node (predict)  at (0,4.5)  [square] {predict: rprocess};
+  \node (weight)  at (0,3)  [square] {weight: dmeasure};
+  \node (filter)  at (0,1.5)  [square] {filter: resample};
+  \node (N) at (5.5,3)  [draw,diamond,aspect=2.5] {\texttt{N observations}};
+  \node (Np) at (0,7.5)  [draw,diamond,aspect=2.5,color=red] {\texttt{Np particles}};
+  \draw[->] (initialize) -- (predict);
+  \draw[->] (predict) -- (weight);
+  \draw[->] (weight) -- (filter);
+  \draw[->] (filter.east) -| (N);
+  \draw[->] (N.north) |- (predict.east);
+  \draw[color=red, rounded corners, thick, dashed] (Np.east) -| (2.7,0.7) -- (-2.7,0.7) |- (Np.west);
+\end{tikzpicture}
 \end{center}
+
+
+## Particle filter steps
 
 1. **Initialize**: `rinit`
 
@@ -300,10 +397,18 @@ $$
 The particle filter provides an **unbiased** estimate of the likelihood. This implies a consistent but biased estimate of the log-likelihood.
 
 
+## Particle filtering in `pypomp`
+
+* Run the `pfilter` method on a `Pomp` object.
+
+* JAX will automatically parallelize across all the CPUs or GPUs it can access.
+
+
 ## Import Required Packages
 
 ```{python}
 #| echo: true
+#| label: set up packages and cache
 import jax.numpy as jnp
 import jax
 import pandas as pd
@@ -311,13 +416,20 @@ import numpy as np
 import pypomp as pp
 import matplotlib.pyplot as plt
 import time
+import os
+import pickle
+
+# manual control of cached using pickle
+# remove the cache directory to force recomputation
+cache_dir = "cache"
+os.makedirs(cache_dir, exist_ok=True)
 ```
 
 ## Load Data and Build Model
 
 ```{python}
 #| echo: true
-# Load local data
+#| label: load data
 meas = (
     pd.read_csv("Measles_Consett_1948.csv")
     .loc[:, ["week", "cases"]]
@@ -335,6 +447,7 @@ ys.columns = pd.Index(["reports"])
 
 ```{python}
 #| echo: true
+#| label: nbinom functions
 def nbinom_logpmf(x, k, mu):
     """Log PMF of NegBin(k, mu)."""
     x, k, mu = (jnp.asarray(v) for v in (x, k, mu))
@@ -358,6 +471,7 @@ def rnbinom(key, k, mu):
 
 ```{python}
 #| echo: true
+#| label: rinit
 def rinit(theta_, key, covars, t0):
     """Initial state simulator for SIR model."""
     N = theta_["N"]
@@ -373,6 +487,7 @@ def rinit(theta_, key, covars, t0):
 
 ```{python}
 #| echo: true
+#| label: rproc
 def rproc(X_, theta_, key, covars, t, dt):
     """Process simulator for SIR model."""
     S = jnp.asarray(X_["S"])
@@ -402,6 +517,7 @@ def rproc(X_, theta_, key, covars, t, dt):
 
 ```{python}
 #| echo: true
+#| label: measurement model
 def dmeas(Y_, X_, theta_, covars, t):
     """Measurement density: log P(reports | H, rho, k)."""
     rho = theta_["rho"]
@@ -424,6 +540,7 @@ def rmeas(X_, theta_, key, covars, t):
 
 ```{python}
 #| echo: true
+#| label: build POMP model
 theta = {
     "Beta": 15.0,    # Transmission rate (per week)
     "mu_IR": 0.5,    # Recovery rate (per week)
@@ -459,7 +576,7 @@ The `pfilter` method updates the model's `results_history` attribute with the re
 
 ```{python}
 #| echo: true
-# Run a single particle filter
+#| label: a single particle filter
 key = jax.random.key(42)
 measSIR.pfilter(key=key, J=5000, reps=1)
 
@@ -469,23 +586,30 @@ loglik = float(result.logLiks.values[0, 0])
 print(f"Log-likelihood: {loglik:.4f}")
 ```
 
+
 ##
 
 We can run multiple particle filters to get an estimate of the Monte Carlo variability:
 
 ```{python}
 #| echo: true
-# Run 10 replicates of the particle filter
+#| label: 10 replicates of the particle filter
 key = jax.random.key(652643293)
-measSIR.pfilter(key=key, J=5000, reps=10)
-
-# Get results
-result = measSIR.results_history.last()
+cache_file = cache_dir + "/pfilter-reps.pkl"
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        result = pickle.load(f)
+else:
+    measSIR.pfilter(key=key, J=5000, reps=10)
+    result = measSIR.results_history.last()
+    with open(cache_file, 'wb') as f:
+        pickle.dump(result,f)
 logliks = result.logLiks.values[0, :]
 print(f"Log-likelihoods: {logliks}")
-print(f"Mean: {np.mean(logliks):.4f}",
-      f"SE: {np.std(logliks):.4f}")
+print(f"Mean: {np.mean(logliks):.1f}",
+      f"SE: {np.std(logliks):.1f}")
 ```
+
 
 ## The logmeanexp Function
 
@@ -497,12 +621,13 @@ in a numerically stable way.
 
 ```{python}
 #| echo: true
-# pypomp provides logmeanexp and logmeanexp_se
+#| label: logmeanexp and logmeanexp_se
 ll_est = pp.logmeanexp(logliks)
 ll_se = pp.logmeanexp_se(logliks)
 print(f"Log-lik estimate: {ll_est:.4f}",
       f"(SE: {ll_se:.4f})")
 ```
+
 
 ##
 
@@ -577,6 +702,7 @@ A likelihood slice is a cross-section through the likelihood surface. Let's make
 
 ```{python}
 #| echo: false
+#| label: slice function
 def compute_likelihood_slice(
         param_name, param_values,
         base_theta, J=5000, n_reps=3):
@@ -610,16 +736,22 @@ def compute_likelihood_slice(
 
 ```{python}
 #| echo: true
-# Compute Beta slice
+#| label: compute beta slice
 beta_values = np.linspace(5, 30, 15)
-beta_slice = compute_likelihood_slice(
-    "Beta", beta_values, theta, J=2000, n_reps=3
-)
+cache_file = cache_dir + "/beta-slice.pkl"
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        beta_slice = pickle.load(f)
+else:
+    beta_slice = compute_likelihood_slice(
+        "Beta", beta_values, theta, J=2000, n_reps=3)
+    with open(cache_file, 'wb') as f:
+        pickle.dump(beta_slice,f)
 ```
 
 ```{python}
 #| echo: false
-# Plot Beta slice
+#| label: plot beta slice
 fig, ax = plt.subplots(figsize=(4, 3))
 ax.errorbar(beta_slice["Beta"],
     beta_slice["loglik"],
@@ -640,16 +772,23 @@ plt.show()
 
 ```{python}
 #| echo: true
-# Compute mu_IR slice
+#| label: compute mu_IR slice
 mu_IR_values = np.linspace(0.2, 2.0, 15)
-mu_IR_slice = compute_likelihood_slice(
-    "mu_IR", mu_IR_values, theta, J=2000, n_reps=3
-)
+cache_file = cache_dir + "/mu_IR_slice.pkl"
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        mu_IR_slice = pickle.load(f)
+else:
+    mu_IR_slice = compute_likelihood_slice(
+        "mu_IR", mu_IR_values, theta, J=2000, n_reps=3)
+    with open(cache_file, 'wb') as f:
+        pickle.dump(mu_IR_slice,f)
+
 ```
 
 ```{python}
 #| echo: false
-# Plot mu_IR slice
+#| label: plot mu_IR slice
 fig, ax = plt.subplots(figsize=(4, 3))
 ax.errorbar(mu_IR_slice["mu_IR"],
     mu_IR_slice["loglik"],
@@ -668,6 +807,7 @@ plt.show()
 
 ```{python}
 #| echo: false
+#| label: surface function
 def compute_2d_surface(
         beta_vals, mu_IR_vals,
         base_theta, J=2000, n_reps=2):
@@ -703,18 +843,25 @@ def compute_2d_surface(
 
 ```{python}
 #| echo: true
-# Compute 2D surface (reduced grid)
+#| label: compute 2D surface 
 beta_grid = np.linspace(10, 30, 10)
 mu_IR_grid = np.linspace(0.4, 1.5, 10)
 
-surface_df = compute_2d_surface(
-    beta_grid, mu_IR_grid, theta,
-    J=1000, n_reps=2)
+cache_file = cache_dir + "/2d_surface.pkl"
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        surface_df = pickle.load(f)
+else:
+    surface_df = compute_2d_surface(
+        beta_grid, mu_IR_grid, theta,
+        J=1000, n_reps=2)
+    with open(cache_file, 'wb') as f:
+        pickle.dump(surface_df,f)
 ```
 
 ```{python}
 #| echo: false
-# Plot as contour
+#| label: plot as contour
 pivot = surface_df.pivot(
     index='mu_IR', columns='Beta',
     values='loglik')
@@ -750,7 +897,7 @@ plt.show()
 
 - In practice, this approach is unsatisfactory on all but the smallest POMP models.
 
-- Standard numerical optimizers are not designed to maximize **noisy** and **computationally expensive** Monte Carlo functions.
+- Standard numerical optimizers can struggle to maximize **noisy** and **computationally expensive** Monte Carlo functions.
 
 ##
 
