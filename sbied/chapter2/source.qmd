@@ -200,7 +200,7 @@ $$
   $\displaystyle \lim_{\delta\to 0}\frac{h(\delta)}{\delta}=0$.
 
 
-## Exercise
+## Exercise 2.1
 
 What is the link between little $o$ notation and the derivative?  
 Explain why  
@@ -389,7 +389,7 @@ Practically, it is often preferable to work with **(3)**.
 
 
 
-## Exercise: Euler's method vs Gillespie's algorithm
+## Exercise 2.2. Euler's method vs Gillespie's algorithm
 
 A widely used exact simulation method for continuous‑time Markov chains
 is [Gillespie's algorithm](https://en.wikipedia.org/wiki/Gillespie_algorithm).  
