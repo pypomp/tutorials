@@ -1,0 +1,30 @@
+#!/bin/bash
+
+#SBATCH --job-name="sbied_ch4"
+#SBATCH --mail-type=FAIL,END
+#SBATCH --mail-user=hkunyang@umich.edu
+#SBATCH --partition=standard
+#SBATCH --cpus-per-task=36
+#SBATCH --mem=64GB
+#SBATCH --time=0-2:00:00
+#SBATCH --account="ionides1"
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
+
+set -euo pipefail
+mkdir -p logs
+
+echo "Running on $SLURM_JOB_NODELIST"
+echo "CPUs: $SLURM_CPUS_PER_TASK"
+echo "Working dir: $(pwd)"
+
+source ~/pypomp.venv/bin/activate
+
+# Render slides (runs all Python code, generates cache)
+quarto render source.qmd --to beamer
+
+# Render notes
+quarto render source.qmd --to pdf
+
+echo "Done"
+seff $SLURM_JOB_ID
