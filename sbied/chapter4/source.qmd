@@ -12,6 +12,7 @@ bibliography: ../sbied.bib
 
 format:
   beamer:
+    pdf-engine: pdflatex
     code-block-font-size: \tiny
     fontsize: 11pt
     cite-method: natbib
@@ -141,6 +142,7 @@ import matplotlib.pyplot as plt
 import pickle
 import os
 import time
+from scipy.stats import chi2
 
 cache_dir = "cache"
 os.makedirs(cache_dir, exist_ok=True)
@@ -256,6 +258,43 @@ def rmeas(X_, theta_, key, covars, t):
     return jnp.array([reports])
 ```
 
+
+## Parameter transformations
+
+In the R version, `partrans=parameter_trans(log="Beta", logit=c("rho","eta"))` ensures IF2 random walks respect parameter constraints.
+In `pypomp`, we use `ParTrans` to achieve the same.
+The parameter names remain unchanged; only the values are transformed internally.
+
+```{python}
+#| label: parameter transforms
+#| echo: true
+def to_est(theta):
+    """Natural scale -> estimation scale."""
+    return {
+        "Beta": jnp.log(theta["Beta"]),
+        "mu_IR": theta["mu_IR"],
+        "N": theta["N"],
+        "rho": jax.scipy.special.logit(theta["rho"]),
+        "eta": jax.scipy.special.logit(theta["eta"]),
+        "k": theta["k"],
+    }
+
+def from_est(theta):
+    """Estimation scale -> natural scale."""
+    return {
+        "Beta": jnp.exp(theta["Beta"]),
+        "mu_IR": theta["mu_IR"],
+        "N": theta["N"],
+        "rho": jax.scipy.special.expit(theta["rho"]),
+        "eta": jax.scipy.special.expit(theta["eta"]),
+        "k": theta["k"],
+    }
+
+par_trans = pp.ParTrans(
+    to_est=to_est, from_est=from_est)
+```
+
+
 ## Create POMP object
 
 ```{python}
@@ -270,6 +309,7 @@ theta = {
     "k": 10.0
 }
 
+fixed_params = {"N": 38000.0, "mu_IR": 2.0, "k": 10.0}
 statenames = ["S", "I", "R", "H"]
 
 measSIR = pp.Pomp(
@@ -277,6 +317,7 @@ measSIR = pp.Pomp(
     dmeas=dmeas, rmeas=rmeas,
     ys=ys, theta=theta,
     statenames=statenames,
+    par_trans=par_trans,
     t0=0.0, nstep=7,
     accumvars=("H",),
     ydim=1, covars=None
@@ -286,8 +327,9 @@ measSIR = pp.Pomp(
 
 ## Specifying random walk standard deviations
 
-In `pypomp`, random walk standard deviations for IF2 are specified using the `RWSigma` class.
-All parameters must be listed in the `sigmas` dict; use `0.0` for fixed parameters.
+The random walk perturbations are applied on the **estimation** (transformed) scale.
+A perturbation of 0.02 on the log scale corresponds to a ~2% multiplicative change;
+on the logit scale, it gives a small additive shift in log-odds.
 
 ```{python}
 #| label: rw_sd
@@ -305,7 +347,7 @@ rw_sd = pp.RWSigma(
 )
 ```
 
-This is analogous to `rw.sd=rw_sd(Beta=0.02, rho=0.02, eta=ivp(0.02))` in R-pomp.
+This is analogous to `rw.sd=rw_sd(Beta=0.02, rho=0.02, eta=ivp(0.02))` with `partrans=parameter_trans(log="Beta", logit=c("rho","eta"))` in R-pomp.
 
 
 ## Local search
@@ -361,7 +403,8 @@ plt.show()
 
 ## Estimating the likelihood
 
-The IF2 log-likelihood is not a reliable estimate. Evaluate the likelihood at the IF2 endpoint using `pfilter`:
+The IF2 log-likelihood is not a reliable estimate.
+We evaluate the likelihood at the IF2 endpoint using `pfilter`:
 
 ```{python}
 #| label: pfilter at mif endpoint
@@ -386,44 +429,11 @@ print(f"Log-likelihood: {ll_est:.1f}",
 ```
 
 
-## Running multiple IF2 searches
+## A global search of the likelihood surface
+
+We take advantage of `pypomp`'s native support for multiple parameter sets: passing a list of dicts to `Pomp` causes `mif` and `pfilter` to run all replicates **in parallel on the GPU**.
 
 \footnotesize
-
-```{python}
-#| label: global search function
-#| echo: true
-def run_mif_from_start(theta_start, seed):
-    mod = pp.Pomp(
-        rinit=rinit, rproc=rproc,
-        dmeas=dmeas, rmeas=rmeas,
-        ys=ys, theta=theta_start,
-        statenames=statenames,
-        t0=0.0, nstep=7,
-        accumvars=("H",),
-        ydim=1, covars=None
-    )
-    key = jax.random.key(seed)
-    mod.mif(J=2000, M=50,
-            rw_sd=rw_sd, a=0.5, key=key)
-
-    key = jax.random.key(seed + 1000)
-    mod.pfilter(key=key, J=5000, reps=5)
-
-    pf_result = mod.results_history.last()
-    logliks = pf_result.logLiks.values.flatten()
-    final_params = mod.theta[0]
-
-    return {
-        **final_params,
-        'loglik': pp.logmeanexp(logliks),
-        'loglik_se': pp.logmeanexp_se(logliks)
-    }
-```
-
-\normalsize
-
-##
 
 ```{python}
 #| label: global search
@@ -435,17 +445,50 @@ if os.path.exists(cache_file):
         results_df = pickle.load(f)
 else:
     np.random.seed(2062379496)
-    n_starts = 10
-    results_list = []
+    n_starts = 40
+    theta_list = []
     for i in range(n_starts):
-        theta_start = theta.copy()
-        theta_start["Beta"] = np.random.uniform(5, 80)
-        theta_start["rho"] = np.random.uniform(0.2, 0.9)
-        theta_start["eta"] = np.random.uniform(0.01, 0.5)
-        result = run_mif_from_start(
-            theta_start, seed=i * 100)
-        results_list.append(result)
-    results_df = pd.DataFrame(results_list)
+        th = theta.copy()
+        th["Beta"] = np.random.uniform(5, 80)
+        th["rho"] = np.random.uniform(0.2, 0.9)
+        th["eta"] = np.random.uniform(0.01, 0.99)
+        theta_list.append(th)
+
+    # All starts run in parallel on GPU
+    mod = pp.Pomp(
+        rinit=rinit, rproc=rproc,
+        dmeas=dmeas, rmeas=rmeas,
+        ys=ys, theta=theta_list,
+        statenames=statenames,
+        par_trans=par_trans,
+        t0=0.0, nstep=7,
+        accumvars=("H",),
+        ydim=1, covars=None
+    )
+    key = jax.random.key(1270401374)
+    mod.mif(J=2000, M=50,
+            rw_sd=rw_sd, a=0.5, key=key)
+    # Continue from endpoints with 100 more
+    key = jax.random.key(1270401375)
+    mod.mif(J=2000, M=100,
+            rw_sd=rw_sd, a=0.5, key=key)
+
+    # Evaluate likelihoods in parallel
+    key = jax.random.key(1270401376)
+    mod.pfilter(key=key, J=5000, reps=10)
+    pf = mod.results_history.last()
+
+    rows = []
+    for i in range(n_starts):
+        lls = pf.logLiks.values[i, :]
+        rows.append({
+            **mod.theta[i],
+            'loglik': pp.logmeanexp(lls),
+            'loglik_se': pp.logmeanexp_se(lls)
+        })
+    results_df = pd.DataFrame(rows)
+    results_df = results_df[
+        np.isfinite(results_df['loglik'])]
     with open(cache_file, 'wb') as f:
         pickle.dump(results_df, f)
 
@@ -453,56 +496,126 @@ print(f"Best log-likelihood:",
       f"{results_df['loglik'].max():.1f}")
 ```
 
+\normalsize
+
+
+## Visualizing the global search
+
+```{python}
+#| label: pairs global
+#| echo: true
+#| fig-height: 3.5
+fig, axes = plt.subplots(2, 3, figsize=(8, 5))
+pairs = [('Beta','loglik'), ('eta','loglik'),
+         ('rho','loglik'), ('Beta','eta'),
+         ('Beta','rho'), ('eta','rho')]
+for ax, (x, y) in zip(axes.flat, pairs):
+    ax.scatter(results_df[x], results_df[y],
+        s=10, alpha=0.7)
+    ax.set(xlabel=x, ylabel=y)
+    ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+##
+
+The estimates converge on a particular region in parameter space despite starting from diverse remote starting points.
+The projections give us "poor man's profiles":
+
+```{python}
+#| label: poor mans profile
+#| echo: true
+#| fig-height: 2.2
+fig, ax = plt.subplots(figsize=(4.5, 3))
+top = results_df[
+    results_df['loglik'] > results_df['loglik'].max() - 10]
+ax.scatter(top['eta'], top['loglik'], s=15)
+ax.set(xlabel=r'$\eta$', ylabel='Log-likelihood',
+    title="Poor man's profile likelihood")
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
 
 ## Computing a profile over $\eta$
 
-To profile over $\eta$, we fix $\eta$ at a grid of values and optimize over the remaining parameters:
+To profile over $\eta$, we fix $\eta$ at a grid of values and optimize over the remaining parameters.
+For each grid point, we launch multiple starts **in parallel**.
 
 \footnotesize
 
 ```{python}
-#| label: profile function
+#| label: profile computation
 #| echo: true
-def compute_profile_point(eta_val, seed):
-    theta_start = theta.copy()
-    theta_start["eta"] = eta_val
-    theta_start["Beta"] = np.random.uniform(10, 40)
-    theta_start["rho"] = np.random.uniform(0.1, 0.6)
+cache_file = cache_dir + "/profile-eta.pkl"
 
-    mod = pp.Pomp(
-        rinit=rinit, rproc=rproc,
-        dmeas=dmeas, rmeas=rmeas,
-        ys=ys, theta=theta_start,
-        statenames=statenames,
-        t0=0.0, nstep=7,
-        accumvars=("H",),
-        ydim=1, covars=None
-    )
-    rw_sd_profile = pp.RWSigma(
-        sigmas={
-            "Beta": 0.02, "mu_IR": 0.0,
-            "N": 0.0, "rho": 0.02,
-            "eta": 0.0, "k": 0.0
-        },
-        init_names=[]
-    )
-    key = jax.random.key(seed)
-    mod.mif(J=2000, M=100,
+rw_sd_profile = pp.RWSigma(
+    sigmas={
+        "Beta": 0.02, "mu_IR": 0.0,
+        "N": 0.0, "rho": 0.02,
+        "eta": 0.0, "k": 0.0
+    },
+    init_names=[]
+)
+
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        profile_eta_df = pickle.load(f)
+else:
+    np.random.seed(1196696958)
+    eta_grid = np.linspace(0.01, 0.95, 20)
+    n_prof = 5
+    profile_eta = []
+
+    for i, eta_val in enumerate(eta_grid):
+        # Build n_prof starts for this grid point
+        theta_list = []
+        for j in range(n_prof):
+            th = theta.copy()
+            th["eta"] = float(eta_val)
+            th["Beta"] = np.random.uniform(5, 40)
+            th["rho"] = np.random.uniform(0.2, 0.9)
+            theta_list.append(th)
+
+        mod = pp.Pomp(
+            rinit=rinit, rproc=rproc,
+            dmeas=dmeas, rmeas=rmeas,
+            ys=ys, theta=theta_list,
+            statenames=statenames,
+            par_trans=par_trans,
+            t0=0.0, nstep=7,
+            accumvars=("H",),
+            ydim=1, covars=None
+        )
+        key = jax.random.key(i * 1000)
+        mod.mif(J=2000, M=100,
+            rw_sd=rw_sd_profile, a=0.3, key=key)
+        key = jax.random.key(i * 1000 + 3000)
+        mod.mif(J=2000, M=100,
             rw_sd=rw_sd_profile, a=0.3, key=key)
 
-    key = jax.random.key(seed + 5000)
-    mod.pfilter(key=key, J=5000, reps=5)
+        key = jax.random.key(i * 1000 + 5000)
+        mod.pfilter(key=key, J=5000, reps=10)
+        pf = mod.results_history.last()
 
-    pf_result = mod.results_history.last()
-    logliks = pf_result.logLiks.values.flatten()
-    final_params = mod.theta[0]
+        for j in range(n_prof):
+            lls = pf.logLiks.values[j, :]
+            fp = mod.theta[j]
+            profile_eta.append({
+                'eta': eta_val,
+                'Beta': fp['Beta'],
+                'rho': fp['rho'],
+                'loglik': pp.logmeanexp(lls),
+                'loglik_se': pp.logmeanexp_se(lls)
+            })
 
-    return {
-        'eta': eta_val,
-        'Beta': final_params['Beta'],
-        'rho': final_params['rho'],
-        'loglik': pp.logmeanexp(logliks)
-    }
+    profile_eta_df = pd.DataFrame(profile_eta)
+    profile_eta_df = profile_eta_df[
+        np.isfinite(profile_eta_df['loglik'])]
+    with open(cache_file, 'wb') as f:
+        pickle.dump(profile_eta_df, f)
 ```
 
 \normalsize
@@ -510,44 +623,94 @@ def compute_profile_point(eta_val, seed):
 ##
 
 ```{python}
-#| label: profile computation
+#| label: profile plot
 #| echo: true
-cache_file = cache_dir + "/profile-eta.pkl"
+#| fig-height: 2.2
+max_ll = profile_eta_df['loglik'].max()
+ci_cutoff = max_ll - 0.5 * chi2.ppf(0.95, df=1)
 
-if os.path.exists(cache_file):
-    with open(cache_file, 'rb') as f:
-        profile_eta_df = pickle.load(f)
-else:
-    eta_grid = np.linspace(0.02, 0.15, 5)
-    profile_eta = []
-    for i, eta_val in enumerate(eta_grid):
-        result = compute_profile_point(
-            eta_val, seed=i * 500)
-        profile_eta.append(result)
-    profile_eta_df = pd.DataFrame(profile_eta)
-    with open(cache_file, 'wb') as f:
-        pickle.dump(profile_eta_df, f)
+# Keep top 2 per grid point
+top = (profile_eta_df
+    .groupby(profile_eta_df['eta'].round(5))
+    .apply(lambda g: g.nlargest(2, 'loglik'),
+        include_groups=False)
+    .reset_index(drop=True))
+
+fig, ax = plt.subplots(figsize=(4.5, 3))
+ax.scatter(top['eta'], top['loglik'], s=12)
+ax.axhline(ci_cutoff, color='red',
+    linestyle='--', label='95% CI cutoff')
+ax.set(xlabel=r'$\eta$',
+    ylabel='Profile log-likelihood')
+ax.set_ylim(max_ll - 5, max_ll + 0.5)
+ax.legend()
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+## Monte Carlo Adjusted Profile (MCAP)
+
+The `mcap` function in `pypomp` constructs a profile likelihood confidence interval that accounts for Monte Carlo error in the profile:
+
+```{python}
+#| label: mcap
+#| echo: true
+mcap_result = pp.mcap(
+    parameter=profile_eta_df['eta'].values,
+    loglik=profile_eta_df['loglik'].values,
+    level=0.95, span=0.75)
+
+print(f"MLE of eta: {mcap_result.mle:.4f}")
+print(f"95% CI: ({mcap_result.ci[0]:.4f},"
+      f" {mcap_result.ci[1]:.4f})")
 ```
 
 ##
 
 ```{python}
-#| label: profile plot
+#| label: mcap plot
 #| echo: true
 #| fig-height: 2.2
-from scipy.stats import chi2
-
-max_ll = profile_eta_df['loglik'].max()
-ci_cutoff = max_ll - 0.5 * chi2.ppf(0.95, df=1)
-
 fig, ax = plt.subplots(figsize=(4.5, 3))
 ax.scatter(profile_eta_df['eta'],
-    profile_eta_df['loglik'])
-ax.axhline(ci_cutoff, color='red',
-    linestyle='--', label='95% CI cutoff')
+    profile_eta_df['loglik'],
+    s=8, alpha=0.4, label='raw')
+ax.plot(mcap_result.fit['parameter'],
+    mcap_result.fit['smoothed'],
+    'r-', lw=2, label='MCAP smoothed')
+max_sm = np.nanmax(mcap_result.fit['smoothed'])
+ax.axhline(max_sm - mcap_result.delta,
+    color='blue', linestyle='--',
+    label='MCAP cutoff')
 ax.set(xlabel=r'$\eta$',
     ylabel='Profile log-likelihood')
-ax.legend()
+ax.set_ylim(max_sm - 5, max_sm + 0.5)
+ax.legend(fontsize=7)
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+
+## Profile trace
+
+As one varies $\eta$ across the profile, the model compensates by adjusting the other parameters.
+A **profile trace** shows how $\rho$ changes as $\eta$ is varied:
+
+```{python}
+#| label: profile trace
+#| echo: true
+#| fig-height: 2.2
+top['in_ci'] = top['loglik'] > max_ll - 1.92
+
+fig, ax = plt.subplots(figsize=(4.5, 3))
+colors = top['in_ci'].map(
+    {True: 'C0', False: 'C1'})
+ax.scatter(top['eta'], top['rho'],
+    c=colors, s=12)
+ax.set(xlabel=r'$\eta$', ylabel=r'$\rho$',
+    title='Profile trace')
 ax.grid(alpha=0.3)
 plt.tight_layout()
 plt.show()
@@ -573,11 +736,13 @@ plt.show()
 
 **2.** The algorithm perturbs parameters with decreasing random walks and resamples both states and parameters.
 
-**3.** `pypomp` API for IF2: `mif(J, M, rw_sd, a, key)` runs IF2, `RWSigma(sigmas={...}, init_names=[...])` specifies perturbations, `results_history.last().traces_da` gets parameter traces.
+**3.** **Parameter transformations** via `ParTrans(to_est, from_est)` ensure the random walk respects constraints (e.g., `log` for positive parameters, `logit` for probabilities). This is analogous to `partrans=parameter_trans(log="Beta", logit=c("rho","eta"))` in R-pomp.
 
-**4.** Always evaluate likelihood at IF2 endpoints with `pfilter`.
+**4.** `pypomp` API for IF2: `mif(J, M, rw_sd, a, key)` runs IF2, `RWSigma(sigmas={...}, init_names=[...])` specifies perturbations, `results_history.last().traces_da` gets parameter traces.
 
-**5.** Access final parameters via `mod.theta[0]`.
+**5.** Passing a **list of parameter dicts** to `Pomp` runs all replicates in parallel on the GPU --- use this for global searches and profiles.
+
+**6.** Always evaluate likelihood at IF2 endpoints with `pfilter`. Use `mcap` for Monte Carlo-adjusted profile confidence intervals.
 
 
 ## References

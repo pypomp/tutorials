@@ -22,7 +22,9 @@ echo "GPUs: $SLURM_GPUS"
 echo "CPUs: $SLURM_CPUS_PER_TASK"
 echo "Working dir: $(pwd)"
 
-source ~/pypomp.venv/bin/activate
+source /sw/pkgs/arc/mamba/py3.11/etc/profile.d/conda.sh
+conda activate jax_gpu
+export PATH="$HOME/quarto-1.6.43/bin:$PATH"
 
 # Verify JAX sees the GPU
 python -c "import jax; print('JAX devices:', jax.devices())"
