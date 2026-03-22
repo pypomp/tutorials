@@ -958,6 +958,371 @@ plt.show()
 ```
 
 
+## Profile over $\rho$
+
+While the profile trace above is suggestive about the range of $\rho$, to confirm this we should construct a proper profile likelihood over $\rho$.
+We initialize the IF2 computations at points we have already established have high likelihoods.
+
+\footnotesize
+
+```{python}
+#| label: profile rho computation
+#| echo: true
+cache_file = cache_dir + "/profile-rho.pkl"
+
+rw_sd_rho_profile = pp.RWSigma(
+    sigmas={
+        "Beta": 0.02, "mu_IR": 0.0,
+        "N": 0.0, "rho": 0.0,
+        "eta": 0.02, "k": 0.0
+    },
+    init_names=["eta"]
+)
+
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        profile_rho_df = pickle.load(f)
+else:
+    np.random.seed(2105684752)
+    rho_grid = np.linspace(0.1, 0.9, 15)
+    n_prof = 5
+    profile_rho = []
+
+    for i, rho_val in enumerate(rho_grid):
+        theta_list = []
+        for j in range(n_prof):
+            th = theta.copy()
+            th["rho"] = float(rho_val)
+            th["Beta"] = np.random.uniform(5, 40)
+            th["eta"] = np.random.uniform(0.01, 0.5)
+            theta_list.append(th)
+
+        mod = pp.Pomp(
+            rinit=rinit, rproc=rproc,
+            dmeas=dmeas, rmeas=rmeas,
+            ys=ys, theta=theta_list,
+            statenames=statenames,
+            par_trans=par_trans,
+            t0=0.0, nstep=7,
+            accumvars=("H",),
+            ydim=1, covars=None
+        )
+        key = jax.random.key(i * 2000)
+        mod.mif(J=2000, M=100,
+            rw_sd=rw_sd_rho_profile, a=0.3, key=key)
+        key = jax.random.key(i * 2000 + 3000)
+        mod.mif(J=2000, M=100,
+            rw_sd=rw_sd_rho_profile, a=0.3, key=key)
+
+        key = jax.random.key(i * 2000 + 6000)
+        mod.pfilter(key=key, J=5000, reps=10)
+        pf = mod.results_history.last()
+
+        for j in range(n_prof):
+            lls = pf.logLiks.values[j, :]
+            fp = mod.theta[j]
+            profile_rho.append({
+                'rho': rho_val,
+                'Beta': fp['Beta'],
+                'eta': fp['eta'],
+                'loglik': pp.logmeanexp(lls),
+                'loglik_se': pp.logmeanexp_se(lls)
+            })
+
+    profile_rho_df = pd.DataFrame(profile_rho)
+    profile_rho_df = profile_rho_df[
+        np.isfinite(profile_rho_df['loglik'])]
+    with open(cache_file, 'wb') as f:
+        pickle.dump(profile_rho_df, f)
+```
+
+\normalsize
+
+##
+
+```{python}
+#| label: profile rho plot
+#| echo: true
+#| fig-height: 2.2
+max_ll_rho = profile_rho_df['loglik'].max()
+ci_cutoff_rho = (max_ll_rho
+    - 0.5 * chi2.ppf(0.95, df=1))
+
+top_rho = (profile_rho_df
+    .groupby(profile_rho_df['rho'].round(3))
+    .apply(lambda g: g.nlargest(2, 'loglik'),
+        include_groups=False)
+    .reset_index(drop=True))
+
+fig, ax = plt.subplots(figsize=(4.5, 3))
+ax.scatter(top_rho['rho'], top_rho['loglik'], s=12)
+ax.axhline(ci_cutoff_rho, color='red',
+    linestyle='--', label='95% CI cutoff')
+ax.set(xlabel=r'$\rho$',
+    ylabel='Profile log-likelihood')
+ax.set_ylim(max_ll_rho - 5, max_ll_rho + 0.5)
+ax.legend()
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+#| label: rho ci
+#| echo: true
+rho_in_ci = profile_rho_df[
+    profile_rho_df['loglik'] > max_ll_rho
+        - 0.5 * chi2.ppf(0.95, df=1)]
+print(f"95% CI for rho:"
+      f" ({rho_in_ci['rho'].min():.3f},"
+      f" {rho_in_ci['rho'].max():.3f})")
+```
+
+
+## Parameter estimates as model predictions
+
+* The estimated parameters are one kind of model prediction.
+  When we can estimate parameters using other data, we can test these predictions.
+
+* In the case of a highly contagious, immunizing childhood infection such as measles, we can obtain an estimate of the reporting efficiency, $\rho$, by simply regressing cumulative cases on cumulative births over many years.
+
+* When we do this for Consett, we see that the reporting efficiency is roughly 60%.
+
+* Since such a value makes the outbreak data quite unlikely, the prediction does not appear to be borne out.
+
+* We can conclude that one or more of our model assumptions is inconsistent with the data.
+
+
+## Searching in another direction
+
+* Let's revisit our assumption about the infectious period.
+  Indeed, it would not be surprising were we to find that the *effective* infectious period, at the population scale, were somewhat shorter than the *clinical* infectious period.
+
+* For example, confinement of patients should reduce contact rates, and might therefore curtail the effective infectious period.
+
+* To investigate this, we'll relax our assumption about the value of $\mu_{IR}$.
+
+* We will estimate the model under the assumption that $\rho=0.6$, but without making assumptions about the duration of the infectious period.
+
+
+##
+
+\footnotesize
+
+```{python}
+#| label: global search rho fixed
+#| echo: true
+cache_file = cache_dir + "/global-search2.pkl"
+
+rw_sd_exp = pp.RWSigma(
+    sigmas={
+        "Beta": 0.02,
+        "mu_IR": 0.02,
+        "N": 0.0,
+        "rho": 0.0,
+        "eta": 0.02,
+        "k": 0.0
+    },
+    init_names=["eta"]
+)
+
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        results_df2 = pickle.load(f)
+else:
+    np.random.seed(55266255)
+    n_starts = 40
+    theta_list = []
+    for i in range(n_starts):
+        th = theta.copy()
+        th["Beta"] = np.random.uniform(5, 80)
+        th["mu_IR"] = np.random.uniform(0.2, 5)
+        th["eta"] = np.random.uniform(0.01, 0.99)
+        th["rho"] = 0.6
+        theta_list.append(th)
+
+    mod = pp.Pomp(
+        rinit=rinit, rproc=rproc,
+        dmeas=dmeas, rmeas=rmeas,
+        ys=ys, theta=theta_list,
+        statenames=statenames,
+        par_trans=par_trans,
+        t0=0.0, nstep=7,
+        accumvars=("H",),
+        ydim=1, covars=None
+    )
+    key = jax.random.key(610408798)
+    mod.mif(J=2000, M=100,
+            rw_sd=rw_sd_exp, a=0.5, key=key)
+    key = jax.random.key(610408799)
+    mod.mif(J=2000, M=100,
+            rw_sd=rw_sd_exp, a=0.5, key=key)
+
+    key = jax.random.key(610408800)
+    mod.pfilter(key=key, J=5000, reps=10)
+    pf = mod.results_history.last()
+
+    rows = []
+    for i in range(n_starts):
+        lls = pf.logLiks.values[i, :]
+        rows.append({
+            **mod.theta[i],
+            'loglik': pp.logmeanexp(lls),
+            'loglik_se': pp.logmeanexp_se(lls)
+        })
+    results_df2 = pd.DataFrame(rows)
+    results_df2 = results_df2[
+        np.isfinite(results_df2['loglik'])]
+    with open(cache_file, 'wb') as f:
+        pickle.dump(results_df2, f)
+
+print(f"Best log-likelihood:",
+      f"{results_df2['loglik'].max():.1f}")
+```
+
+\normalsize
+
+##
+
+```{python}
+#| label: pairs global2
+#| echo: true
+#| fig-height: 3.5
+fig, axes = plt.subplots(2, 3, figsize=(8, 5))
+pairs2 = [('Beta','loglik'), ('mu_IR','loglik'),
+          ('eta','loglik'), ('Beta','mu_IR'),
+          ('Beta','eta'), ('mu_IR','eta')]
+for ax, (x, y) in zip(axes.flat, pairs2):
+    ax.scatter(results_df2[x], results_df2[y],
+        s=10, alpha=0.7)
+    ax.set(xlabel=x, ylabel=y)
+    ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+
+## Profile over $\mu_{IR}$ (with $\rho=0.6$ fixed)
+
+To make inferences about $\mu_{IR}$, we compute a profile likelihood with $\rho=0.6$ fixed.
+
+\footnotesize
+
+```{python}
+#| label: profile mu_IR computation
+#| echo: true
+cache_file = cache_dir + "/profile-muIR.pkl"
+
+rw_sd_muIR_profile = pp.RWSigma(
+    sigmas={
+        "Beta": 0.02, "mu_IR": 0.0,
+        "N": 0.0, "rho": 0.0,
+        "eta": 0.02, "k": 0.0
+    },
+    init_names=["eta"]
+)
+
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        profile_muIR_df = pickle.load(f)
+else:
+    np.random.seed(610408798)
+    muIR_grid = np.linspace(0.2, 2.0, 15)
+    n_prof = 5
+    profile_muIR = []
+
+    for i, muIR_val in enumerate(muIR_grid):
+        theta_list = []
+        for j in range(n_prof):
+            th = theta.copy()
+            th["mu_IR"] = float(muIR_val)
+            th["rho"] = 0.6
+            th["Beta"] = np.random.uniform(5, 80)
+            th["eta"] = np.random.uniform(0.01, 0.99)
+            theta_list.append(th)
+
+        mod = pp.Pomp(
+            rinit=rinit, rproc=rproc,
+            dmeas=dmeas, rmeas=rmeas,
+            ys=ys, theta=theta_list,
+            statenames=statenames,
+            par_trans=par_trans,
+            t0=0.0, nstep=7,
+            accumvars=("H",),
+            ydim=1, covars=None
+        )
+        key = jax.random.key(i * 3000)
+        mod.mif(J=2000, M=100,
+            rw_sd=rw_sd_muIR_profile,
+            a=0.3, key=key)
+        key = jax.random.key(i * 3000 + 4000)
+        mod.mif(J=2000, M=100,
+            rw_sd=rw_sd_muIR_profile,
+            a=0.3, key=key)
+
+        key = jax.random.key(i * 3000 + 8000)
+        mod.pfilter(key=key, J=5000, reps=10)
+        pf = mod.results_history.last()
+
+        for j in range(n_prof):
+            lls = pf.logLiks.values[j, :]
+            fp = mod.theta[j]
+            profile_muIR.append({
+                'mu_IR': muIR_val,
+                'Beta': fp['Beta'],
+                'eta': fp['eta'],
+                'loglik': pp.logmeanexp(lls),
+                'loglik_se': pp.logmeanexp_se(lls)
+            })
+
+    profile_muIR_df = pd.DataFrame(profile_muIR)
+    profile_muIR_df = profile_muIR_df[
+        np.isfinite(profile_muIR_df['loglik'])]
+    with open(cache_file, 'wb') as f:
+        pickle.dump(profile_muIR_df, f)
+```
+
+\normalsize
+
+##
+
+```{python}
+#| label: profile mu_IR plot
+#| echo: true
+#| fig-height: 2.2
+max_ll_muIR = profile_muIR_df['loglik'].max()
+ci_cutoff_muIR = (max_ll_muIR
+    - 0.5 * chi2.ppf(0.95, df=1))
+
+top_muIR = (profile_muIR_df
+    .groupby(profile_muIR_df['mu_IR'].round(3))
+    .apply(lambda g: g.nlargest(2, 'loglik'),
+        include_groups=False)
+    .reset_index(drop=True))
+
+fig, ax = plt.subplots(figsize=(4.5, 3))
+ax.scatter(top_muIR['mu_IR'],
+    top_muIR['loglik'], s=12)
+ax.axhline(ci_cutoff_muIR, color='red',
+    linestyle='--', label='95% CI cutoff')
+ax.set(xlabel=r'$\mu_{IR}$',
+    ylabel='Profile log-likelihood')
+ax.set_ylim(max_ll_muIR - 5, max_ll_muIR + 0.5)
+ax.legend()
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+##
+
+* This suggests that $\rho=0.6$ is consistent only with smaller values of $\mu_{IR}$, and hence *longer* infectious periods than are possible if the duration of shedding is actually less than one week.
+
+* Thus the model is incapable of reconciling both an infectious period of less than one week and a reporting rate of 60%.
+
+* *What structural changes to the model might we make to improve its ability to explain the data?*
+
+
 ## Exercises
 
 **Exercise 4.1.** *Fitting the SEIR model.*
