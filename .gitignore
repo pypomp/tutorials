@@ -32,3 +32,5 @@ article/ms.tex
 # For Python users
 .venv
 
+# Don't save run level 0 cache
+*_0

@@ -12,7 +12,7 @@ bibliography: ../sbied.bib
 
 format:
   beamer:
-    code-block-font-size: \tiny
+    code-block-font-size: \small
     fontsize: 11pt
     cite-method: natbib
     biblio-style: apalike
@@ -59,12 +59,6 @@ header-includes: |
   \newcommand{\dist}[2]{\operatorname{#1}\!\bigl(#2\bigr)}
   \newcommand{\myexercise}{\paragraph{Exercise}}
 ---
-
-```{python}
-#| echo: false
-#| output: false
-"trying an empty chunk to see if it helps compilation"
-```
 
 ## Objectives
 
@@ -148,7 +142,7 @@ Recall the structure of a POMP model:
 \begin{figure}[htbp]     
   \centering             
   \begin{tikzpicture}[
-      scale=0.8,
+      scale=0.75,
       every node/.style={transform shape},
       node distance=1.5cm, auto, >=Stealth]
     
@@ -368,7 +362,7 @@ $$
   \node (weight)  at (0,3)  [square] {weight: dmeasure};
   \node (filter)  at (0,1.5)  [square] {filter: resample};
   \node (N) at (5.5,3)  [draw,diamond,aspect=2.5] {\texttt{N observations}};
-  \node (Np) at (0,7.5)  [draw,diamond,aspect=2.5,color=red] {\texttt{Np particles}};
+  \node (Np) at (0,7.5)  [draw,diamond,aspect=2.5,color=red] {\texttt{J particles}};
   \draw[->] (initialize) -- (predict);
   \draw[->] (predict) -- (weight);
   \draw[->] (weight) -- (filter);
@@ -401,7 +395,7 @@ The particle filter provides an **unbiased** estimate of the likelihood. This im
 * JAX will automatically parallelize across all the CPUs or GPUs it can access.
 
 
-## Import Required Packages
+## Set up Python 
 
 ```{python}
 #| echo: true
@@ -416,9 +410,12 @@ import time
 import os
 import pickle
 
+# run level 0 : quick, 1 : medium, 2 : slow
+RL = 2
+
 # manual control of cached using pickle
 # remove the cache directory to force recomputation
-cache_dir = "cache"
+cache_dir = "cache_" + str(RL)
 os.makedirs(cache_dir, exist_ok=True)
 ```
 
@@ -427,14 +424,15 @@ os.makedirs(cache_dir, exist_ok=True)
 ```{python}
 #| echo: true
 #| label: load data
-meas = (
-    pd.read_csv("Measles_Consett_1948.csv")
-    .loc[:, ["week", "cases"]]
-    .rename(columns={"week": "time",
+meas = pd.read_csv("Measles_Consett_1948.csv",
+    usecols=["week", "cases"],index_col="week")
+    
+meas.rename(columns={"week": "time",
                       "cases": "reports"})
-    .set_index("time")
-    .astype(float)
-)
+
+#    .set_index("time")
+#    .astype(float)
+#)
 
 ys = meas.copy()
 ys.columns = pd.Index(["reports"])
@@ -488,12 +486,16 @@ def rproc(X_, theta_, key, covars, t, dt):
 ```
 
 
-## Negative binomial functions
+## Negative binomial measurement model
 
-* These allow for overdispersed measurement distributions
+* As discussed in [Chapter 2](https://pypomp.github.io/tutorials/sbied/chapter2/slides.pdf), this allow for an overdispersed measurement distribution.
+
+* The measurement log-density, `nbinom_logpmf`, is used from Chapter 2.
+
+* We use a corresponding simulator, `pp.random.fast_approx_rnbinom` from `pypomp`.
 
 ```{python}
-#| echo: true
+#| echo: false
 #| label: nbinom functions
 def nbinom_logpmf(x, k, mu):
     """Log PMF of NegBin(k, mu)."""
@@ -507,11 +509,6 @@ def nbinom_logpmf(x, k, mu):
             + x * jnp.log(safe_mu / (k + safe_mu)))
     return jnp.where(mu == 0.0, logp_zero, core)
 
-def rnbinom(key, k, mu):
-    """Sample NegBin(k, mu) via Gamma-Poisson."""
-    key_g, key_p = jax.random.split(key)
-    lam = jax.random.gamma(key_g, k) * (mu / k)
-    return jax.random.poisson(key_p, lam)
 ```
 
 
@@ -534,7 +531,7 @@ def rmeas(X_, theta_, key, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    reports = rnbinom(key, k, mu)
+    reports = pp.random.fast_approx_rnbinom(key, k, mu=mu)
     return jnp.array([reports])
 ```
 
@@ -580,7 +577,7 @@ The `pfilter` method updates the model's `results_history` attribute with the re
 #| echo: true
 #| label: a single particle filter
 key = jax.random.key(42)
-measSIR.pfilter(key=key, J=5000, reps=1)
+measSIR.pfilter(key=key, J=[50,500,5000][RL], reps=1)
 
 # Access results from results_history
 result = measSIR.results_history.last()
@@ -595,14 +592,15 @@ We can run multiple particle filters to get an estimate of the Monte Carlo varia
 
 ```{python}
 #| echo: true
-#| label: 10 replicates of the particle filter
+#| label: replicates of the particle filter
 key = jax.random.key(652643293)
 cache_file = cache_dir + "/pfilter-reps.pkl"
 if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
         result = pickle.load(f)
 else:
-    measSIR.pfilter(key=key, J=5000, reps=10)
+    measSIR.pfilter(key=key, 
+        J=[50,500,5000][RL], reps=[2,6,10][RL])
     result = measSIR.results_history.last()
     with open(cache_file, 'wb') as f:
         pickle.dump(result,f)
@@ -612,7 +610,7 @@ print(f"Mean: {np.mean(logliks):.1f}",
 ```
 Individual log-likelihoods:
 ```{python}
-arr_str = np.array2string(logliks.reshape(2,5),
+arr_str = np.array2string(logliks.reshape(2,-1),
     separator=' ',
     max_line_width=50,
     formatter={'float': lambda x: f'{x:.1f}'})
@@ -719,7 +717,7 @@ A likelihood slice is a cross-section through the likelihood surface. Let's make
 #| label: slice function
 def compute_likelihood_slice(
         param_name, param_values,
-        base_theta, J=5000, n_reps=3):
+        base_theta, J, n_reps=3):
     """Compute log-lik for a parameter slice."""
     results = []
     for val in param_values:
@@ -749,14 +747,15 @@ def compute_likelihood_slice(
 ```{python}
 #| echo: true
 #| label: compute beta slice
-beta_values = np.linspace(5, 30, 15)
+beta_values = np.linspace(5, 30, [5,10,15][RL])
 cache_file = cache_dir + "/beta-slice.pkl"
 if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
         beta_slice = pickle.load(f)
 else:
     beta_slice = compute_likelihood_slice(
-        "Beta", beta_values, theta, J=2000, n_reps=3)
+        "Beta", beta_values, theta, 
+        J=[10,500,5000][RL], n_reps=3)
     with open(cache_file, 'wb') as f:
         pickle.dump(beta_slice,f)
 ```
@@ -788,14 +787,15 @@ plt.show()
 ```{python}
 #| echo: false
 #| label: compute mu_IR slice
-mu_IR_values = np.linspace(0.2, 2.0, 15)
+mu_IR_values = np.linspace(0.2, 2.0, [5,10,15][RL])
 cache_file = cache_dir + "/mu_IR_slice.pkl"
 if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
         mu_IR_slice = pickle.load(f)
 else:
     mu_IR_slice = compute_likelihood_slice(
-        "mu_IR", mu_IR_values, theta, J=2000, n_reps=3)
+        "mu_IR", mu_IR_values, theta, 
+        J=[10,500,5000][RL], n_reps=3)
     with open(cache_file, 'wb') as f:
         pickle.dump(mu_IR_slice,f)
 
@@ -825,7 +825,7 @@ plt.show()
 #| label: surface function
 def compute_2d_surface(
         beta_vals, mu_IR_vals,
-        base_theta, J=2000, n_reps=2):
+        base_theta, J, n_reps=2):
     """Compute 2D log-likelihood surface."""
     results = []
     for beta in beta_vals:
@@ -859,8 +859,8 @@ def compute_2d_surface(
 ```{python}
 #| echo: true
 #| label: compute 2D surface 
-beta_grid = np.linspace(10, 30, 10)
-mu_IR_grid = np.linspace(0.4, 1.5, 10)
+beta_grid = np.linspace(10, 30, [3,10,20][RL])
+mu_IR_grid = np.linspace(0.4, 1.5, [3,10,20][RL])
 
 cache_file = cache_dir + "/2d_surface.pkl"
 if os.path.exists(cache_file):
@@ -869,7 +869,7 @@ if os.path.exists(cache_file):
 else:
     surface_df = compute_2d_surface(
         beta_grid, mu_IR_grid, theta,
-        J=1000, n_reps=2)
+        J=[10,500,5000][RL], n_reps=2)
     with open(cache_file, 'wb') as f:
         pickle.dump(surface_df,f)
 ```
