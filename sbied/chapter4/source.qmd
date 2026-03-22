@@ -13,7 +13,7 @@ bibliography: ../sbied.bib
 format:
   beamer:
     pdf-engine: pdflatex
-    code-block-font-size: \tiny
+    code-block-font-size: \small
     fontsize: 11pt
     cite-method: natbib
     biblio-style: apalike
@@ -120,36 +120,39 @@ Let's start by considering three criteria to categorize inference methods:
 
 * **Feature-based** methods either consider a summary statistic (a function of the data) or work with an alternative to the likelihood.
 
-* Asymptotically, full-information methods are statistically efficient and feature-based methods are not.
+* Asymptotically, full-information methods are statistically efficient and feature-based methods usually are not.
 
 ##
 
 * In some cases, loss of statistical efficiency might be an acceptable tradeoff for advantages in computational efficiency.
 
-* However:
-    * Good low-dimensional summary statistics can be hard to find.
-    * When using statistically inefficient methods, it can be hard to know how much information you are losing.
-    * Intuition and scientific reasoning can be inadequate tools to derive informative low-dimensional summary statistics.
+However:
+
+* Good low-dimensional summary statistics can be hard to find.
+
+* When using statistically inefficient methods, it can be hard to know how much information you are losing.
+    
+* Intuition and scientific reasoning can be inadequate tools to derive informative low-dimensional summary statistics.
 
 
 ## Bayesian and frequentist methods
 
-* Recently, plug-and-play Bayesian methods have been discovered:
+* Plug-and-play Bayesian methods exist:
     * particle Markov chain Monte Carlo (PMCMC)
     * approximate Bayesian computation (ABC)
 
 * Prior belief specification is both the strength and weakness of Bayesian methodology.
 
-* The likelihood surface for nonlinear POMP models often contains nonlinear ridges and variations in curvature.
+* The likelihood surface for nonlinear POMP models often contains nonlinear ridges and variations in curvature. 
+    * This is inconsistent with the usual practice of independent priors derived from expert opinion on marginal distributions of parameters.
+    * It is problematic for specification of "flat" or "uninformative" prior beliefs.
+    * It adds difficulties to Bayesian computation.
 
 ##
 
-* These situations bring into question the appropriateness of independent priors derived from expert opinion on marginal distributions of parameters.
-
-* They also are problematic for specification of "flat" or "uninformative" prior beliefs.
-
-* Expert opinion can be treated as data for non-Bayesian analysis.
-  However, our primary task is to identify the information in the data under investigation, so it can be helpful to use methods that do not force us to make our conclusions dependent on quantification of prior beliefs.
+* Expert opinion, i.e., "prior belief", can be treated as data for non-Bayesian analysis.
+  
+* Our primary task is to identify the information in the data under investigation, so it can be helpful to use methods that do not force us to make our conclusions dependent on quantification of prior beliefs.
 
 
 ## POMP inference methodologies
@@ -417,10 +420,8 @@ def rmeas(X_, theta_, key, covars, t):
 
 ## Parameter transformations
 
-In the R version, `partrans=parameter_trans(log="Beta", logit=c("rho","eta"))` ensures IF2 random walks respect parameter constraints.
-In `pypomp`, we use `ParTrans` to achieve the same.
-The parameter names remain unchanged; only the values are transformed internally.
-
+`ParTrans` ensures IF2 random walks respect parameter constraints.
+Parameter perturbations for IF2 are added on the **estimation scale**.
 ```{python}
 #| label: parameter transforms
 #| echo: true
@@ -446,8 +447,7 @@ def from_est(theta):
         "k": theta["k"],
     }
 
-par_trans = pp.ParTrans(
-    to_est=to_est, from_est=from_est)
+par_trans = pp.ParTrans(to_est=to_est, from_est=from_est)
 ```
 
 
@@ -553,10 +553,14 @@ else:
 ## Iterated filtering diagnostics
 
 ```{python}
-#| label: mif traces
+#| label: extract mif traces
 #| echo: true
-#| fig-height: 2.5
 traces_da = mif_result.traces_da
+```
+
+```{python}
+#| label: plot mif traces
+#| echo: false
 traces_rep0 = traces_da.isel(replicate=0)
 iterations = traces_rep0.coords['iteration'].values
 variables = traces_rep0.coords['variable'].values
@@ -574,7 +578,6 @@ for ax, var, lab in zip(
             traces_rep0.sel(variable=var).values)
     ax.set(xlabel='Iteration', ylabel=lab)
     ax.grid(alpha=0.3)
-
 plt.tight_layout()
 plt.show()
 ```
@@ -639,11 +642,21 @@ For our measles model, a box containing reasonable parameter values might be $\b
 
 In `pypomp`, passing a list of parameter dicts to `Pomp` causes `mif` and `pfilter` to run all replicates **in parallel on the GPU**.
 
-\footnotesize
+The full source code is [online](https://github.com/pypomp/tutorials/blob/main/sbied/chapter4/source.qmd). In summary,
+
+1. Cache to re-run only when results are absent.
+
+2. Set up a starting box of parameter values.
+
+3. Make multiple searches from each starting value.
+
+4. Make multiple log-likelihood evaluations at each ending value.
+
+5. Save all searches as `results_df`. The best is the candidate MLE.
 
 ```{python}
 #| label: global search
-#| echo: true
+#| echo: false
 cache_file = cache_dir + "/global-search.pkl"
 
 if os.path.exists(cache_file):
@@ -699,13 +712,11 @@ print(f"Best log-likelihood:",
       f"{results_df['loglik'].max():.1f}")
 ```
 
-\normalsize
-
 ## Visualizing the global search
 
 ```{python}
 #| label: pairs global
-#| echo: true
+#| echo: false
 #| fig-height: 3.5
 fig, axes = plt.subplots(2, 3, figsize=(8, 5))
 pairs = [('Beta','loglik'), ('eta','loglik'),
@@ -728,13 +739,16 @@ plt.show()
 
 ##
 
-The projections of the estimates give us "poor man's profiles":
+The scatter plot of estimates for a specific parameter against their log-likelihood is a **poor man's profile**.
+
+* All searches obtain log-likelihoods below the true profile log-likelihood function. Why?
+
+The envelope containing all search results approximates the profile.
 
 ```{python}
 #| label: poor mans profile
-#| echo: true
-#| fig-height: 2.2
-fig, ax = plt.subplots(figsize=(4.5, 3))
+#| echo: false
+fig, ax = plt.subplots(figsize=(4.5, 2.5))
 top = results_df[
     results_df['loglik'] > results_df['loglik'].max() - 10]
 ax.scatter(top['eta'], top['loglik'], s=15)
@@ -758,16 +772,11 @@ plt.show()
 
 * Within this box, we'll choose some random starting points, for each of several values of $\eta$.
 
-##
-
-For each grid point, we launch multiple starts **in parallel**.
-We keep $\eta$ fixed by setting its random walk standard deviation to zero.
-
-\footnotesize
+* For each grid point, we launch multiple starts **in parallel**. We keep $\eta$ fixed by setting its random walk standard deviation to zero.
 
 ```{python}
 #| label: profile computation
-#| echo: true
+#| echo: false
 cache_file = cache_dir + "/profile-eta.pkl"
 
 rw_sd_profile = pp.RWSigma(
@@ -836,16 +845,14 @@ else:
         pickle.dump(profile_eta_df, f)
 ```
 
-\normalsize
 
 ## Visualizing profile likelihood
 
-Plotting just the results of the profile calculation reveals that, while some of the IF2 runs either become "stuck" on local minima or run out of opportunity to reach the heights of the likelihood surface, many of the runs converge on high likelihoods.
+Plotting the results of the profile calculation reveals that, while some of the IF2 runs either become "stuck" on local minima or run out of opportunity to reach the heights of the likelihood surface, many of the runs converge on high likelihoods.
 
 ```{python}
 #| label: profile plot raw
-#| echo: true
-#| fig-height: 2.0
+#| echo: false
 fig, ax = plt.subplots(figsize=(4.5, 2.5))
 ax.scatter(profile_eta_df['eta'],
     profile_eta_df['loglik'], s=8, alpha=0.5)
@@ -862,19 +869,20 @@ Focusing on just the top of the surface shows that, in fact, one is able to esti
 In the following plot, the cutoff for the 95% confidence interval (CI) is shown.
 
 ```{python}
-#| label: profile plot zoomed
+#| label: zoomed profile
 #| echo: true
-#| fig-height: 2.2
 max_ll = profile_eta_df['loglik'].max()
 ci_cutoff = max_ll - 0.5 * chi2.ppf(0.95, df=1)
-
 top = (profile_eta_df
     .groupby(profile_eta_df['eta'].round(5))
-    .apply(lambda g: g.nlargest(2, 'loglik'),
-        include_groups=False)
+    .apply(lambda g: g.nlargest(2, 'loglik'),include_groups=False)
     .reset_index(drop=True))
+```
 
-fig, ax = plt.subplots(figsize=(4.5, 3))
+```{python}
+#| label: plot zoomed profile
+#| echo: false
+fig, ax = plt.subplots(figsize=(4.5, 2.5))
 ax.scatter(top['eta'], top['loglik'], s=12)
 ax.axhline(ci_cutoff, color='red',
     linestyle='--', label='95% CI cutoff')
@@ -908,8 +916,7 @@ print(f"95% CI: ({mcap_result.ci[0]:.4f},"
 
 ```{python}
 #| label: mcap plot
-#| echo: true
-#| fig-height: 2.2
+#| echo: false
 fig, ax = plt.subplots(figsize=(4.5, 3))
 ax.scatter(profile_eta_df['eta'],
     profile_eta_df['loglik'],
@@ -941,11 +948,10 @@ This is called a **profile trace**.
 
 ```{python}
 #| label: profile trace
-#| echo: true
-#| fig-height: 2.2
+#| echo: false
 top['in_ci'] = top['loglik'] > max_ll - 1.92
 
-fig, ax = plt.subplots(figsize=(4.5, 3))
+fig, ax = plt.subplots(figsize=(4.5, 2.5))
 colors = top['in_ci'].map(
     {True: 'C0', False: 'C1'})
 ax.scatter(top['eta'], top['rho'],
@@ -963,11 +969,9 @@ plt.show()
 While the profile trace above is suggestive about the range of $\rho$, to confirm this we should construct a proper profile likelihood over $\rho$.
 We initialize the IF2 computations at points we have already established have high likelihoods.
 
-\footnotesize
-
 ```{python}
 #| label: profile rho computation
-#| echo: true
+#| echo: false
 cache_file = cache_dir + "/profile-rho.pkl"
 
 rw_sd_rho_profile = pp.RWSigma(
@@ -1036,14 +1040,10 @@ else:
         pickle.dump(profile_rho_df, f)
 ```
 
-\normalsize
-
-##
 
 ```{python}
 #| label: profile rho plot
-#| echo: true
-#| fig-height: 2.2
+#| echo: false
 max_ll_rho = profile_rho_df['loglik'].max()
 ci_cutoff_rho = (max_ll_rho
     - 0.5 * chi2.ppf(0.95, df=1))
@@ -1054,7 +1054,7 @@ top_rho = (profile_rho_df
         include_groups=False)
     .reset_index(drop=True))
 
-fig, ax = plt.subplots(figsize=(4.5, 3))
+fig, ax = plt.subplots(figsize=(4.5, 2.5))
 ax.scatter(top_rho['rho'], top_rho['loglik'], s=12)
 ax.axhline(ci_cutoff_rho, color='red',
     linestyle='--', label='95% CI cutoff')
@@ -1066,6 +1066,9 @@ ax.grid(alpha=0.3)
 plt.tight_layout()
 plt.show()
 ```
+
+
+##
 
 ```{python}
 #| label: rho ci
@@ -1105,13 +1108,11 @@ print(f"95% CI for rho:"
 * We will estimate the model under the assumption that $\rho=0.6$, but without making assumptions about the duration of the infectious period.
 
 
-##
-
-\footnotesize
+## Global search with $\rho=0.6$ fixed
 
 ```{python}
 #| label: global search rho fixed
-#| echo: true
+#| echo: false
 cache_file = cache_dir + "/global-search2.pkl"
 
 rw_sd_exp = pp.RWSigma(
@@ -1180,14 +1181,10 @@ print(f"Best log-likelihood:",
       f"{results_df2['loglik'].max():.1f}")
 ```
 
-\normalsize
-
-##
 
 ```{python}
 #| label: pairs global2
-#| echo: true
-#| fig-height: 3.5
+#| echo: false
 fig, axes = plt.subplots(2, 3, figsize=(8, 5))
 pairs2 = [('Beta','loglik'), ('mu_IR','loglik'),
           ('eta','loglik'), ('Beta','mu_IR'),
@@ -1206,11 +1203,9 @@ plt.show()
 
 To make inferences about $\mu_{IR}$, we compute a profile likelihood with $\rho=0.6$ fixed.
 
-\footnotesize
-
 ```{python}
 #| label: profile mu_IR computation
-#| echo: true
+#| echo: false
 cache_file = cache_dir + "/profile-muIR.pkl"
 
 rw_sd_muIR_profile = pp.RWSigma(
@@ -1282,13 +1277,10 @@ else:
         pickle.dump(profile_muIR_df, f)
 ```
 
-\normalsize
-
-##
 
 ```{python}
 #| label: profile mu_IR plot
-#| echo: true
+#| echo: false
 #| fig-height: 2.2
 max_ll_muIR = profile_muIR_df['loglik'].max()
 ci_cutoff_muIR = (max_ll_muIR
@@ -1415,4 +1407,4 @@ How sensitive are the results to these choices?
 * Licensed under the Creative Commons Attribution-NonCommercial license. Please share and remix non-commercially, mentioning its origin.
 
 
-## References
+# References
