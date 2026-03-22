@@ -39,6 +39,9 @@ header-includes: |
   \usepackage{hyperref}
   \usepackage{xcolor}
   \usepackage{fvextra}
+  \usepackage{tikz}
+  \usetikzlibrary{arrows.meta}
+  \usetikzlibrary{shapes.geometric}
 
   \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
     commandchars=\\\{\},
@@ -47,6 +50,7 @@ header-includes: |
     fontsize=\scriptsize
   }
 
+  \newcommand{\normal}{\mathcal{N}}
   \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
   \newcommand{\Rzero}{\mathcal{R}_{0}}
   \newcommand{\pr}{\mathbb{P}}
@@ -64,27 +68,88 @@ header-includes: |
 "trying an empty chunk to see if it helps compilation"
 ```
 
+## Introduction
+
+This tutorial covers likelihood estimation via the method of iterated filtering.
+It presupposes familiarity with building partially observed Markov process (POMP) objects in the `pypomp` package.
+This tutorial follows on from the topic of particle filtering (also known as sequential Monte Carlo) via `pfilter` in `pypomp`.
+
 ## Objectives
 
-This lesson covers likelihood maximization via the method of iterated filtering (IF2).
-It presupposes familiarity with building POMP models and particle filtering from Lessons 2 and 3.
+1. To review the available options for inference on POMP models, to put iterated filtering in context.
 
-1. Review the available options for inference on POMP models, to put iterated filtering in context.
+2. To understand how iterated filtering algorithms carry out repeated particle filtering operations, with randomly perturbed parameter values, in order to maximize the likelihood.
 
-2. Understand how iterated filtering algorithms carry out repeated particle filtering operations, with randomly perturbed parameter values, in order to maximize the likelihood.
-
-3. Gain experience carrying out statistical investigations using iterated filtering in a relatively simple situation: fitting an SIR model to data from a measles outbreak.
+3. To gain experience carrying out statistical investigations using iterated filtering in a relatively simple situation: fitting an SIR model to data from a measles outbreak.
 
 
-## The plug-and-play property
+## Classification of statistical methods for POMP models
 
-Inference methodology that calls `rproc` but not `dprocess` is said to be **plug-and-play**.
-All popular modern Monte Carlo methods for POMP models are in this category.
-"Simulation-based" is equivalent to "plug-and-play".
+Many statistical methods have been proposed for inference on POMP models.
+The volume of research indicates both the importance and the difficulty of the problem.
+Let's start by considering three criteria to categorize inference methods:
 
-* Plug-and-play methods can call `dmeas`. A method that uses only `rproc` and `rmeas` is called "doubly plug-and-play".
+* the plug-and-play property
+* full-information or feature-based
+* frequentist or Bayesian
 
-* Two non-plug-and-play methods --- **EM** and **MCMC** --- have theoretical convergence problems for nonlinear POMP models.
+
+## Plug-and-play (also called simulation-based) methods
+
+* Inference methodology that calls `rproc` but not `dprocess` is said to be **plug-and-play**.
+  All popular modern Monte Carlo methods for POMP models are in this category.
+
+* "Simulation-based" is equivalent to "plug-and-play".
+
+* Historically, simulation-based meant simulating forward from initial conditions to the end of the time series.
+  However, particle filtering methods instead consider each observation interval sequentially.
+  They carry out multiple, carefully selected, simulations over each interval.
+
+##
+
+* Plug-and-play methods can call `dmeas`.
+  A method that uses only `rproc` and `rmeas` is called "doubly plug-and-play".
+
+* Two **non-plug-and-play** methods---expectation-maximization (EM) and Markov chain Monte Carlo (MCMC)---have theoretical convergence problems for nonlinear POMP models.
+  The failures of these two workhorses of statistical computation have prompted development of alternative methodologies.
+
+
+## Full-information and feature-based methods
+
+* **Full-information** methods are defined to be those based on the likelihood function for the full data (i.e., likelihood-based frequentist inference and Bayesian inference).
+
+* **Feature-based** methods either consider a summary statistic (a function of the data) or work with an alternative to the likelihood.
+
+* Asymptotically, full-information methods are statistically efficient and feature-based methods are not.
+
+##
+
+* In some cases, loss of statistical efficiency might be an acceptable tradeoff for advantages in computational efficiency.
+
+* However:
+    * Good low-dimensional summary statistics can be hard to find.
+    * When using statistically inefficient methods, it can be hard to know how much information you are losing.
+    * Intuition and scientific reasoning can be inadequate tools to derive informative low-dimensional summary statistics.
+
+
+## Bayesian and frequentist methods
+
+* Recently, plug-and-play Bayesian methods have been discovered:
+    * particle Markov chain Monte Carlo (PMCMC)
+    * approximate Bayesian computation (ABC)
+
+* Prior belief specification is both the strength and weakness of Bayesian methodology.
+
+* The likelihood surface for nonlinear POMP models often contains nonlinear ridges and variations in curvature.
+
+##
+
+* These situations bring into question the appropriateness of independent priors derived from expert opinion on marginal distributions of parameters.
+
+* They also are problematic for specification of "flat" or "uninformative" prior beliefs.
+
+* Expert opinion can be treated as data for non-Bayesian analysis.
+  However, our primary task is to identify the information in the data under investigation, so it can be helpful to use methods that do not force us to make our conclusions dependent on quantification of prior beliefs.
 
 
 ## POMP inference methodologies
@@ -92,40 +157,132 @@ All popular modern Monte Carlo methods for POMP models are in this category.
 |                  | Frequentist | Bayesian |
 |------------------|-------------|----------|
 | **Plug-and-play, Full-info** | Iterated filtering | Particle MCMC |
-| **Plug-and-play, Feature** | Simulated moments | ABC |
+| **Plug-and-play, Feature** | Simulated moments, synthetic likelihood | ABC, SL-based MCMC |
 | **Not plug-and-play, Full-info** | EM, Kalman filter | MCMC |
+| **Not plug-and-play, Feature** | Yule-Walker, extended Kalman filter | Extended Kalman filter |
 
 
 ## Full-information, plug-and-play, frequentist methods
 
-**Iterated filtering methods** are the only currently available, full-information, plug-and-play, frequentist methods for POMP models.
+* Iterated filtering methods are the only currently available, full-information, plug-and-play, frequentist methods for POMP models.
 
-In the **IF2 algorithm**:
-
-**1.** Each iteration consists of a particle filter, carried out with the parameter vector, for each particle, doing a random walk.
-
-**2.** At the end of the time series, the collection of parameter vectors is recycled as starting parameters for the next iteration.
-
-**3.** The random-walk variance decreases at each iteration.
+* Iterated filtering methods have been shown to solve likelihood-based inference problems for epidemiological situations which are computationally intractable for available Bayesian methodology.
 
 
-## Analogy with natural selection
+## An iterated filtering algorithm (IF2)
 
-* The **parameters** characterize the genotype
+We focus on the IF2 algorithm of @Ionides2015.
+In this algorithm:
 
-* The **swarm of particles** is a population
+* Each iteration consists of a particle filter, carried out with the parameter vector, for each particle, doing a random walk.
 
-* The **likelihood** is the analogue of **fitness**
+* At the end of the time series, the collection of parameter vectors is recycled as starting parameters for the next iteration.
 
-* Each successive observation is a **new generation**
+* The random-walk variance decreases at each iteration.
+
+In theory, this procedure converges toward the region of parameter space maximizing the maximum likelihood.
+In practice, we can test this claim on examples.
 
 ##
 
-* Since particles reproduce in proportion to their likelihood, the particle filter acts like **natural selection**
+\begin{center}
+\resizebox{10cm}{!}{
+\begin{tikzpicture}[
+  square/.style={rectangle, draw=black, minimum width=4.2cm, minimum height=0.7cm, rounded corners=.1cm,font=\ttfamily},
+  >/.style={shorten >=0.4mm},
+  >/.tip={Stealth[length=2.5mm,width=1.5mm]}
+]
+  \tikzset{>={}}; 
+  \node (ivp) at (0,6) [square,fill=blue!8]{perturb params};
+  \node (initialize) at (0,4.8) [square] {initialize: rinit};
+  \node (rp) at (0,3.6) [square,fill=blue!8]{perturb params};
+  \node (predict) at (0,2.4) [square] {predict: rproc};
+  \node (weight) at (0,1.2) [square] {weight: dmeas};
+  \node (filter) at (0,0) [square] {resample states};
+  \node (filterParams) at (0,-1.2) [square,fill=blue!8] {resample params};  
+  \node (N) at (5.5,1.2) [draw,diamond,aspect=2] {\texttt{N observations}};
+  \node (Np) at (0,7.5) [draw,diamond,aspect=2,color=red] {\texttt{J particles}};
+  \node (Nmif) at (8,4.5) [draw,diamond,aspect=2,fill=blue!8] {\texttt{M iterations}};
+  \draw[->] (Nmif.north) |- (ivp.east);
+  \draw[->] (filterParams.south) -- (0,-2.3) -| (Nmif.south);
+  \draw[->] (ivp) -- (initialize);
+  \draw[->] (initialize) -- (rp);
+  \draw[->] (rp) -- (predict);
+  \draw[->] (predict) -- (weight);
+  \draw[->] (weight) -- (filter);
+  \draw[->] (filter) -- (filterParams);
+  \draw[->] (filterParams.east) -| (N);
+  \draw[->] (N.north) |- (rp.east);
+  \draw[color=red, rounded corners, thick, dashed] (Np.east) -| (2.9,-2) -- (-2.9,-2) |- (Np.west);
+\end{tikzpicture}
+}
+\end{center}
 
-* The artificial perturbations correspond to **mutation**
 
-* IF2 increases the fitness of the population of particles
+## IF2 algorithm pseudocode
+
+\textbf{Input:}
+
+* simulators for $f_{X_0}(x_0;\theta)$ and $f_{X_n|X_{n-1}}(x_n| x_{n-1}; \theta)$
+* evaluator for $f_{Y_n|X_n}(y_n| x_n;\theta)$
+* data, $y^*_{1:N}$
+
+\textbf{Algorithmic parameters and corresponding \texttt{mif} arguments:}
+
+* number of iterations, $M$
+* number of particles, $J$
+* initial parameter swarm, $\{\Theta^0_j, j=1,\dots,J\}$
+* random walk standard deviation, \texttt{rw\_sd}, squared to construct a diagonal variance matrix, $V_n$
+* cooling fraction in 50 iterations, $a$
+
+\textbf{Output:} final parameter swarm, $\{\Theta^M_j, j=1,\dots,J\}$
+
+## IF2 algorithm pseudocode II
+
+\textbf{Procedure:}
+
+1. For $m$ in $1{:}M$
+2. $\qquad$ $\Theta^{F,m}_{0,j}\sim \normal\big(\Theta^{m-1}_{j},V_0 \, a^{2m/50}\big)$ for $j$ in $1{:} J$
+3. $\qquad$ $X_{0,j}^{F,m}\sim f_{X_0}(x_0 ; \Theta^{F,m}_{0,j})$ for $j$ in $1{:} J$
+4. $\qquad$ For $n$ in $1{:} N$
+5. $\qquad\qquad$ $\Theta^{P,m}_{n,j}\sim \normal\big(\Theta^{F,m}_{n-1,j},V_n \, a^{2m/50}\big)$ for $j$ in $1{:} J$
+6. $\qquad\qquad$ $X_{n,j}^{P,m}\sim f_{X_n|X_{n-1}}(x_n | X^{F,m}_{n-1,j}; \Theta^{P,m}_{n,j})$ for $j$ in $1{:} J$
+7. $\qquad\qquad$ $w_{n,j}^m = f_{Y_n|X_n}(y^*_n| X_{n,j}^{P,m} ; \Theta^{P,m}_{n,j})$ for $j$ in $1{:} J$
+8. $\qquad\qquad$ Draw $k_{1{:}J}$ with $P[k_j=i]=  w_{n,i}^m\Big/\sum_{u=1}^J w_{n,u}^m$
+9. $\qquad\qquad$ $\Theta^{F,m}_{n,j}=\Theta^{P,m}_{n,k_j}$ and $X^{F,m}_{n,j}=X^{P,m}_{n,k_j}$ for $j$ in $1{:} J$
+10. $\qquad$ End For
+11. $\qquad$ Set $\Theta^{m}_{j}=\Theta^{F,m}_{N,j}$ for $j$ in $1{:} J$
+12. End For
+
+
+## IF2 algorithm pseudocode III
+
+\textbf{Remarks:}
+
+* The $N$ loop (lines 4 through 10) is a basic particle filter applied to a model with stochastic perturbations to the parameters.
+
+* The $M$ loop repeats this particle filter with decreasing perturbations.
+
+* The superscript $F$ in $\Theta^{F,m}_{n,j}$ and $X^{F,m}_{n,j}$ denote solutions to the *filtering problem*, with the particles $j=1,\dots,J$ providing a Monte Carlo representation of the conditional distribution at time $n$ given data $y^*_{1:n}$ for filtering iteration $m$.
+
+* The superscript $P$ in $\Theta^{P,m}_{n,j}$ and $X^{P,m}_{n,j}$ denote solutions to the *prediction problem*.
+
+* The *weight* $w^m_{n,j}$ gives the likelihood of the data at time $n$ for particle $j$ in filtering iteration $m$.
+
+
+## Analogy with evolution by natural selection
+
+* The parameters characterize the **genotype**.
+* The swarm of particles is a **population**.
+* The likelihood, a measure of the compatibility between the parameters and the data, is the analogue of **fitness**.
+* Each successive observation is a new **generation**.
+
+##
+
+* Since particles reproduce in each generation in proportion to their likelihood, the particle filter acts like **natural selection**.
+* The artificial perturbations augment the "genetic" variance and therefore correspond to **mutation**.
+* IF2 increases the **fitness** of the population of particles.
+* However, because our scientific interest focuses on the model without the artificial perturbations, we decrease the intensity of the latter with successive iterations.
 
 
 ## Setting up the model
@@ -236,7 +393,6 @@ def rproc(X_, theta_, key, covars, t, dt):
             "H": H + dN_IR}
 ```
 
-
 ##
 
 ```{python}
@@ -295,6 +451,16 @@ par_trans = pp.ParTrans(
 ```
 
 
+## Setting up the estimation problem
+
+Let's assume that the population size, $N$, is known accurately.
+We'll fix that parameter.
+
+Let's revisit the assumption that the infectious period is 2 weeks, imagining that we have access to the results of household and clinical studies that have concluded that infected patients shed the virus for 3--4~da.
+We'll use these results to constrain the infectious period in our model to 3.5~da, i.e., $\mu_{IR}=2~\mathrm{wk}^{-1}$. We also fix $k=10$.
+Later, we can relax our assumptions.
+We proceed to estimate $\beta$, $\eta$, and $\rho$.
+
 ## Create POMP object
 
 ```{python}
@@ -309,7 +475,6 @@ theta = {
     "k": 10.0
 }
 
-fixed_params = {"N": 38000.0, "mu_IR": 2.0, "k": 10.0}
 statenames = ["S", "I", "R", "H"]
 
 measSIR = pp.Pomp(
@@ -325,11 +490,25 @@ measSIR = pp.Pomp(
 ```
 
 
+## Testing the codes: filtering
+
+Before engaging in iterated filtering, it is a good idea to check that the basic particle filter is working since we can't iterate something unless we can run it once!
+
+```{python}
+#| label: test pfilter
+#| echo: true
+key = jax.random.key(42)
+measSIR.pfilter(key=key, J=5000, reps=1)
+result = measSIR.results_history.last()
+loglik = float(result.logLiks.values[0, 0])
+print(f"Log-likelihood: {loglik:.1f}")
+```
+
+
 ## Specifying random walk standard deviations
 
-The random walk perturbations are applied on the **estimation** (transformed) scale.
-A perturbation of 0.02 on the log scale corresponds to a ~2% multiplicative change;
-on the logit scale, it gives a small additive shift in log-odds.
+Since $\beta$ will be estimated on the log scale, and $\rho$ and $\eta$ on the logit scale, we expect that perturbations of size $0.02$ on the transformed scale will have a small but non-negligible effect.
+We fix `a=0.5`, so that after 50 IF2 iterations, the perturbations are reduced to half their original magnitudes.
 
 ```{python}
 #| label: rw_sd
@@ -350,7 +529,7 @@ rw_sd = pp.RWSigma(
 This is analogous to `rw.sd=rw_sd(Beta=0.02, rho=0.02, eta=ivp(0.02))` with `partrans=parameter_trans(log="Beta", logit=c("rho","eta"))` in R-pomp.
 
 
-## Local search
+## A local search of the likelihood surface
 
 ```{python}
 #| label: local mif
@@ -371,7 +550,7 @@ else:
         pickle.dump(mif_result, f)
 ```
 
-##
+## Iterated filtering diagnostics
 
 ```{python}
 #| label: mif traces
@@ -400,11 +579,24 @@ plt.tight_layout()
 plt.show()
 ```
 
+##
+
+* We see that the likelihood increases as the iterations proceed, though there is considerable variability due to (a) the poorness of our starting guess and (b) the stochastic nature of this Monte Carlo algorithm.
+
+* We see movement in the parameters, though variability remains.
+
 
 ## Estimating the likelihood
 
-The IF2 log-likelihood is not a reliable estimate.
-We evaluate the likelihood at the IF2 endpoint using `pfilter`:
+Although the filtering carried out by `mif` in the final filtering iteration generates an approximation to the likelihood at the resulting point estimate, this is not good enough for reliable inference.
+
+* Partly, this is because parameter perturbations are applied in the last filtering iteration, so that the likelihood reported by `mif` is not identical to that of the model of interest.
+
+* Partly, this is because `mif` is usually carried out with fewer particles than are needed for a good likelihood evaluation.
+
+Therefore, we evaluate the likelihood, together with a standard error, using replicated particle filters at each point estimate.
+
+##
 
 ```{python}
 #| label: pfilter at mif endpoint
@@ -431,7 +623,21 @@ print(f"Log-likelihood: {ll_est:.1f}",
 
 ## A global search of the likelihood surface
 
-We take advantage of `pypomp`'s native support for multiple parameter sets: passing a list of dicts to `Pomp` causes `mif` and `pfilter` to run all replicates **in parallel on the GPU**.
+* When carrying out parameter estimation for dynamic systems, we need to specify beginning values for both the dynamic system (in the state space) and the parameters (in the parameter space).
+
+* To avoid confusion, we use the term "initial values" to refer to the state of the system at $t_0$ and "starting values" to refer to the point in parameter space at which a search is initialized.
+
+* Practical parameter estimation involves trying many starting values for the parameters.
+
+* One way to approach this is to choose a large box in parameter space that contains all remotely sensible parameter vectors.
+
+* If an estimation method gives stable conclusions with starting values drawn randomly from this box, this gives some confidence that an adequate global search has been carried out.
+
+##
+
+For our measles model, a box containing reasonable parameter values might be $\beta\in (5,80)$, $\rho\in (0.2,0.9)$, $\eta\in (0,1)$.
+
+In `pypomp`, passing a list of parameter dicts to `Pomp` causes `mif` and `pfilter` to run all replicates **in parallel on the GPU**.
 
 \footnotesize
 
@@ -454,7 +660,6 @@ else:
         th["eta"] = np.random.uniform(0.01, 0.99)
         theta_list.append(th)
 
-    # All starts run in parallel on GPU
     mod = pp.Pomp(
         rinit=rinit, rproc=rproc,
         dmeas=dmeas, rmeas=rmeas,
@@ -468,12 +673,10 @@ else:
     key = jax.random.key(1270401374)
     mod.mif(J=2000, M=50,
             rw_sd=rw_sd, a=0.5, key=key)
-    # Continue from endpoints with 100 more
     key = jax.random.key(1270401375)
     mod.mif(J=2000, M=100,
             rw_sd=rw_sd, a=0.5, key=key)
 
-    # Evaluate likelihoods in parallel
     key = jax.random.key(1270401376)
     mod.pfilter(key=key, J=5000, reps=10)
     pf = mod.results_history.last()
@@ -498,7 +701,6 @@ print(f"Best log-likelihood:",
 
 \normalsize
 
-
 ## Visualizing the global search
 
 ```{python}
@@ -520,8 +722,13 @@ plt.show()
 
 ##
 
-The estimates converge on a particular region in parameter space despite starting from diverse remote starting points.
-The projections give us "poor man's profiles":
+* We see that optimization attempts from diverse remote starting points converge on a particular region in parameter space.
+* The estimates have comparable likelihoods, despite their considerable variability.
+* This gives us some confidence in our maximization procedure.
+
+##
+
+The projections of the estimates give us "poor man's profiles":
 
 ```{python}
 #| label: poor mans profile
@@ -539,10 +746,22 @@ plt.show()
 ```
 
 
-## Computing a profile over $\eta$
+## Profile likelihood over $\eta$
 
-To profile over $\eta$, we fix $\eta$ at a grid of values and optimize over the remaining parameters.
+* The curvature displayed in the upper envelope of the above plot suggests that there is indeed information in the data with respect to the susceptible fraction, $\eta$.
+
+* To solidify this evidence, let's compute a profile likelihood over this parameter.
+
+* Recall that this means determining, for each value of $\eta$, the best likelihood that the model can achieve.
+
+* To do this, we'll first bound the uncertainty by putting a box around the highest-likelihood estimates we've found so far.
+
+* Within this box, we'll choose some random starting points, for each of several values of $\eta$.
+
+##
+
 For each grid point, we launch multiple starts **in parallel**.
+We keep $\eta$ fixed by setting its random walk standard deviation to zero.
 
 \footnotesize
 
@@ -570,7 +789,6 @@ else:
     profile_eta = []
 
     for i, eta_val in enumerate(eta_grid):
-        # Build n_prof starts for this grid point
         theta_list = []
         for j in range(n_prof):
             th = theta.copy()
@@ -620,16 +838,36 @@ else:
 
 \normalsize
 
-##
+## Visualizing profile likelihood
+
+Plotting just the results of the profile calculation reveals that, while some of the IF2 runs either become "stuck" on local minima or run out of opportunity to reach the heights of the likelihood surface, many of the runs converge on high likelihoods.
 
 ```{python}
-#| label: profile plot
+#| label: profile plot raw
+#| echo: true
+#| fig-height: 2.0
+fig, ax = plt.subplots(figsize=(4.5, 2.5))
+ax.scatter(profile_eta_df['eta'],
+    profile_eta_df['loglik'], s=8, alpha=0.5)
+ax.set(xlabel=r'$\eta$',
+    ylabel='Profile log-likelihood')
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+##
+
+Focusing on just the top of the surface shows that, in fact, one is able to estimate $\eta$ using these data.
+In the following plot, the cutoff for the 95% confidence interval (CI) is shown.
+
+```{python}
+#| label: profile plot zoomed
 #| echo: true
 #| fig-height: 2.2
 max_ll = profile_eta_df['loglik'].max()
 ci_cutoff = max_ll - 0.5 * chi2.ppf(0.95, df=1)
 
-# Keep top 2 per grid point
 top = (profile_eta_df
     .groupby(profile_eta_df['eta'].round(5))
     .apply(lambda g: g.nlargest(2, 'loglik'),
@@ -651,7 +889,7 @@ plt.show()
 
 ## Monte Carlo Adjusted Profile (MCAP)
 
-The `mcap` function in `pypomp` constructs a profile likelihood confidence interval that accounts for Monte Carlo error in the profile:
+The `mcap` function in `pypomp` constructs a profile likelihood confidence interval that accounts for Monte Carlo error:
 
 ```{python}
 #| label: mcap
@@ -696,7 +934,10 @@ plt.show()
 ## Profile trace
 
 As one varies $\eta$ across the profile, the model compensates by adjusting the other parameters.
-A **profile trace** shows how $\rho$ changes as $\eta$ is varied:
+It can be very instructive to understand how the model does this.
+For example, how does the reporting efficiency, $\rho$, change as $\eta$ is varied?
+We can plot $\rho$ vs $\eta$ across the profile.
+This is called a **profile trace**.
 
 ```{python}
 #| label: profile trace
@@ -719,15 +960,70 @@ plt.show()
 
 ## Exercises
 
-**Exercise 4.1:** Estimate SEIR model parameters using IF2. Track computation time and use run-levels.
+**Exercise 4.1.** *Fitting the SEIR model.*
+In this exercise, you will estimate the parameters and likelihood of the SEIR model you implemented in the earlier lessons by following the template above.
+Purely for the sake of simplicity, you may assume that the values of $\mu_{IR}$ and $k$ are known.
+To do this efficiently, we will make use of a system of *run-levels*.
+At each run-level, we will select some number of particles ($J$), number of IF2 iterations ($M$), and number of starting guesses, to achieve a particular result.
 
-**Exercise 4.2:** Estimate all SIR parameters including $k$. How does the fit improve?
+##
 
-**Exercise 4.3:** Construct profile likelihood over $\beta$ and $\Rzero$. Which is better determined?
+(A) First, conduct a local search and compute the likelihood at the end of each `mif` run.
+    Track the time used and compute the amount of time used per IF2 iteration per 1000 particles.
 
-**Exercise 4.4:** Does your code implement the described model? What are solutions for reproducibility?
+(B) At run-level 1, we want a quick calculation that verifies that the codes are working as expected.
+    Choose a number of IF2 iterations so that you can do a very crude "global search" that will complete in two or three minutes.
 
-**Exercise 4.5:** How would you identify and fix errors in `rproc`?
+(C) At run-level 2, we want a computation that gives us some results we can begin to interpret, but that is still as quick as possible.
+
+(D) Run-level 3 is intended for final or near-final results.
+
+(E) How does the SEIR model compare with the SIR model?
+
+##
+
+**Exercise 4.2.** *Fitting all parameters of the SIR model.*
+In all of the foregoing, we have assumed a fixed value of the dispersion parameter, $k$, of the negative binomial measurement model.
+We've also fixed one or the other of $\mu_{IR}$, $\eta$.
+Now attempt to estimate all the parameters simultaneously.
+To accomplish this, use the same system of run-levels as in the previous Exercise.
+How much is the fit improved?
+How has the model's explanation of the data changed?
+
+##
+
+**Exercise 4.3.** *Construct a profile likelihood.*
+How strong is the evidence about the contact rate, $\beta$, given this model and data?
+Use `mif` to construct a profile likelihood.
+Due to time constraints, you may be able to compute only a preliminary version.
+
+It is also possible to profile over the basic reproduction number, $R_0=\beta /\mu_{IR}$.
+Is this more or less well determined than $\beta$ for this model and data?
+
+##
+
+**Exercise 4.4.** *Checking the source code.*
+Does the code implement the model described?
+It can be surprisingly hard to make sure that the written equations and the code are perfectly matched.
+Papers should be written to be readable, and therefore people rarely choose to clutter papers with numerical details which they hope and believe are scientifically irrelevant.
+(a) What problems can arise due to the conflict between readability and reproducibility?
+(b) What solutions are available?
+
+##
+
+**Exercise 4.5.** *Beware errors in `rproc`.*
+Suppose that there is an error in the coding of `rproc` and suppose that plug-and-play statistical methodology is used to infer parameters.
+As a conscientious researcher, you carry out a simulation study to check the soundness of your inference methodology on this model.
+To do this, you use `simulate` to generate realizations from the fitted model and you check that your parameter inference procedure recovers the known parameters, up to some statistical error.
+(a) Will this procedure help to identify the error in `rproc`?
+(b) If not, how might you debug `rproc`?
+(c) What research practices help minimize the risk of errors in simulation code?
+
+##
+
+**Exercise 4.6.** *Choosing the algorithmic settings for IF2.*
+Experiment with the algorithmic settings (`J`, `M`, `rw_sd`, `a`) on the Consett measles example.
+How sensitive are the results to these choices?
 
 
 ## Summary
@@ -736,13 +1032,22 @@ plt.show()
 
 **2.** The algorithm perturbs parameters with decreasing random walks and resamples both states and parameters.
 
-**3.** **Parameter transformations** via `ParTrans(to_est, from_est)` ensure the random walk respects constraints (e.g., `log` for positive parameters, `logit` for probabilities). This is analogous to `partrans=parameter_trans(log="Beta", logit=c("rho","eta"))` in R-pomp.
+**3.** **Parameter transformations** via `ParTrans(to_est, from_est)` ensure the random walk respects constraints (e.g., `log` for positive parameters, `logit` for probabilities).
 
 **4.** `pypomp` API for IF2: `mif(J, M, rw_sd, a, key)` runs IF2, `RWSigma(sigmas={...}, init_names=[...])` specifies perturbations, `results_history.last().traces_da` gets parameter traces.
 
-**5.** Passing a **list of parameter dicts** to `Pomp` runs all replicates in parallel on the GPU --- use this for global searches and profiles.
+**5.** Passing a **list of parameter dicts** to `Pomp` runs all replicates in parallel on the GPU.
 
 **6.** Always evaluate likelihood at IF2 endpoints with `pfilter`. Use `mcap` for Monte Carlo-adjusted profile confidence intervals.
+
+
+## License and acknowledgments
+
+* This lesson is prepared for the Simulation-based Inference for Epidemiological Dynamics module.
+
+* The materials build on previous versions of this course and related courses.
+
+* Licensed under the Creative Commons Attribution-NonCommercial license. Please share and remix non-commercially, mentioning its origin.
 
 
 ## References
