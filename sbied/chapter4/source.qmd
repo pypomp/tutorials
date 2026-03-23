@@ -420,7 +420,7 @@ def rmeas(X_, theta_, key, covars, t):
 ```
 
 
-## Parameter transformations
+## 
 
 `ParTrans` ensures IF2 random walks respect parameter constraints.
 Parameter perturbations for IF2 are added on the **estimation scale**.
@@ -561,8 +561,7 @@ rw_sd = pp.RWSigma(
 )
 ```
 
-This is analogous to `rw.sd=rw_sd(Beta=0.02, rho=0.02, eta=ivp(0.02))` with `partrans=parameter_trans(log="Beta", logit=c("rho","eta"))` in R-pomp.
-
+* The **initial value parameter** (IVP) $\eta$, designated by `init_names`, affects the dynamics only at time $t_0$, so it is perturbed only at time $t_0$.
 
 ## A local search of the likelihood surface
 
@@ -570,7 +569,6 @@ This is analogous to `rw.sd=rw_sd(Beta=0.02, rho=0.02, eta=ivp(0.02))` with `par
 #| label: local mif
 #| echo: true
 cache_file = cache_dir + "/local-mif.pkl"
-
 if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
         mif_result = pickle.load(f)
@@ -604,6 +602,11 @@ else:
 #| label: extract mif traces
 #| echo: true
 traces_da = mif_result.traces_da
+```
+
+```{python}
+#| label: plot mif traces
+#| echo: false
 n_reps = traces_da.sizes['replicate']
 iterations = traces_da.coords['iteration'].values
 
@@ -644,11 +647,9 @@ Although the filtering carried out by `mif` in the final filtering iteration gen
 
 Therefore, we evaluate the likelihood, together with a standard error, using replicated particle filters at each point estimate.
 
-##
-
 ```{python}
 #| label: pfilter at mif endpoint
-#| echo: true
+#| echo: false
 cache_file = cache_dir + "/local-pfilter.pkl"
 
 if os.path.exists(cache_file):
@@ -719,6 +720,7 @@ For our measles model, a box containing reasonable parameter values might be $\b
 In `pypomp`, passing a list of parameter dicts to `Pomp` causes `mif` and `pfilter` to run all replicates **in parallel on the GPU**.
 
 The full source code is [online](https://github.com/pypomp/tutorials/blob/main/sbied/chapter4/source.qmd). In summary,
+
 1. Cache to re-run only when results are absent.
 2. Set up a starting box of parameter values.
 3. Make multiple searches from each starting value.
@@ -821,8 +823,7 @@ The envelope containing all search results approximates the profile.
 ```{python}
 #| label: poor mans profile
 #| echo: false
-#| fig-height: 2.2
-fig, ax = plt.subplots(figsize=(4.5, 3))
+fig, ax = plt.subplots(figsize=(4.5, 2.5))
 top = results_df[
     results_df['loglik'] > results_df['loglik'].max() - 10]
 ax.scatter(top['eta'], top['loglik'], s=15)
@@ -846,9 +847,7 @@ plt.show()
 
 * Within this box, we'll choose some random starting points, for each of several values of $\eta$.
 
-##
-
-For each grid point, we launch multiple starts **in parallel**.
+* For each grid point, we launch multiple starts **in parallel**.
 We keep $\eta$ fixed by setting its random walk standard deviation to zero.
 
 
@@ -952,9 +951,8 @@ Focusing on just the top of the surface shows that, in fact, one is able to esti
 In the following plot, the cutoff for the 95% confidence interval (CI) is shown.
 
 ```{python}
-#| label: profile plot zoomed
+#| label: profile points zoomed
 #| echo: true
-#| fig-height: 2.2
 max_ll = profile_eta_df['loglik'].max()
 ci_cutoff = max_ll - 0.5 * chi2.ppf(0.95, df=1)
 
@@ -963,8 +961,12 @@ top = (profile_eta_df
     .apply(lambda g: g.nlargest(2, 'loglik'),
         include_groups=False)
     .reset_index(drop=True))
+```
 
-fig, ax = plt.subplots(figsize=(4.5, 3))
+```{python}
+#| label: profile plot zoomed
+#| echo: false
+fig, ax = plt.subplots(figsize=(4.5, 2.1))
 ax.scatter(top['eta'], top['loglik'], s=12)
 ax.axhline(ci_cutoff, color='red',
     linestyle='--', label='95% CI cutoff')
@@ -1035,7 +1037,7 @@ This is called a **profile trace**.
 #| fig-height: 2.2
 top['in_ci'] = top['loglik'] > max_ll - 1.92
 
-fig, ax = plt.subplots(figsize=(4.5, 3))
+fig, ax = plt.subplots(figsize=(4.5, 2.5))
 colors = top['in_ci'].map(
     {True: 'C0', False: 'C1'})
 ax.scatter(top['eta'], top['rho'],
@@ -1156,7 +1158,7 @@ top_rho = (profile_rho_df
         include_groups=False)
     .reset_index(drop=True))
 
-fig, ax = plt.subplots(figsize=(4.5, 3))
+fig, ax = plt.subplots(figsize=(4.5, 2.5))
 ax.scatter(top_rho['rho'], top_rho['loglik'], s=12)
 ax.axhline(ci_cutoff_rho, color='red',
     linestyle='--', label='95% CI cutoff')
@@ -1171,7 +1173,8 @@ plt.show()
 
 ```{python}
 #| label: rho ci
-#| echo: true
+#| echo: false
+#| include: false
 rho_in_ci = profile_rho_df[
     profile_rho_df['loglik'] > max_ll_rho
         - 0.5 * chi2.ppf(0.95, df=1)]
@@ -1308,12 +1311,9 @@ print(f"Best log-likelihood:",
 ```
 
 
-##
-
 ```{python}
 #| label: pairs global2
 #| echo: false
-#| fig-height: 3.5
 fig, axes = plt.subplots(2, 3, figsize=(8, 5))
 pairs2 = [('Beta','loglik'), ('mu_IR','loglik'),
           ('eta','loglik'), ('Beta','mu_IR'),
@@ -1435,12 +1435,9 @@ else:
 ```
 
 
-##
-
 ```{python}
 #| label: profile mu_IR plot
 #| echo: false
-#| fig-height: 2.2
 max_ll_muIR = profile_muIR_df['loglik'].max()
 ci_cutoff_muIR = (max_ll_muIR
     - 0.5 * chi2.ppf(0.95, df=1))
@@ -1451,7 +1448,7 @@ top_muIR = (profile_muIR_df
         include_groups=False)
     .reset_index(drop=True))
 
-fig, ax = plt.subplots(figsize=(4.5, 3))
+fig, ax = plt.subplots(figsize=(4.5, 2.5))
 ax.scatter(top_muIR['mu_IR'],
     top_muIR['loglik'], s=12)
 ax.axhline(ci_cutoff_muIR, color='red',
