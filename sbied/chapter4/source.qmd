@@ -303,6 +303,11 @@ import pickle
 import os
 import time
 from scipy.stats import chi2
+from pypomp.random import (
+    fast_approx_rbinom,
+    fast_approx_rgamma,
+    fast_approx_rpoisson,
+)
 
 cache_dir = "cache"
 os.makedirs(cache_dir, exist_ok=True)
@@ -347,8 +352,8 @@ def nbinom_logpmf(x, k, mu):
 
 def rnbinom(key, k, mu):
     key_g, key_p = jax.random.split(key)
-    lam = jax.random.gamma(key_g, k) * (mu / k)
-    return jax.random.poisson(key_p, lam)
+    lam = fast_approx_rgamma(key_g, k) * (mu / k)
+    return fast_approx_rpoisson(key_p, lam)
 ```
 
 
@@ -385,10 +390,10 @@ def rproc(X_, theta_, key, covars, t, dt):
     p_IR = 1.0 - jnp.exp(-mu_IR * dt)
 
     key_SI, key_IR = jax.random.split(key)
-    dN_SI = jax.random.binomial(
-        key_SI, n=jnp.int32(S), p=p_SI)
-    dN_IR = jax.random.binomial(
-        key_IR, n=jnp.int32(I), p=p_IR)
+    dN_SI = fast_approx_rbinom(
+        key_SI, jnp.float32(S), p_SI)
+    dN_IR = fast_approx_rbinom(
+        key_IR, jnp.float32(I), p_IR)
 
     return {"S": S - dN_SI,
             "I": I + dN_SI - dN_IR,
@@ -448,6 +453,37 @@ def from_est(theta):
     }
 
 par_trans = pp.ParTrans(to_est=to_est, from_est=from_est)
+```
+
+When we later relax the assumption on $\mu_{IR}$, we will need a second transformation that also puts $\mu_{IR}$ on the log scale:
+
+```{python}
+#| label: parameter transforms exp
+#| echo: true
+def to_est_exp(theta):
+    """Natural -> estimation, with log(mu_IR)."""
+    return {
+        "Beta": jnp.log(theta["Beta"]),
+        "mu_IR": jnp.log(theta["mu_IR"]),
+        "N": theta["N"],
+        "rho": jax.scipy.special.logit(theta["rho"]),
+        "eta": jax.scipy.special.logit(theta["eta"]),
+        "k": theta["k"],
+    }
+
+def from_est_exp(theta):
+    """Estimation -> natural, with exp(mu_IR)."""
+    return {
+        "Beta": jnp.exp(theta["Beta"]),
+        "mu_IR": jnp.exp(theta["mu_IR"]),
+        "N": theta["N"],
+        "rho": jax.scipy.special.expit(theta["rho"]),
+        "eta": jax.scipy.special.expit(theta["eta"]),
+        "k": theta["k"],
+    }
+
+par_trans_exp = pp.ParTrans(
+    to_est=to_est_exp, from_est=from_est_exp)
 ```
 
 
@@ -540,12 +576,25 @@ if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
         mif_result = pickle.load(f)
 else:
+    # 20 parallel runs from same starting point
+    n_local = 20
+    theta_list = [theta.copy() for _ in range(n_local)]
+    mod_local = pp.Pomp(
+        rinit=rinit, rproc=rproc,
+        dmeas=dmeas, rmeas=rmeas,
+        ys=ys, theta=theta_list,
+        statenames=statenames,
+        par_trans=par_trans,
+        t0=0.0, nstep=7,
+        accumvars=("H",),
+        ydim=1, covars=None
+    )
     key = jax.random.key(482947940)
-    measSIR.mif(
+    mod_local.mif(
         J=2000, M=50,
         rw_sd=rw_sd, a=0.5, key=key
     )
-    mif_result = measSIR.results_history.last()
+    mif_result = mod_local.results_history.last()
     with open(cache_file, 'wb') as f:
         pickle.dump(mif_result, f)
 ```
@@ -556,15 +605,8 @@ else:
 #| label: extract mif traces
 #| echo: true
 traces_da = mif_result.traces_da
-```
-
-```{python}
-#| label: plot mif traces
-#| echo: false
-traces_rep0 = traces_da.isel(replicate=0)
-iterations = traces_rep0.coords['iteration'].values
-variables = traces_rep0.coords['variable'].values
-
+n_reps = traces_da.sizes['replicate']
+iterations = traces_da.coords['iteration'].values
 fig, axes = plt.subplots(2, 2, figsize=(7, 5))
 
 for ax, var, lab in zip(
@@ -573,9 +615,12 @@ for ax, var, lab in zip(
     ['Log-likelihood', r'$\beta$',
      r'$\eta$', r'$\rho$']
 ):
-    if var in variables:
-        ax.plot(iterations,
-            traces_rep0.sel(variable=var).values)
+    if var in traces_da.coords['variable'].values:
+        for r in range(n_reps):
+            ax.plot(iterations,
+                traces_da.isel(replicate=r).sel(
+                    variable=var).values,
+                alpha=0.4, lw=0.7)
     ax.set(xlabel='Iteration', ylabel=lab)
     ax.grid(alpha=0.3)
 plt.tight_layout()
@@ -608,19 +653,50 @@ cache_file = cache_dir + "/local-pfilter.pkl"
 
 if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
-        pf_result = pickle.load(f)
+        local_results = pickle.load(f)
 else:
-    key = jax.random.key(900242057)
-    measSIR.pfilter(key=key, J=5000, reps=10)
-    pf_result = measSIR.results_history.last()
-    with open(cache_file, 'wb') as f:
-        pickle.dump(pf_result, f)
+    # Rebuild mod_local from mif endpoints
+    n_local = mif_result.traces_da.sizes['replicate']
+    traces = mif_result.traces_da
+    theta_endpoints = []
+    for r in range(n_local):
+        th = theta.copy()
+        for var in ['Beta', 'rho', 'eta']:
+            th[var] = float(
+                traces.isel(replicate=r).sel(
+                    variable=var).values[-1])
+        theta_endpoints.append(th)
 
-logliks = pf_result.logLiks.values.flatten()
-ll_est = pp.logmeanexp(logliks)
-ll_se = pp.logmeanexp_se(logliks)
-print(f"Log-likelihood: {ll_est:.1f}",
-      f"(SE: {ll_se:.1f})")
+    mod_eval = pp.Pomp(
+        rinit=rinit, rproc=rproc,
+        dmeas=dmeas, rmeas=rmeas,
+        ys=ys, theta=theta_endpoints,
+        statenames=statenames,
+        par_trans=par_trans,
+        t0=0.0, nstep=7,
+        accumvars=("H",),
+        ydim=1, covars=None
+    )
+    key = jax.random.key(900242057)
+    mod_eval.pfilter(key=key, J=5000, reps=10)
+    pf = mod_eval.results_history.last()
+
+    rows = []
+    for i in range(n_local):
+        lls = pf.logLiks.values[i, :]
+        rows.append({
+            **theta_endpoints[i],
+            'loglik': pp.logmeanexp(lls),
+            'loglik_se': pp.logmeanexp_se(lls)
+        })
+    local_results = pd.DataFrame(rows)
+    with open(cache_file, 'wb') as f:
+        pickle.dump(local_results, f)
+
+print(f"Best log-likelihood:"
+      f" {local_results['loglik'].max():.1f}")
+print(f"(SE:"
+      f" {local_results.loc[local_results['loglik'].idxmax(), 'loglik_se']:.1f})")
 ```
 
 
@@ -664,7 +740,7 @@ if os.path.exists(cache_file):
         results_df = pickle.load(f)
 else:
     np.random.seed(2062379496)
-    n_starts = 40
+    n_starts = 400
     theta_list = []
     for i in range(n_starts):
         th = theta.copy()
@@ -793,50 +869,54 @@ if os.path.exists(cache_file):
         profile_eta_df = pickle.load(f)
 else:
     np.random.seed(1196696958)
-    eta_grid = np.linspace(0.01, 0.95, 20)
-    n_prof = 5
-    profile_eta = []
+    eta_grid = np.linspace(0.01, 0.95, 40)
+    n_prof = 15
 
+    # Build ALL 40*15=600 starts at once
+    theta_list = []
+    eta_index = []
     for i, eta_val in enumerate(eta_grid):
-        theta_list = []
         for j in range(n_prof):
             th = theta.copy()
             th["eta"] = float(eta_val)
             th["Beta"] = np.random.uniform(5, 40)
             th["rho"] = np.random.uniform(0.2, 0.9)
             theta_list.append(th)
+            eta_index.append(eta_val)
 
-        mod = pp.Pomp(
-            rinit=rinit, rproc=rproc,
-            dmeas=dmeas, rmeas=rmeas,
-            ys=ys, theta=theta_list,
-            statenames=statenames,
-            par_trans=par_trans,
-            t0=0.0, nstep=7,
-            accumvars=("H",),
-            ydim=1, covars=None
-        )
-        key = jax.random.key(i * 1000)
-        mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_profile, a=0.3, key=key)
-        key = jax.random.key(i * 1000 + 3000)
-        mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_profile, a=0.3, key=key)
+    mod = pp.Pomp(
+        rinit=rinit, rproc=rproc,
+        dmeas=dmeas, rmeas=rmeas,
+        ys=ys, theta=theta_list,
+        statenames=statenames,
+        par_trans=par_trans,
+        t0=0.0, nstep=7,
+        accumvars=("H",),
+        ydim=1, covars=None
+    )
+    # All 600 runs in parallel on GPU
+    key = jax.random.key(1196696958)
+    mod.mif(J=2000, M=50,
+        rw_sd=rw_sd_profile, a=0.5, key=key)
+    key = jax.random.key(1196696959)
+    mod.mif(J=2000, M=100,
+        rw_sd=rw_sd_profile, a=0.3, key=key)
 
-        key = jax.random.key(i * 1000 + 5000)
-        mod.pfilter(key=key, J=5000, reps=10)
-        pf = mod.results_history.last()
+    key = jax.random.key(1196696960)
+    mod.pfilter(key=key, J=5000, reps=10)
+    pf = mod.results_history.last()
 
-        for j in range(n_prof):
-            lls = pf.logLiks.values[j, :]
-            fp = mod.theta[j]
-            profile_eta.append({
-                'eta': eta_val,
-                'Beta': fp['Beta'],
-                'rho': fp['rho'],
-                'loglik': pp.logmeanexp(lls),
-                'loglik_se': pp.logmeanexp_se(lls)
-            })
+    profile_eta = []
+    for idx in range(len(theta_list)):
+        lls = pf.logLiks.values[idx, :]
+        fp = mod.theta[idx]
+        profile_eta.append({
+            'eta': eta_index[idx],
+            'Beta': fp['Beta'],
+            'rho': fp['rho'],
+            'loglik': pp.logmeanexp(lls),
+            'loglik_se': pp.logmeanexp_se(lls)
+        })
 
     profile_eta_df = pd.DataFrame(profile_eta)
     profile_eta_df = profile_eta_df[
@@ -988,50 +1068,61 @@ if os.path.exists(cache_file):
         profile_rho_df = pickle.load(f)
 else:
     np.random.seed(2105684752)
-    rho_grid = np.linspace(0.1, 0.9, 15)
-    n_prof = 5
-    profile_rho = []
+    rho_grid = np.linspace(0.02, 0.9, 20)
+    n_prof = 15
 
-    for i, rho_val in enumerate(rho_grid):
-        theta_list = []
-        for j in range(n_prof):
+    # Use best results from global search as starts
+    best_starts = results_df.nlargest(
+        n_prof, 'loglik')
+
+    # Build ALL 20*15=300 starts at once
+    theta_list = []
+    rho_index = []
+    for rho_val in rho_grid:
+        for _, row in best_starts.iterrows():
             th = theta.copy()
             th["rho"] = float(rho_val)
-            th["Beta"] = np.random.uniform(5, 40)
-            th["eta"] = np.random.uniform(0.01, 0.5)
+            th["Beta"] = row["Beta"]
+            th["eta"] = row["eta"]
             theta_list.append(th)
+            rho_index.append(rho_val)
 
-        mod = pp.Pomp(
-            rinit=rinit, rproc=rproc,
-            dmeas=dmeas, rmeas=rmeas,
-            ys=ys, theta=theta_list,
-            statenames=statenames,
-            par_trans=par_trans,
-            t0=0.0, nstep=7,
-            accumvars=("H",),
-            ydim=1, covars=None
-        )
-        key = jax.random.key(i * 2000)
-        mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_rho_profile, a=0.3, key=key)
-        key = jax.random.key(i * 2000 + 3000)
-        mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_rho_profile, a=0.3, key=key)
+    mod = pp.Pomp(
+        rinit=rinit, rproc=rproc,
+        dmeas=dmeas, rmeas=rmeas,
+        ys=ys, theta=theta_list,
+        statenames=statenames,
+        par_trans=par_trans,
+        t0=0.0, nstep=7,
+        accumvars=("H",),
+        ydim=1, covars=None
+    )
+    # All 300 runs in parallel on GPU
+    key = jax.random.key(2105684752)
+    mod.mif(J=2000, M=50,
+        rw_sd=rw_sd_rho_profile, a=0.5, key=key)
+    key = jax.random.key(2105684753)
+    mod.mif(J=2000, M=100,
+        rw_sd=rw_sd_rho_profile, a=0.3, key=key)
+    key = jax.random.key(2105684754)
+    mod.mif(J=2000, M=100,
+        rw_sd=rw_sd_rho_profile, a=0.3, key=key)
 
-        key = jax.random.key(i * 2000 + 6000)
-        mod.pfilter(key=key, J=5000, reps=10)
-        pf = mod.results_history.last()
+    key = jax.random.key(2105684755)
+    mod.pfilter(key=key, J=5000, reps=10)
+    pf = mod.results_history.last()
 
-        for j in range(n_prof):
-            lls = pf.logLiks.values[j, :]
-            fp = mod.theta[j]
-            profile_rho.append({
-                'rho': rho_val,
-                'Beta': fp['Beta'],
-                'eta': fp['eta'],
-                'loglik': pp.logmeanexp(lls),
-                'loglik_se': pp.logmeanexp_se(lls)
-            })
+    profile_rho = []
+    for idx in range(len(theta_list)):
+        lls = pf.logLiks.values[idx, :]
+        fp = mod.theta[idx]
+        profile_rho.append({
+            'rho': rho_index[idx],
+            'Beta': fp['Beta'],
+            'eta': fp['eta'],
+            'loglik': pp.logmeanexp(lls),
+            'loglik_se': pp.logmeanexp_se(lls)
+        })
 
     profile_rho_df = pd.DataFrame(profile_rho)
     profile_rho_df = profile_rho_df[
@@ -1126,13 +1217,35 @@ rw_sd_exp = pp.RWSigma(
     },
     init_names=["eta"]
 )
+rw_sd_exp_med = pp.RWSigma(
+    sigmas={
+        "Beta": 0.01,
+        "mu_IR": 0.01,
+        "N": 0.0,
+        "rho": 0.0,
+        "eta": 0.01,
+        "k": 0.0
+    },
+    init_names=["eta"]
+)
+rw_sd_exp_small = pp.RWSigma(
+    sigmas={
+        "Beta": 0.005,
+        "mu_IR": 0.005,
+        "N": 0.0,
+        "rho": 0.0,
+        "eta": 0.005,
+        "k": 0.0
+    },
+    init_names=["eta"]
+)
 
 if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
         results_df2 = pickle.load(f)
 else:
     np.random.seed(55266255)
-    n_starts = 40
+    n_starts = 1000
     theta_list = []
     for i in range(n_starts):
         th = theta.copy()
@@ -1147,19 +1260,23 @@ else:
         dmeas=dmeas, rmeas=rmeas,
         ys=ys, theta=theta_list,
         statenames=statenames,
-        par_trans=par_trans,
+        par_trans=par_trans_exp,
         t0=0.0, nstep=7,
         accumvars=("H",),
         ydim=1, covars=None
     )
+    # Simulated tempering: 3 stages
     key = jax.random.key(610408798)
     mod.mif(J=2000, M=100,
             rw_sd=rw_sd_exp, a=0.5, key=key)
     key = jax.random.key(610408799)
     mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_exp, a=0.5, key=key)
-
+            rw_sd=rw_sd_exp_med, a=0.5, key=key)
     key = jax.random.key(610408800)
+    mod.mif(J=2000, M=100,
+            rw_sd=rw_sd_exp_small, a=0.5, key=key)
+
+    key = jax.random.key(610408801)
     mod.pfilter(key=key, J=5000, reps=10)
     pf = mod.results_history.last()
 
@@ -1216,18 +1333,35 @@ rw_sd_muIR_profile = pp.RWSigma(
     },
     init_names=["eta"]
 )
+rw_sd_muIR_med = pp.RWSigma(
+    sigmas={
+        "Beta": 0.01, "mu_IR": 0.0,
+        "N": 0.0, "rho": 0.0,
+        "eta": 0.01, "k": 0.0
+    },
+    init_names=["eta"]
+)
+rw_sd_muIR_small = pp.RWSigma(
+    sigmas={
+        "Beta": 0.005, "mu_IR": 0.0,
+        "N": 0.0, "rho": 0.0,
+        "eta": 0.005, "k": 0.0
+    },
+    init_names=["eta"]
+)
 
 if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
         profile_muIR_df = pickle.load(f)
 else:
     np.random.seed(610408798)
-    muIR_grid = np.linspace(0.2, 2.0, 15)
-    n_prof = 5
-    profile_muIR = []
+    muIR_grid = np.linspace(0.2, 2.0, 19)
+    n_prof = 100
 
-    for i, muIR_val in enumerate(muIR_grid):
-        theta_list = []
+    # Build ALL 19*100=1900 starts at once
+    theta_list = []
+    muIR_index = []
+    for muIR_val in muIR_grid:
         for j in range(n_prof):
             th = theta.copy()
             th["mu_IR"] = float(muIR_val)
@@ -1235,40 +1369,47 @@ else:
             th["Beta"] = np.random.uniform(5, 80)
             th["eta"] = np.random.uniform(0.01, 0.99)
             theta_list.append(th)
+            muIR_index.append(muIR_val)
 
-        mod = pp.Pomp(
-            rinit=rinit, rproc=rproc,
-            dmeas=dmeas, rmeas=rmeas,
-            ys=ys, theta=theta_list,
-            statenames=statenames,
-            par_trans=par_trans,
-            t0=0.0, nstep=7,
-            accumvars=("H",),
-            ydim=1, covars=None
-        )
-        key = jax.random.key(i * 3000)
-        mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_muIR_profile,
-            a=0.3, key=key)
-        key = jax.random.key(i * 3000 + 4000)
-        mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_muIR_profile,
-            a=0.3, key=key)
+    mod = pp.Pomp(
+        rinit=rinit, rproc=rproc,
+        dmeas=dmeas, rmeas=rmeas,
+        ys=ys, theta=theta_list,
+        statenames=statenames,
+        par_trans=par_trans,
+        t0=0.0, nstep=7,
+        accumvars=("H",),
+        ydim=1, covars=None
+    )
+    # All 1900 runs: 4-stage tempering in parallel
+    key = jax.random.key(610408798)
+    mod.mif(J=2000, M=100,
+        rw_sd=rw_sd_muIR_profile, a=0.5, key=key)
+    key = jax.random.key(610408799)
+    mod.mif(J=2000, M=100,
+        rw_sd=rw_sd_muIR_profile, a=0.5, key=key)
+    key = jax.random.key(610408800)
+    mod.mif(J=2000, M=100,
+        rw_sd=rw_sd_muIR_med, a=0.5, key=key)
+    key = jax.random.key(610408801)
+    mod.mif(J=2000, M=100,
+        rw_sd=rw_sd_muIR_small, a=0.5, key=key)
 
-        key = jax.random.key(i * 3000 + 8000)
-        mod.pfilter(key=key, J=5000, reps=10)
-        pf = mod.results_history.last()
+    key = jax.random.key(610408802)
+    mod.pfilter(key=key, J=5000, reps=10)
+    pf = mod.results_history.last()
 
-        for j in range(n_prof):
-            lls = pf.logLiks.values[j, :]
-            fp = mod.theta[j]
-            profile_muIR.append({
-                'mu_IR': muIR_val,
-                'Beta': fp['Beta'],
-                'eta': fp['eta'],
-                'loglik': pp.logmeanexp(lls),
-                'loglik_se': pp.logmeanexp_se(lls)
-            })
+    profile_muIR = []
+    for idx in range(len(theta_list)):
+        lls = pf.logLiks.values[idx, :]
+        fp = mod.theta[idx]
+        profile_muIR.append({
+            'mu_IR': muIR_index[idx],
+            'Beta': fp['Beta'],
+            'eta': fp['eta'],
+            'loglik': pp.logmeanexp(lls),
+            'loglik_se': pp.logmeanexp_se(lls)
+        })
 
     profile_muIR_df = pd.DataFrame(profile_muIR)
     profile_muIR_df = profile_muIR_df[
