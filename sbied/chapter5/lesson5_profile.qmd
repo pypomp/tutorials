@@ -4,35 +4,33 @@ title: >
 author:
   - Aaron A. King
   - Edward L. Ionides
-  - Translated in pypomp by Kunyang He
+  - Kunyang He
+date: today
+date-format: full
 
-shortauthor: "King & Ionides et al."   
-shorttitle: "Lesson 5 Profile"  
-date: "December 24, 2025"
-
-bibliography: ../sbied.bib             
+bibliography: ../sbied.bib
 
 format:
   beamer:
-    code-block-font-size: \tiny                    
-    theme: AnnArbor
-    colortheme: default
+    code-block-font-size: \small
     fontsize: 11pt
     cite-method: natbib
     biblio-style: apalike
-    toc: true  
-    slide-level: 3
-    highlight-style: tango  
-  
+    toc: false
+    slide-level: 2
+    header-includes: |
+      \setbeamertemplate{footline}[page number]
+    output-file: profile_slides.pdf
   pdf:
-    documentclass: article          
+    documentclass: article
     fontsize: 11pt
-    cite-method: natbib           
+    cite-method: natbib
     biblio-style: apalike
-    toc: true
+    toc: false
     geometry: margin=1in
-    
-jupyter: python3 
+    output-file: profile_notes.pdf
+
+jupyter: python3
 
 execute:
   echo: true
@@ -40,27 +38,20 @@ execute:
   error: false
 
 header-includes: |
-  \providecommand{\AtBeginSection}[1]{}
-  \providecommand{\AtBeginSubsection}[1]{}
-  \providecommand{\framebreak}{}
-
-  \usepackage{fvextra}  
-  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{
-    commandchars=\\\{\}, 
-    fontsize=\scriptsize 
-  }
-  \AtBeginSection{}
-  \AtBeginSubsection{}
   \usepackage{amsmath,amssymb,amsfonts}
   \usepackage{graphicx}
   \usepackage{hyperref}
   \usepackage{xcolor}
+  \usepackage{fvextra}
 
-  \newcommand{\myemph}[1]{\emph{#1}}
+  \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
+    commandchars=\\\{\},
+    breaklines=true,
+    breakanywhere=true,
+    fontsize=\scriptsize
+  }
+
   \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
-  \newcommand{\pkg}[1]{\texttt{#1}}
-  \newcommand{\code}[1]{\texttt{#1}}
-  \newcommand{\Rlanguage}{\textsf{R}}
   \newcommand{\Rzero}{\mathcal{R}_{0}}
   \newcommand{\pr}{\mathbb{P}}
   \newcommand{\E}{\mathbb{E}}
@@ -73,11 +64,7 @@ header-includes: |
 
 This document demonstrates how to compute a profile likelihood for the measles model, focusing on the extra-demographic stochasticity parameter $\sigma_{SE}$.
 
-# Introduction
-
-## Profile Likelihood
-
-### What is Profile Likelihood? {.allowframebreaks}
+## What is profile likelihood?
 
 A **profile likelihood** is a technique for understanding how the likelihood varies with a focal parameter while allowing other parameters to adjust optimally.
 
@@ -86,13 +73,11 @@ $$\ell^{\text{profile}}(\phi) = \max_{\psi} \ell(\phi, \psi)$$
 
 Profile likelihoods are useful for:
 
-1. **Constructing confidence intervals**: Use the likelihood ratio test cutoff
-2. **Assessing identifiability**: Flat profiles indicate weak identifiability
-3. **Visualizing parameter trade-offs**: See how other parameters compensate
+1. **Constructing confidence intervals**: Use the likelihood ratio test cutoff.
+2. **Assessing identifiability**: Flat profiles indicate weak identifiability.
+3. **Visualizing parameter trade-offs**: See how other parameters compensate.
 
-\framebreak
-
-### Profile Confidence Intervals {.allowframebreaks}
+## Profile confidence intervals
 
 The $(1-\alpha)$ confidence interval from a profile is the set of parameter values where:
 $$\ell^{\text{profile}}(\phi) \geq \ell^{\text{max}} - \frac{1}{2}\chi^2_1(1-\alpha)$$
@@ -101,9 +86,7 @@ For a 95% CI: cutoff = $\chi^2_1(0.95)/2 \approx 1.92$.
 
 For a 99% CI: cutoff = $\chi^2_1(0.99)/2 \approx 3.32$.
 
-# Setup
-
-## Load Packages and Model
+## Setup
 
 ```{python}
 #| label: setup-imports
@@ -127,7 +110,7 @@ import pypomp.measles.model_001b as m001b
 np.random.seed(594709947)
 ```
 
-## Load Data and MLEs {.allowframebreaks}
+##
 
 ```{python}
 #| label: load-mles
@@ -140,7 +123,7 @@ for param, value in theta_mle.items():
     print(f"  {param}: {value}")
 ```
 
-\framebreak
+##
 
 ```{python}
 #| label: create-pomp
@@ -162,11 +145,7 @@ print(f"Number of observations: {len(measles_pomp.ys)}")
 ```
 
 
-# Profile Computation
-
-## Strategy
-
-### Profiling over $\sigma_{SE}$ {.allowframebreaks}
+## Profiling over $\sigma_{SE}$
 
 Based on the original sbied approach, we profile over $\sigma_{SE}$ while:
 
@@ -194,9 +173,7 @@ print(f"Parameters to estimate: {len(est_params)}")
 print(f"Fixed parameters: {list(fixed_params.keys())}")
 ```
 
-## Profile Computation Functions
-
-### Generate Starting Points {.allowframebreaks}
+## Generating starting points
 
 ```{python}
 #| label: starting-points-function
@@ -240,7 +217,7 @@ print(f"Generated {len(starts)} starting points")
 print(f"R0 values: {[s['R0'] for s in starts]}")
 ```
 
-### Compute Single Profile Point {.allowframebreaks}
+## Computing a single profile point
 
 ```{python}
 #| label: profile-point-function
@@ -317,9 +294,7 @@ def compute_profile_point(sigmaSE_value, theta_mle, n_starts,
     return best_result
 ```
 
-## Quick Profile (Demonstration)
-
-### Running a Quick Profile {.allowframebreaks}
+## Running a quick profile
 
 For demonstration, we compute a quick profile with reduced computation:
 
@@ -365,9 +340,7 @@ for sigmaSE_val in quick_sigmaSE:
 print("Done!")
 ```
 
-\framebreak
-
-### Quick Profile Plot
+##
 
 ```{python}
 #| label: fig-quick-profile
@@ -400,11 +373,7 @@ plt.show()
 ```
 
 
-# Illustrative Full Profile
-
-## Expected Results
-
-### Illustrative Profile Results {.allowframebreaks}
+## Illustrative profile results
 
 Based on He et al. (2010), we show illustrative profile results:
 
@@ -428,7 +397,7 @@ print(f"  Profile maximum at sigmaSE = {sigmaSE_full[max_idx_full]:.4f}")
 print(f"  Maximum log-likelihood = {max_loglik:.1f}")
 ```
 
-\framebreak
+##
 
 ```{python}
 #| label: fig-illustrative-profile
@@ -465,7 +434,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-### Profile Traces {.allowframebreaks}
+## Profile traces
 
 Profile traces show how other parameters change along the profile:
 
@@ -520,11 +489,7 @@ plt.show()
 ```
 
 
-# Interpretation
-
-## Profile Results
-
-### Interpreting the Profile {.allowframebreaks}
+## Interpreting the profile
 
 The profile likelihood for $\sigma_{SE}$ reveals several important findings:
 
@@ -538,7 +503,7 @@ The profile likelihood for $\sigma_{SE}$ reveals several important findings:
 
 4. **Model Flexibility**: Extra-demographic stochasticity is important for capturing observed variability.
 
-### Importance of Extra-Demographic Stochasticity {.allowframebreaks}
+## Importance of extra-demographic stochasticity
 
 The profile provides strong evidence that $\sigma_{SE} > 0$:
 
@@ -553,9 +518,7 @@ This suggests extra-demographic stochasticity reflects genuine features:
 - Reporting variation not captured by measurement model
 
 
-## Using MCAP for Confidence Intervals
-
-### Monte Carlo Adjusted Profile {.allowframebreaks}
+## Monte Carlo Adjusted Profile (MCAP)
 
 The `mcap` function in pypomp helps compute confidence intervals that account for Monte Carlo error:
 
@@ -586,9 +549,7 @@ except Exception as e:
 ```
 
 
-## Computational Considerations
-
-### Practical Recommendations {.allowframebreaks}
+## Practical recommendations
 
 Computing profile likelihoods for POMP models is computationally intensive:
 
@@ -604,7 +565,7 @@ Computing profile likelihoods for POMP models is computationally intensive:
 
 5. **Monte Carlo Error**: Use enough particles so MC error is small relative to profile curvature.
 
-\framebreak
+##
 
 ```{python}
 #| label: timing-estimate
@@ -631,11 +592,7 @@ print(f"\nConsider parallelizing across {n_profile_points} profile points")
 ```
 
 
-# Summary
-
-## Key Points
-
-### Summary {.allowframebreaks}
+## Summary
 
 1. **Profile likelihoods** provide rigorous inference for focal parameters while accounting for uncertainty in nuisance parameters.
 
@@ -647,9 +604,7 @@ print(f"\nConsider parallelizing across {n_profile_points} profile points")
 
 5. **Extra-demographic stochasticity** ($\sigma_{SE}$) is an important feature of measles dynamics that cannot be ignored.
 
-\framebreak
-
-### pypomp Profile Workflow {.allowframebreaks}
+## `pypomp` profile workflow
 
 ```python
 # 1. Define profile grid
@@ -672,15 +627,8 @@ mcap_result = mcap(
 )
 ```
 
----
+[Back to Lesson 5](./lesson5.html).
+An [R version of this document](https://kingaa.github.io/sbied) is available.
 
-## References {.allowframebreaks}
 
-::: {#refs}
-:::
-
----
-
-[Back to Lesson 5](./lesson5.html)
-
-[R codes for the original document](https://raw.githubusercontent.com/kingaa/sbied/master/measles/codes.R)
+# References

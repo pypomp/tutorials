@@ -1,62 +1,52 @@
 ---
 title: >
-  Lesson 5: Case Study - Measles in England and Wales
+  Lesson 5: Case Study --- Measles in England and Wales
 author:
   - Aaron A. King
   - Edward L. Ionides
-  - Translated in pypomp by Kunyang He
+  - Kunyang He
+date: today
+date-format: full
 
-shortauthor: "King & Ionides et al."   
-shorttitle: "Lesson 5"  
-date: "December 24, 2025"
-
-bibliography: ../sbied.bib             
+bibliography: ../sbied.bib
 
 format:
   beamer:
-    code-block-font-size: \tiny                    
-    theme: AnnArbor
-    colortheme: default
+    code-block-font-size: \small
     fontsize: 11pt
     cite-method: natbib
     biblio-style: apalike
-    toc: true  
-    slide-level: 3
-    highlight-style: tango  
-  
+    toc: false
+    slide-level: 2
+    header-includes: |
+      \setbeamertemplate{footline}[page number]
+    output-file: slides.pdf
   pdf:
-    documentclass: article          
+    documentclass: article
     fontsize: 11pt
-    cite-method: natbib           
+    cite-method: natbib
     biblio-style: apalike
-    toc: true
+    toc: false
     geometry: margin=1in
-    
-jupyter: python3 
+    output-file: notes.pdf
 
+jupyter: python3
 
 header-includes: |
-  \providecommand{\AtBeginSection}[1]{}
-  \providecommand{\AtBeginSubsection}[1]{}
-  \providecommand{\framebreak}{}
-
-  \usepackage{fvextra}  
-  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{
-    commandchars=\\\{\}, 
-    fontsize=\scriptsize 
-  }
-  \AtBeginSection{}
-  \AtBeginSubsection{}
   \usepackage{amsmath,amssymb,amsfonts}
   \usepackage{graphicx}
   \usepackage{hyperref}
   \usepackage{xcolor}
+  \usepackage{fvextra}
 
-  \newcommand{\myemph}[1]{\emph{#1}}
+  \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
+    commandchars=\\\{\},
+    breaklines=true,
+    breakanywhere=true,
+    fontsize=\scriptsize
+  }
+
   \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
-  \newcommand{\pkg}[1]{\texttt{#1}}
-  \newcommand{\code}[1]{\texttt{#1}}
-  \newcommand{\Rlanguage}{\textsf{R}}
   \newcommand{\Rzero}{\mathcal{R}_{0}}
   \newcommand{\pr}{\mathbb{P}}
   \newcommand{\E}{\mathbb{E}}
@@ -68,19 +58,15 @@ header-includes: |
 ---
 
 This lesson presents an in-depth case study of measles in England and Wales,
-demonstrating the application of POMP methods with **pypomp** to long time series with complex dynamics.
-
-# Introduction
+demonstrating the application of POMP methods with `pypomp` to long time series with complex dynamics.
 
 ## Objectives
-
-### Learning Objectives
 
 1. To display a published case study using plug-and-play methods with non-trivial model complexities.
 
 2. To show how extra-demographic stochasticity can be modeled.
 
-3. To demonstrate the use of covariates in **pypomp**.
+3. To demonstrate the use of covariates in `pypomp`.
 
 4. To demonstrate the use of profile likelihood in scientific inference.
 
@@ -88,9 +74,7 @@ demonstrating the application of POMP methods with **pypomp** to long time serie
 
 6. To emphasize the potential need for extra sources of stochasticity in modeling.
 
-## Measles Revisited
-
-### Why Measles? {.allowframebreaks}
+## Why measles?
 
 Measles is the paradigm for a nonlinear ecological system that can be well described by low-dimensional nonlinear dynamics.
 
@@ -102,20 +86,20 @@ A tradition of careful modeling studies have proposed and found evidence for a n
 - Coupling between cities via human movement
 - Extra-demographic stochasticity (environmental or behavioral noise)
 
-\framebreak
+##
 
-Long, detailed time series are available for many cities. Measles has well-understood natural history and strong prior knowledge about key parameters.
+Long, detailed time series are available for many cities.
+Measles has well-understood natural history and strong prior knowledge about key parameters.
 
 Our goals are to:
 
-1. Demonstrate building a reasonably complex model in **pypomp**
+1. Demonstrate building a reasonably complex model in `pypomp`
 2. Fit it to data
 3. Explore the use of profile likelihoods for inference
 
-### The He et al. (2010) Study {.allowframebreaks}
+## The @He2010 study
 
-We'll implement the model from @He2010, which fits measles data from 20 cities in England and Wales.
-
+We implement the model from @He2010, which fits measles data from 20 cities in England and Wales.
 Key model features:
 
 1. **SEIR structure** with births and deaths
@@ -125,9 +109,7 @@ Key model features:
 5. **Demographic stochasticity**: Euler-multinomial transitions
 
 
-# Setup
-
-## Import Packages
+## Setup
 
 ```{python}
 #| echo: true
@@ -138,47 +120,40 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Import pypomp components
 from pypomp import Pomp, RWSigma, ParTrans
 from pypomp.util import logmeanexp, logmeanexp_se
 
-# Import the built-in UK Measles module
 from pypomp.measles.measlesPomp import UKMeasles
 import pypomp.measles.model_001b as m001b
 
-# For reproducibility
 np.random.seed(594709947)
 ```
 
-## Load Data
+## The data
 
-### The Data {.allowframebreaks}
-
-The **pypomp** package includes the UK measles data from @He2010. The `UKMeasles` class provides convenient access to the data and model construction.
+The `pypomp` package includes the UK measles data from @He2010.
+The `UKMeasles` class provides convenient access to the data and model construction.
 
 ```{python}
 #| echo: true
-# Load data for London
 data = UKMeasles.subset(units=["London"])
 
-# View the measles case data
 measles = data["measles"]
 print(f"Measles data shape: {measles.shape}")
 print(f"Date range: {measles['date'].min()} to {measles['date'].max()}")
 print(measles.head())
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
-# View demographic data
 demog = data["demog"]
 print(f"Demographic data shape: {demog.shape}")
 print(demog.head())
 ```
 
-### Visualizing the Data {.allowframebreaks}
+## Visualizing the data
 
 ```{python}
 #| echo: true
@@ -188,40 +163,40 @@ fig, ax = plt.subplots(figsize=(5, 2))
 ax.plot(measles['date'], measles['cases'], linewidth=0.5)
 ax.set_xlabel('Year')
 ax.set_ylabel('Reported Cases')
-ax.set_title('Measles Cases in London (1944-1965)')
+ax.set_title('Measles Cases in London (1944--1965)')
 plt.tight_layout()
 plt.show()
 ```
 
 
-# The Model
-
-## SEIR with Cohort Effect and Seasonality
-
-### Model Structure {.allowframebreaks}
+## Model structure
 
 The state variables are:
 
 - $S$: Susceptible individuals
-- $E$: Exposed (latent) individuals  
+- $E$: Exposed (latent) individuals
 - $I$: Infectious individuals
 - $R$: Recovered individuals (computed as $N - S - E - I$)
 - $W$: Cumulative white noise (for diagnostics)
 - $C$: Cumulative cases (accumulator variable, reset each observation interval)
 
-\framebreak
+##
 
 The model incorporates several important features:
 
-1. **The birth-cohort effect**: A specified fraction (`cohort`) of each annual birth cohort enters the susceptible pool all at once, on the first day of the school year.
+1. **The birth-cohort effect**:\
+   A specified fraction (`cohort`) of each annual birth cohort enters the susceptible pool all at once, on the first day of the school year.
 
-2. **Seasonality in the transmission rate**: During school terms, the transmission rate is higher than during holidays.
+2. **Seasonality in the transmission rate**:\
+   During school terms, the transmission rate is higher than during holidays.
 
-3. **Extra-demographic stochasticity**: A Gamma white-noise term acts multiplicatively on the force of infection.
+3. **Extra-demographic stochasticity**:\
+   A Gamma white-noise term acts multiplicatively on the force of infection.
 
-4. **Demographic stochasticity**: Implemented using Euler-multinomial distributions.
+4. **Demographic stochasticity**:\
+   Implemented using Euler-multinomial distributions.
 
-### Model Parameters {.allowframebreaks}
+## Model parameters
 
 The model parameters (from `model_001b`) are:
 
@@ -238,28 +213,29 @@ The model parameters (from `model_001b`) are:
 | $\text{amplitude}$ | Seasonality amplitude |
 | $S_0, E_0, I_0, R_0$ | Initial state proportions |
 
-Note: The mortality rate $\mu=0.02$ is fixed in the model.
+The mortality rate $\mu=0.02$ is fixed in the model.
 
-### Seasonality Function {.allowframebreaks}
+## Seasonality function
 
-The model implements term-time forcing based on UK school schedules. The transmission rate varies between school terms and holidays:
+The model implements term-time forcing based on UK school schedules.
+The transmission rate varies between school terms and holidays:
 
 $$\beta(t) = R_0 \cdot \text{seas}(t) \cdot (1 - e^{-(\gamma + \mu)\,dt}) / dt$$
 
 where:
-$$\text{seas}(t) = \begin{cases} 
+$$\text{seas}(t) = \begin{cases}
 1 + \text{amplitude} \cdot \frac{0.2411}{0.7589} & \text{during school term} \\
 1 - \text{amplitude} & \text{during holidays}
 \end{cases}$$
 
 School terms run approximately:
 
-- Jan 7 to Apr 10 (days 7-100)
-- Apr 25 to Jul 18 (days 115-199)
-- Sep 9 to Oct 27 (days 252-300)
-- Nov 4 to Dec 22 (days 308-356)
+- Jan 7 to Apr 10 (days 7--100)
+- Apr 25 to Jul 18 (days 115--199)
+- Sep 9 to Oct 27 (days 252--300)
+- Nov 4 to Dec 22 (days 308--356)
 
-### Cohort Effect {.allowframebreaks}
+## Cohort effect
 
 The cohort effect captures the fact that susceptible children enter the population continuously through births, but enter school (and the school-aged mixing group) at discrete times.
 
@@ -270,7 +246,7 @@ $$\text{br}(t) = \begin{cases}
 (1-\text{cohort}) \cdot \text{birthrate} & \text{otherwise}
 \end{cases}$$
 
-### Extra-Demographic Stochasticity {.allowframebreaks}
+## Extra-demographic stochasticity
 
 The force of infection includes multiplicative gamma white noise:
 
@@ -284,25 +260,21 @@ where $dW \sim \text{Gamma}\left(\frac{dt}{\sigma_{SE}^2}, \sigma_{SE}^2\right)$
 This adds "environmental" or "behavioral" stochasticity beyond what demographic stochasticity provides.
 
 
-## Constructing the POMP Object
+## Constructing the POMP object
 
-### Using UKMeasles.Pomp() {.allowframebreaks}
-
-The **pypomp** package provides a convenient factory function to construct the measles POMP object:
+The `pypomp` package provides a convenient factory function to construct the measles POMP object:
 
 ```{python}
 #| echo: true
-# Load MLEs from He et al. (2010)
 mles = UKMeasles.AK_mles()
 print("MLE parameters for London:")
 print(mles["London"])
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
-# Extract London MLE as a dictionary
 theta_mle = mles["London"].to_dict()
 print("\nKey parameter values:")
 print(f"  R0 = {theta_mle['R0']:.1f}")
@@ -312,11 +284,10 @@ print(f"  rho = {theta_mle['rho']:.3f}")
 print(f"  sigmaSE = {theta_mle['sigmaSE']:.4f}")
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
-# Construct the POMP object for London
 measles_pomp = UKMeasles.Pomp(
     unit=["London"],
     theta=theta_mle,
@@ -325,7 +296,7 @@ measles_pomp = UKMeasles.Pomp(
     first_year=1950,
     last_year=1963,
     dt=1/365.25,
-    clean=True  # Remove suspicious data points
+    clean=True
 )
 
 print(f"Time range: {measles_pomp.ys.index[0]:.2f} to {measles_pomp.ys.index[-1]:.2f}")
@@ -333,13 +304,12 @@ print(f"Number of observations: {len(measles_pomp.ys)}")
 print(f"State names: {measles_pomp.statenames}")
 ```
 
-### Model Components {.allowframebreaks}
+## Model components
 
 The model components are defined in `pypomp.measles.model_001b`:
 
 ```{python}
 #| echo: true
-# View available model components
 print("Parameter names:", m001b.param_names)
 print("\nState names:", m001b.statenames)
 ```
@@ -353,31 +323,23 @@ The model provides:
 - `to_est`/`from_est`: Parameter transformations
 
 
-# Particle Filtering
-
-## Running the Particle Filter
-
-### Evaluating the Likelihood {.allowframebreaks}
+## Evaluating the likelihood
 
 ```{python}
 #| echo: true
-# Run particle filter to evaluate likelihood at MLE
 key = jax.random.key(998468235)
 
-# Multiple replications to assess Monte Carlo error
 reps = 10
 J = 5000
 
-# IMPORTANT: Pass CLL=True to compute conditional log-likelihoods
 measles_pomp.pfilter(
-    J=J, 
-    key=key, 
+    J=J,
+    key=key,
     reps=reps,
     thresh=0,
-    CLL=True  # Enable conditional log-likelihood computation
+    CLL=True
 )
 
-# Access results from results_history
 pf_result = measles_pomp.results_history[-1]
 logliks = pf_result.logLiks.values.flatten()
 
@@ -388,32 +350,26 @@ print(f"Log-likelihood estimate: {ll_est:.2f}")
 print(f"Monte Carlo standard error: {ll_se:.2f}")
 ```
 
-\framebreak
-
-### Diagnostic Plots {.allowframebreaks}
+## Particle filter diagnostics
 
 ```{python}
 #| echo: true
 #| fig-width: 5
 #| fig-height: 2
-# Plot conditional log-likelihoods
-# CORRECTED: Use pf_result.CLL (not cond_logLiks)
-# CLL has shape: (n_theta, reps, n_times) with dims ('theta', 'replicate', 'time')
 times = measles_pomp.ys.index.values
 
 fig, ax = plt.subplots(figsize=(5, 2))
 
 if pf_result.CLL is not None:
-    cond_logliks = pf_result.CLL.values  # Shape: (n_theta, reps, n_times)
+    cond_logliks = pf_result.CLL.values
     n_reps = cond_logliks.shape[1]
     for i in range(min(5, n_reps)):
-        # Index: [theta_idx, replicate_idx, time_idx]
         ax.plot(times, cond_logliks[0, i, :], alpha=0.5, linewidth=0.5)
     ax.set_xlabel('Year')
     ax.set_ylabel('Conditional Log-Likelihood')
     ax.set_title('Particle Filter Conditional Log-Likelihoods')
 else:
-    ax.text(0.5, 0.5, 'CLL not computed (pass CLL=True to pfilter)', 
+    ax.text(0.5, 0.5, 'CLL not computed (pass CLL=True to pfilter)',
             ha='center', va='center', transform=ax.transAxes)
     ax.set_title('No CLL data available')
 
@@ -422,28 +378,22 @@ plt.show()
 ```
 
 
-# Iterated Filtering (IF2)
-
-## Setting Up IF2
-
-### Random Walk Standard Deviations {.allowframebreaks}
+## Setting up IF2
 
 The IF2 algorithm requires specifying random walk standard deviations for each parameter being estimated.
 
 ```{python}
 #| echo: true
-# Parameters to estimate
-est_params = ["R0", "sigma", "gamma", "sigmaSE", "psi", 
+est_params = ["R0", "sigma", "gamma", "sigmaSE", "psi",
               "cohort", "amplitude", "S_0", "E_0", "I_0", "R_0"]
 
-# Random walk standard deviations (on transformed scale)
 rw_sd = RWSigma(
     sigmas={
         "R0": 0.02,
         "sigma": 0.02,
         "gamma": 0.02,
-        "iota": 0.0,      # Fixed
-        "rho": 0.0,       # Fixed (can be estimated if desired)
+        "iota": 0.0,
+        "rho": 0.0,
         "sigmaSE": 0.02,
         "psi": 0.02,
         "cohort": 0.02,
@@ -457,42 +407,34 @@ rw_sd = RWSigma(
 )
 ```
 
-### Running IF2 {.allowframebreaks}
+## Running IF2
 
 ```{python}
 #| echo: true
 #| eval: false
 key = jax.random.key(1234567)
 
-# Run iterated filtering
 measles_pomp.mif(
-    J=2000,      # Number of particles
-    M=50,        # Number of iterations
-    a=0.95,      # Cooling rate
+    J=2000,
+    M=50,
+    a=0.95,
     rw_sd=rw_sd,
     key=key,
     thresh=0
 )
 
-# Access results
 mif_result = measles_pomp.results_history[-1]
 print(f"IF2 completed with {mif_result.M} iterations")
 ```
 
-\framebreak
-
-### Convergence Diagnostics {.allowframebreaks}
+## Convergence diagnostics
 
 ```{python}
 #| echo: true
 #| eval: false
-# CORRECTED: Use traces_da xarray DataArray
-# traces_da has dims: [replicate, iteration, variable]
 traces = mif_result.traces_da
 
-# Plot likelihood trace
 fig, ax = plt.subplots(figsize=(5, 2))
-# Access logLik from the traces DataArray
 loglik_trace = traces.sel(variable="logLik").values.flatten()
 ax.plot(loglik_trace)
 ax.set_xlabel('Iteration')
@@ -501,12 +443,10 @@ ax.set_title('IF2 Likelihood Trace')
 plt.tight_layout()
 plt.show()
 
-# Plot parameter traces
-params_to_plot = ["R0", "sigma", "gamma", "sigmaSE", 
+params_to_plot = ["R0", "sigma", "gamma", "sigmaSE",
                   "cohort", "amplitude", "S_0", "E_0", "I_0"]
 fig, axes = plt.subplots(3, 3, figsize=(5, 4))
 for ax, param in zip(axes.flat, params_to_plot):
-    # Select the variable from traces_da
     param_vals = traces.sel(variable=param).values.flatten()
     ax.plot(param_vals)
     ax.set_title(param)
@@ -516,20 +456,12 @@ plt.show()
 ```
 
 
-# Simulation
-
-## Simulating from the Fitted Model
-
-### Model Simulation {.allowframebreaks}
+## Simulating from the fitted model
 
 ```{python}
 #| echo: true
-# Simulate from the model at MLE
 key = jax.random.key(42)
 
-# CORRECTED: simulate() returns DataFrames, not arrays
-# Returns (X_sims_df, Y_sims_df) with columns:
-#   replicate, sim, time, state_0/obs_0, state_1/obs_1, ...
 X_sims, Y_sims = measles_pomp.simulate(key=key, nsim=20)
 
 print(f"State simulations shape: {X_sims.shape}")
@@ -539,48 +471,42 @@ print("\nY_sims head:")
 print(Y_sims.head())
 ```
 
-\framebreak
+##
 
 ```{python}
 #| echo: true
 #| fig-width: 5
-#| fig-height: 63
-# Plot simulations vs data
+#| fig-height: 3
 fig, axes = plt.subplots(2, 1, figsize=(5, 3))
 
 times = measles_pomp.ys.index.values
 data_cases = measles_pomp.ys["cases"].values
 
-# CORRECTED: Access DataFrame columns properly
-# Y_sims has columns: replicate, sim, time, obs_0
 n_sims = Y_sims['sim'].nunique()
 
-# Panel 1: All simulations
 ax = axes[0]
 for sim_idx in range(n_sims):
-    # Filter for this simulation (replicate=0, sim=sim_idx)
     sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == sim_idx)]
     sim_data = sim_data.sort_values('time')
-    ax.plot(sim_data['time'].values, sim_data['obs_0'].values, 
+    ax.plot(sim_data['time'].values, sim_data['obs_0'].values,
             alpha=0.2, color='blue', linewidth=0.5)
-ax.plot(times, data_cases, 
+ax.plot(times, data_cases,
         color='red', linewidth=1.5, label='Data')
 ax.set_xlabel('Year')
 ax.set_ylabel('Cases')
-ax.set_title('Model Simulations (blue) vs Data (red)')
+ax.set_title('Model simulations (blue) vs data (red)')
 ax.legend()
 
-# Panel 2: Single simulation
 ax = axes[1]
 sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == 0)]
 sim_data = sim_data.sort_values('time')
-ax.plot(sim_data['time'].values, sim_data['obs_0'].values, 
+ax.plot(sim_data['time'].values, sim_data['obs_0'].values,
         color='blue', linewidth=1, label='Simulation')
-ax.plot(times, data_cases, 
+ax.plot(times, data_cases,
         color='red', linewidth=1, label='Data')
 ax.set_xlabel('Year')
 ax.set_ylabel('Cases')
-ax.set_title('Single Simulation vs Data')
+ax.set_title('Single simulation vs data')
 ax.legend()
 
 plt.tight_layout()
@@ -588,23 +514,23 @@ plt.show()
 ```
 
 
-# Profile Likelihoods
-
-## Why Profile Likelihoods?
-
-### Scientific Inference {.allowframebreaks}
+## Why profile likelihoods?
 
 Profile likelihoods are essential for:
 
-1. **Valid confidence intervals**: Profile-based CIs are valid even when the likelihood surface is non-quadratic.
+1. **Valid confidence intervals**:\
+   Profile-based CIs are valid even when the likelihood surface is non-quadratic.
 
-2. **Parameter correlations**: Profile traces reveal how parameters compensate for each other.
+2. **Parameter correlations**:\
+   Profile traces reveal how parameters compensate for each other.
 
-3. **Identifiability diagnostics**: Flat profiles indicate weak identifiability.
+3. **Identifiability diagnostics**:\
+   Flat profiles indicate weak identifiability.
 
-4. **Hypothesis testing**: Likelihood ratio tests can be constructed.
+4. **Hypothesis testing**:\
+   Likelihood ratio tests can be constructed.
 
-### Profile Likelihood Theory {.allowframebreaks}
+## Profile likelihood theory
 
 For a focal parameter $\phi$, the profile likelihood is:
 
@@ -616,22 +542,22 @@ $$\{\phi: \ell_{\text{profile}}(\phi) > \max \ell - \chi^2_1(1-\alpha)/2\}$$
 
 For 95% confidence, the cutoff is $1.92 = \chi^2_1(0.95)/2$.
 
-### Computing Profiles in pypomp {.allowframebreaks}
+## Computing profiles in `pypomp`
 
 See the supplementary document `lesson5_profile.qmd` for detailed profile computation code.
 
 The general approach:
 
-1. Fix the focal parameter at a grid of values
-2. At each grid point, optimize remaining parameters using IF2
-3. Evaluate likelihood with particle filter
-4. Plot profile and extract confidence intervals
+1. Fix the focal parameter at a grid of values.
+2. At each grid point, optimize remaining parameters using IF2.
+3. Evaluate likelihood with particle filter.
+4. Plot profile and extract confidence intervals.
 
 ```{python}
 #| echo: true
 from pypomp import mcap
 
-# Example: using mcap for profile analysis (with results)
+# Example: using mcap for profile analysis
 # mcap_result = mcap(
 #     parameter=param_grid,
 #     loglik=profile_logliks,
@@ -641,11 +567,7 @@ from pypomp import mcap
 ```
 
 
-# Model Diagnostics
-
-## ARMA Benchmark
-
-### Comparing to Statistical Models {.allowframebreaks}
+## ARMA benchmark
 
 A useful diagnostic is to compare the mechanistic model's likelihood to that of a purely statistical model like ARMA.
 
@@ -654,14 +576,12 @@ A useful diagnostic is to compare the mechanistic model's likelihood to that of 
 #| eval: false
 from statsmodels.tsa.arima.model import ARIMA
 
-# Fit ARMA(2,0,2) to log(cases+1)
 cases = measles_pomp.ys["cases"].values
 log_cases = np.log(np.maximum(cases, 1))
 
 model = ARIMA(log_cases, order=(2, 0, 2))
 fit = model.fit()
 
-# Adjust for Jacobian
 arma_loglik = fit.llf - np.sum(log_cases)
 
 print(f"ARMA(2,0,2) log-likelihood: {arma_loglik:.2f}")
@@ -671,23 +591,25 @@ print(f"Mechanistic model log-likelihood: {ll_est:.2f}")
 The mechanistic model should fit at least as well as ARMA if it captures the dynamics correctly.
 
 
-# Interpretation of Results
-
-## Parameter Estimates
-
-### Understanding the Estimates {.allowframebreaks}
+## Understanding the parameter estimates
 
 Key findings from @He2010:
 
-1. **$R_0 \approx 40-60$**: Much higher than the commonly cited value of 15-20. This reflects the fact that the susceptible fraction is much smaller than in the "virgin population" used for classical estimates.
+1. **$R_0 \approx 40$--$60$**:\
+   Much higher than the commonly cited value of 15--20.
+   This reflects the fact that the susceptible fraction is much smaller than in the "virgin population" used for classical estimates.
 
-2. **$\sigma_{SE} > 0$**: Extra-demographic stochasticity is essential. Without it, the model fits poorly.
+2. **$\sigma_{SE} > 0$**:\
+   Extra-demographic stochasticity is essential.
+   Without it, the model fits poorly.
 
-3. **Cohort effect**: A substantial fraction of births enter the susceptible pool at school start, contributing to seasonal dynamics.
+3. **Cohort effect**:\
+   A substantial fraction of births enter the susceptible pool at school start, contributing to seasonal dynamics.
 
-4. **Reporting rate $\rho \approx 0.5$**: About half of cases are reported.
+4. **Reporting rate $\rho \approx 0.5$**:\
+   About half of cases are reported.
 
-### Scientific Questions {.allowframebreaks}
+## Scientific questions
 
 1. What does it mean that parameter estimates from fitting disagree with estimates from other data?
 
@@ -696,9 +618,7 @@ Key findings from @He2010:
 3. How do we interpret the need for extra-demographic stochasticity in this model?
 
 
-# Exercises
-
-## Exercise 5.1: Model Diagnostics
+## Exercise 5.1: Model diagnostics
 
 Simulate from the fitted model and compare simulations to data.
 
@@ -706,14 +626,14 @@ Simulate from the fitted model and compare simulations to data.
 - Are the seasonal patterns reproduced?
 - What aspects of the data are not well captured?
 
-## Exercise 5.2: Alternative Seasonality
+## Exercise 5.2: Alternative seasonality
 
 Modify the seasonality function to use a sinusoidal approximation instead of term-time forcing.
 
 - How does this affect the fit (log-likelihood)?
 - What are the implications for interpretation?
 
-## Exercise 5.3: Extra-Demographic Stochasticity
+## Exercise 5.3: Extra-demographic stochasticity
 
 Set $\sigma_{SE} = 0$ and compare with the full model.
 
@@ -721,14 +641,14 @@ Set $\sigma_{SE} = 0$ and compare with the full model.
 - How do other parameters change?
 - Use simulations to diagnose differences.
 
-## Exercise 5.4: Cohort Effect Identifiability
+## Exercise 5.4: Cohort effect identifiability
 
 Compute a profile likelihood over the `cohort` parameter.
 
 - Is this parameter well-identified?
 - What do profile traces reveal about parameter correlations?
 
-## Exercise 5.5: Fixed Reporting Rate
+## Exercise 5.5: Fixed reporting rate
 
 Fix $\rho = 0.6$ and maximize likelihood over remaining parameters.
 
@@ -736,25 +656,19 @@ Fix $\rho = 0.6$ and maximize likelihood over remaining parameters.
 - Is the model consistent with this constraint?
 
 
-# Summary
+## Summary
 
-## Key Takeaways
+1. **Complex models are tractable** with `pypomp`'s built-in `UKMeasles` module.
 
-### Summary {.allowframebreaks}
+2. **Covariates** are handled via DataFrame interface with automatic interpolation.
 
-1. **Complex models are tractable** with pypomp's built-in UKMeasles module
+3. **Extra-demographic stochasticity** is essential for fitting real epidemic data.
 
-2. **Covariates** are handled via DataFrame interface with automatic interpolation
+4. **Profile likelihoods** provide valid inference for challenging models.
 
-3. **Extra-demographic stochasticity** is essential for fitting real epidemic data
+5. **Model diagnostics** through simulation and benchmarking are essential.
 
-4. **Profile likelihoods** provide valid inference for challenging models
-
-5. **Model diagnostics** through simulation and benchmarking are essential
-
-\framebreak
-
-### pypomp API Summary {.allowframebreaks}
+## `pypomp` API summary
 
 ```python
 # Construct model
@@ -762,25 +676,21 @@ pomp_obj = UKMeasles.Pomp(
     unit=["London"], theta=theta, model="001b"
 )
 
-# Particle filter (with CLL diagnostic)
+# Particle filter
 pomp_obj.pfilter(J=5000, key=key, reps=10, CLL=True)
 
-# Access conditional log-likelihoods
 pf_result = pomp_obj.results_history[-1]
-cond_logliks = pf_result.CLL  # xarray DataArray, shape (n_theta, reps, n_times)
-# Access replicate i: cond_logliks.values[0, i, :]
+cond_logliks = pf_result.CLL
 
 # Iterated filtering
 pomp_obj.mif(J=2000, M=50, a=0.95, rw_sd=rw_sd, key=key)
 
-# Access IF2 traces
 mif_result = pomp_obj.results_history[-1]
-traces = mif_result.traces_da  # xarray with dims [replicate, iteration, variable]
+traces = mif_result.traces_da
 loglik_trace = traces.sel(variable="logLik").values
 
-# Simulation (returns DataFrames)
+# Simulation
 X_sims, Y_sims = pomp_obj.simulate(key=key, nsim=20)
-# Y_sims columns: replicate, sim, time, obs_0, obs_1, ...
 ```
 
 

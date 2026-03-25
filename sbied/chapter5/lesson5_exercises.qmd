@@ -1,38 +1,36 @@
 ---
 title: >
-  Lesson 5: Exercises - Measles Case Study
+  Lesson 5: Exercises --- Measles Case Study
 author:
   - Aaron A. King
   - Edward L. Ionides
-  - Translated in pypomp by Kunyang He
+  - Kunyang He
+date: today
+date-format: full
 
-shortauthor: "King & Ionides et al."   
-shorttitle: "Lesson 5 Exercises"  
-date: "December 24, 2025"
-
-bibliography: ../sbied.bib             
+bibliography: ../sbied.bib
 
 format:
   beamer:
-    code-block-font-size: \tiny                    
-    theme: AnnArbor
-    colortheme: default
+    code-block-font-size: \small
     fontsize: 11pt
     cite-method: natbib
     biblio-style: apalike
-    toc: true  
-    slide-level: 3
-    highlight-style: tango  
-  
+    toc: false
+    slide-level: 2
+    header-includes: |
+      \setbeamertemplate{footline}[page number]
+    output-file: exercises_slides.pdf
   pdf:
-    documentclass: article          
+    documentclass: article
     fontsize: 11pt
-    cite-method: natbib           
+    cite-method: natbib
     biblio-style: apalike
-    toc: true
+    toc: false
     geometry: margin=1in
-    
-jupyter: python3 
+    output-file: exercises_notes.pdf
+
+jupyter: python3
 
 execute:
   echo: true
@@ -40,27 +38,20 @@ execute:
   error: false
 
 header-includes: |
-  \providecommand{\AtBeginSection}[1]{}
-  \providecommand{\AtBeginSubsection}[1]{}
-  \providecommand{\framebreak}{}
-
-  \usepackage{fvextra}  
-  \RecustomVerbatimEnvironment{Highlighting}{Verbatim}{
-    commandchars=\\\{\}, 
-    fontsize=\scriptsize 
-  }
-  \AtBeginSection{}
-  \AtBeginSubsection{}
   \usepackage{amsmath,amssymb,amsfonts}
   \usepackage{graphicx}
   \usepackage{hyperref}
   \usepackage{xcolor}
+  \usepackage{fvextra}
 
-  \newcommand{\myemph}[1]{\emph{#1}}
+  \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
+    commandchars=\\\{\},
+    breaklines=true,
+    breakanywhere=true,
+    fontsize=\scriptsize
+  }
+
   \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
-  \newcommand{\pkg}[1]{\texttt{#1}}
-  \newcommand{\code}[1]{\texttt{#1}}
-  \newcommand{\Rlanguage}{\textsf{R}}
   \newcommand{\Rzero}{\mathcal{R}_{0}}
   \newcommand{\pr}{\mathbb{P}}
   \newcommand{\E}{\mathbb{E}}
@@ -72,11 +63,9 @@ header-includes: |
 ---
 
 This document contains worked solutions to the exercises from Lesson 5 on the
-measles case study, implemented using **pypomp**.
+measles case study, implemented using `pypomp`.
 
-# Setup
-
-## Import Packages
+## Setup
 
 ```{python}
 #| label: setup-imports
@@ -90,11 +79,9 @@ import matplotlib.pyplot as plt
 from scipy.stats import chi2
 from copy import deepcopy
 
-# Import pypomp components
 from pypomp import Pomp, RWSigma, ParTrans, mcap
 from pypomp.util import logmeanexp, logmeanexp_se
 
-# Import the built-in UK Measles module
 from pypomp.measles.measlesPomp import UKMeasles
 import pypomp.measles.model_001b as m001b
 import pypomp.measles.model_001c as m001c
@@ -102,15 +89,13 @@ import pypomp.measles.model_001c as m001c
 np.random.seed(594709947)
 ```
 
-## Load Data and Construct Model {.allowframebreaks}
+##
 
 ```{python}
 #| label: load-model
-# Load MLEs from He et al. (2010)
 mles = UKMeasles.AK_mles()
 theta_mle = mles["London"].to_dict()
 
-# Construct the POMP object for London
 measles_pomp = UKMeasles.Pomp(
     unit=["London"],
     theta=theta_mle,
@@ -128,9 +113,7 @@ print(f"Parameters: {list(theta_mle.keys())}")
 ```
 
 
-# Exercise 5.1: Model Diagnostics
-
-## Problem Statement
+## Exercise 5.1: Model diagnostics
 
 Simulate from the fitted model and compare simulations to data.
 
@@ -138,9 +121,7 @@ Simulate from the fitted model and compare simulations to data.
 - Are the seasonal patterns reproduced?
 - What aspects of the data are not well captured?
 
-## Solution {.allowframebreaks}
-
-### Simulation Code
+##
 
 ```{python}
 #| label: fig-ex1-simulations
@@ -225,9 +206,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-\framebreak
-
-### Diagnostic Questions
+## Diagnostic questions
 
 **What to look for:**
 
@@ -241,7 +220,7 @@ plt.show()
 
 5. **Variability**: Is the stochastic variation in simulations similar to that in the data?
 
-### Analysis {.allowframebreaks}
+## Analysis
 
 ```{python}
 #| label: ex1-summary-stats
@@ -280,18 +259,14 @@ print(f"{'CV':<25} {data_cv:>10.2f} {np.mean(sim_cvs):>12.2f}")
 ```
 
 
-# Exercise 5.2: Alternative Seasonality
-
-## Problem Statement
+## Exercise 5.2: Alternative seasonality
 
 Modify the seasonality function to use a sinusoidal approximation instead of term-time forcing.
 
 - How does this affect the fit (log-likelihood)?
 - What are the implications for interpretation?
 
-## Solution {.allowframebreaks}
-
-### Defining Sinusoidal Seasonality
+##
 
 To use sinusoidal seasonality, we need to create a custom model. Here we show how the two seasonality functions compare:
 
@@ -325,9 +300,7 @@ def sinusoidal_seasonality(t, amplitude):
     return 1.0 + amplitude * np.cos(phase)
 ```
 
-\framebreak
-
-### Comparing Seasonality Functions
+## Comparing seasonality functions
 
 ```{python}
 #| label: fig-ex2-seasonality
@@ -360,9 +333,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-\framebreak
-
-### Interpretation
+## Interpretation
 
 **Expected differences:**
 
@@ -374,23 +345,20 @@ plt.show()
 
 3. **Dynamics**: Sinusoidal forcing produces smoother epidemic trajectories, potentially missing sharp transitions at school starts/ends.
 
-**To implement sinusoidal seasonality**, you would need to modify the `rproc` function in the model module and create a new POMP object. This is left as an exercise.
+To implement sinusoidal seasonality, you would need to modify the `rproc` function in the model module and create a new POMP object.
 
 
-# Exercise 5.3: Extra-Demographic Stochasticity
-
-## Problem Statement
+## Exercise 5.3: Extra-demographic stochasticity
 
 Set $\sigma_{SE} = 0$ (no extra-demographic stochasticity), and fix $\rho$ and $\iota$ at their MLE values. Then maximize the likelihood.
 
 - How does likelihood compare?
 - How do other parameters change?
 
-## Solution {.allowframebreaks}
+## Model without extra-demographic stochasticity
 
-### Model Without Extra-Demographic Stochasticity
-
-The `model_001c` variant in pypomp is a simplified model that may run faster. For completely removing extra-demographic stochasticity, we would modify the model. Here we compare by evaluating at different $\sigma_{SE}$ values:
+The `model_001c` variant in `pypomp` is a simplified model that may run faster.
+Here we compare by evaluating at different $\sigma_{SE}$ values:
 
 ```{python}
 #| label: ex3-sigmase-comparison
@@ -431,9 +399,7 @@ for sigmaSE in sigmaSE_values:
     print(f"sigmaSE = {sigmaSE:.4f}: loglik = {ll:.1f} (SE: {ll_se:.2f})")
 ```
 
-\framebreak
-
-### Visualization
+##
 
 ```{python}
 #| label: fig-ex3-sigmase
@@ -460,9 +426,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-\framebreak
-
-### Interpretation
+## Interpretation
 
 **Why does extra-demographic stochasticity matter?**
 
@@ -472,12 +436,10 @@ plt.show()
 
 3. **Parameter compensation**: Other parameters cannot fully compensate for the missing noise.
 
-4. **Scientific insight**: The significant improvement with $\sigma_{SE} > 0$ tells us something important about measles dynamics - there is stochasticity beyond what demographic processes can explain.
+4. **Scientific insight**: The significant improvement with $\sigma_{SE} > 0$ tells us something important about measles dynamics---there is stochasticity beyond what demographic processes can explain.
 
 
-# Exercise 5.4: Cohort Effect Identifiability
-
-## Problem Statement
+## Exercise 5.4: Cohort effect identifiability
 
 Explore the identifiability of the cohort parameter.
 
@@ -485,11 +447,10 @@ Explore the identifiability of the cohort parameter.
 - Is this parameter well-identified?
 - What do profile traces reveal?
 
-## Solution {.allowframebreaks}
+## Profile computation strategy
 
-### Profile Computation Strategy
-
-Computing full profile likelihoods is computationally intensive. Here we show the approach:
+Computing full profile likelihoods is computationally intensive.
+Here we show the approach:
 
 ```{python}
 #| label: profile-function
@@ -534,9 +495,7 @@ def compute_profile_point(cohort_value, theta_base, key):
     }
 ```
 
-\framebreak
-
-### Illustrative Profile Shape
+## Illustrative profile shape
 
 Since full computation takes hours, we show an illustrative profile:
 
@@ -599,9 +558,7 @@ plt.tight_layout()
 plt.show()
 ```
 
-\framebreak
-
-### Identifiability Analysis
+## Identifiability analysis
 
 **Observations from profile likelihoods:**
 
@@ -615,17 +572,13 @@ plt.show()
 3. **Wide confidence intervals expected** due to parameter correlations.
 
 
-# Exercise 5.5: Fixed Reporting Rate
+## Exercise 5.5: Fixed reporting rate
 
-## Problem Statement
+If we fix $\rho = 0.6$, how do other estimates change?
+Is the model consistent with this constraint?
+How does the likelihood change?
 
-- If we fix $\rho = 0.6$, how do other estimates change?
-- Is the model consistent with this constraint?
-- How does the likelihood change?
-
-## Solution {.allowframebreaks}
-
-### Comparison of Estimates
+##
 
 ```{python}
 #| label: ex5-fixed-rho
@@ -656,11 +609,9 @@ print(f"Likelihood with rho = 0.6 (fixed):")
 print(f"  Log-likelihood: {ll_fixed:.1f} (SE: {ll_fixed_se:.2f})")
 ```
 
-\framebreak
+## Expected parameter compensation
 
-### Expected Parameter Compensation
-
-When $\rho$ is fixed at a **higher** value (0.6 vs MLE ~0.49):
+When $\rho$ is fixed at a higher value (0.6 vs MLE $\approx 0.49$):
 
 1. **True incidence must be lower**: $\text{Observed cases} = \rho \times \text{true cases}$
 
@@ -679,9 +630,7 @@ print(f"{'R0':<15} {theta_mle['R0']:.1f}{'':<17} {'~45 (lower)':<20}")
 print(f"{'sigmaSE':<15} {theta_mle['sigmaSE']:.4f}{'':<15} {'~0.06 (lower)':<20}")
 ```
 
-\framebreak
-
-### Likelihood Ratio Test
+## Likelihood ratio test
 
 ```{python}
 #| label: ex5-lr-test
@@ -712,34 +661,22 @@ else:
 ```
 
 
-# Summary
+## Summary
 
-## Key Takeaways
+1. **Model diagnostics are essential**:\
+   Compare simulations to data; check qualitative features (timing, amplitude, variability).
 
-### Summary {.allowframebreaks}
+2. **Alternative model structures should be explored**:\
+   Different seasonality functions; presence/absence of extra-demographic stochasticity.
 
-1. **Model diagnostics are essential**:
-   - Compare simulations to data
-   - Check qualitative features (timing, amplitude, variability)
+3. **Profile likelihoods reveal**:\
+   Parameter identifiability, correlations between parameters, and valid confidence intervals.
 
-2. **Alternative model structures should be explored**:
-   - Different seasonality functions
-   - Presence/absence of extra-demographic stochasticity
+4. **External information can constrain models**:\
+   Fix parameters from other studies; check consistency via likelihood.
 
-\framebreak
-
-3. **Profile likelihoods reveal**:
-   - Parameter identifiability
-   - Correlations between parameters
-   - Valid confidence intervals
-
-4. **External information can constrain models**:
-   - Fix parameters from other studies
-   - Check consistency via likelihood
-
-5. **Parameter interpretation requires care**:
-   - Estimates are model-dependent
-   - Report profile-based CIs when possible
+5. **Parameter interpretation requires care**:\
+   Estimates are model-dependent; report profile-based CIs when possible.
 
 
 # References
