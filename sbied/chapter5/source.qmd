@@ -1,0 +1,965 @@
+---
+title: >
+  Lesson 5: Case Study --- Measles in Large and Small Towns
+author:
+  - Aaron A. King
+  - Edward L. Ionides
+  - Kunyang He
+date: today
+date-format: full
+
+bibliography: ../sbied.bib
+
+format:
+  beamer:
+    code-block-font-size: \tiny
+    fontsize: 11pt
+    cite-method: natbib
+    biblio-style: apalike
+    toc: false
+    slide-level: 2
+    header-includes: |
+      \setbeamertemplate{footline}[page number]
+    output-file: slides.pdf
+  pdf:
+    documentclass: article
+    fontsize: 11pt
+    cite-method: natbib
+    biblio-style: apalike
+    toc: false
+    geometry: margin=1in
+    output-file: notes.pdf
+
+jupyter: python3
+
+header-includes: |
+  \providecommand{\framebreak}{}
+  \usepackage{amsmath,amssymb,amsfonts}
+  \usepackage{graphicx}
+  \usepackage{hyperref}
+  \usepackage{xcolor}
+
+  \newcommand{\deriv}[2]{\frac{d #1}{d #2}}
+  \newcommand{\Rzero}{\mathcal{R}_{0}}
+  \newcommand{\pr}{\mathbb{P}}
+  \newcommand{\E}{\mathbb{E}}
+  \newcommand{\lik}{\mathcal{L}}
+  \newcommand{\loglik}{\ell}
+  \newcommand{\equals}{=}
+  \newcommand{\dist}[2]{\operatorname{#1}\!\bigl(#2\bigr)}
+  \newcommand{\myexercise}{\paragraph{Exercise}}
+---
+
+
+```{python}
+#| echo: false
+#| output: false
+import jax
+import jax.numpy as jnp
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+
+from pypomp.measles.measlesPomp import UKMeasles
+import pypomp.measles.model_001b as m001b
+from pypomp.util import logmeanexp, logmeanexp_se
+
+np.random.seed(594709947)
+```
+
+
+## Objectives
+
+- To display a published case study using plug-and-play methods with non-trivial model complexities.
+- To show how extra-demographic stochasticity can be modeled.
+- To demonstrate the use of covariates in `pypomp`.
+- To demonstrate the use of profile likelihood in scientific inference.
+- To discuss the interpretation of parameter estimates.
+- To emphasize the potential need for extra sources of stochasticity in modeling.
+
+## Challenges in inference from disease dynamics {.allowframebreaks}
+
+Understanding, forecasting, and managing epidemiological systems increasingly depends on models. Dynamic models can be used to test causal hypotheses.
+
+Real epidemiological systems:
+
+- are nonlinear
+- are stochastic
+- are nonstationary
+- evolve in continuous time
+- have hidden variables
+- can be measured only with (large) error
+
+Measles is the paradigm for a nonlinear ecological system that can be well described by low-dimensional nonlinear dynamics.
+
+\framebreak
+
+A tradition of careful modeling studies have proposed and found evidence for a number of specific mechanisms, including
+
+- a high value of $\Rzero$ (c. 15--20)
+- under-reporting
+- seasonality in transmission rates associated with school terms
+- response to changing birth rates
+- a birth-cohort effect
+- metapopulation dynamics
+- fadeouts and reintroductions that scale with city size
+- spatial traveling waves
+
+Much of this evidence has been amassed from fitting models to data, using a variety of methods. See @Rohani2010 for a review of some of the high points.
+
+
+## Measles in England and Wales {.allowframebreaks}
+
+We revisit a classic measles data set, weekly case reports in 954 urban centers in England and Wales during the pre-vaccine era (1950--1963).
+
+We examine questions regarding:
+
+- measles extinction and recolonization
+- transmission rates
+- seasonality
+- resupply of susceptibles
+
+\framebreak
+
+We use a model that
+
+1. expresses our current understanding of measles dynamics
+2. includes a long list of mechanisms that have been proposed and demonstrated in the literature
+3. cannot be fit by previous likelihood-based methods
+
+We examine data from large and small towns using the same model, something no existing methods have been able to do.
+
+We ask: does our perspective on this disease change when we expect the models to explain the data in detail? What bigger lessons can we learn regarding inference for dynamical systems?
+
+
+## Data sets
+
+@He2010 studied twenty towns, including
+
+- 10 largest cities in England and Wales
+- 10 smaller towns, chosen at random
+
+Population sizes ranged from about 2,000 to 3.4 million.
+Weekly case reports span 1950--1963, with annual birth records and population sizes from 1944--1963.
+
+```{python}
+#| echo: true
+#| output: false
+all_data = UKMeasles.subset()
+measles = all_data["measles"]
+demog = all_data["demog"]
+coord = all_data["coord"]
+
+mles = UKMeasles.AK_mles()
+twenty_cities = list(mles.columns)
+```
+
+## Map of cities in the analysis
+
+```{python}
+#| echo: false
+#| fig-cap: "Locations of the 20 cities in the @He2010 analysis."
+city_coord = coord[coord["unit"].isin(twenty_cities)]
+fig, ax = plt.subplots(figsize=(3, 4))
+ax.scatter(city_coord["long"], city_coord["lat"],
+           c="red", s=20, zorder=5)
+ax.set_xlabel("Longitude")
+ax.set_ylabel("Latitude")
+ax.set_aspect(1.6)
+ax.grid(alpha=0.15)
+plt.tight_layout()
+plt.show()
+```
+
+
+## City case counts: smallest 8 cities
+
+```{python}
+#| echo: false
+#| fig-height: 4
+mean_pop = (demog[demog["unit"].isin(twenty_cities)]
+    .groupby("unit")["pop"].mean()
+    .sort_values())
+smallest8 = mean_pop.index[:8].tolist()
+
+fig, axes = plt.subplots(4, 2, figsize=(5, 4), sharex=True)
+for ax, town in zip(axes.flat, smallest8):
+    d = measles[(measles["unit"] == town)
+                & (measles["date"] >= "1950-01-01")
+                & (measles["date"] <= "1964-01-01")]
+    ax.plot(d["date"], d["cases"], linewidth=0.4, color="black")
+    ax.set_ylabel("")
+    ax.set_title(town, fontsize=7)
+    ax.set_yscale("symlog", linthresh=1)
+    ax.tick_params(labelsize=5)
+plt.tight_layout()
+plt.show()
+```
+
+
+## City case counts: largest 8 cities
+
+```{python}
+#| echo: false
+#| fig-height: 4
+largest8 = mean_pop.index[-8:].tolist()
+
+fig, axes = plt.subplots(4, 2, figsize=(5, 4), sharex=True)
+for ax, town in zip(axes.flat, largest8):
+    d = measles[(measles["unit"] == town)
+                & (measles["date"] >= "1950-01-01")
+                & (measles["date"] <= "1964-01-01")]
+    ax.plot(d["date"], d["cases"], linewidth=0.4, color="black")
+    ax.set_ylabel("")
+    ax.set_title(town, fontsize=7)
+    ax.set_yscale("symlog", linthresh=1)
+    ax.tick_params(labelsize=5)
+plt.tight_layout()
+plt.show()
+```
+
+
+## Continuous-time Markov process model
+
+The model is a SEIR (susceptible--exposed--infectious--recovered) compartment model with births and deaths:
+
+\begin{center}
+  \resizebox{0.65\textwidth}{!}{
+    \Large
+    \setlength{\unitlength}{5pt}
+    \begin{picture}(60,12)(-5,-4)
+      \thicklines
+      \put(-5,3){\vector(1,0){4}}
+      \put(-6,0){$\mu_{BS}$}
+      \put(0,0){\framebox(6,6){S}}
+      \put(16,0){\framebox(6,6){E}}
+      \put(32,0){\framebox(6,6){I}}
+      \put(48,0){\framebox(6,6){R}}
+      \put(6,3){\vector(1,0){10}}
+      \put(9,0){$\mu_{SE}^{}$}
+      \put(22,3){\vector(1,0){10}}
+      \put(25,0){$\mu_{EI}^{}$}
+      \put(38,3){\vector(1,0){10}}
+      \put(41,0){$\mu_{IR}^{}$}
+      \put(3,-0.2){\vector(0,-1){4}}
+      \put(4,-3){$\mu$}
+      \put(19,-0.2){\vector(0,-1){4}}
+      \put(20,-3){$\mu$}
+      \put(35,-0.2){\vector(0,-1){4}}
+      \put(36,-3){$\mu$}
+      \put(51,-0.2){\vector(0,-1){4}}
+      \put(52,-3){$\mu$}
+    \end{picture}
+  }
+\end{center}
+
+
+## Model specification {.allowframebreaks}
+
+**Covariates** (from data):
+
+- $B(t)$: birth rate
+- $N(t)$: population size
+
+**Entry into susceptible class** (birth-cohort effect):
+$$\mu_{BS}(t) = (1-c)\,B(t-\tau)+c\,\delta(t-\lfloor t\rfloor)\,\int_{t-1}^{t}\,B(t-\tau-s)\,ds$$
+
+- $c$: cohort effect (fraction entering at school start)
+- $\tau$: school-entry delay
+- $\lfloor t \rfloor$: most recent September~1 before $t$
+
+\framebreak
+
+**Force of infection:**
+$$\mu_{SE}(t) = \frac{\beta(t)}{N(t)}\,(I+\iota)\,\zeta(t)$$
+
+- $\iota$: imported infections
+- $\zeta(t)$: Gamma white noise with intensity $\sigma_{SE}$ [@He2010; @Bhadra2011]
+
+**School-term transmission:**
+$$\beta(t) = \begin{cases}\beta_0\,\big(1+a(1-p)/p\big) &\text{during term}\\\beta_0\,(1-a) &\text{during vacation}\end{cases}$$
+
+- $a$: amplitude of seasonality
+- $p=0.7589$: fraction of the year children are in school
+- The factor $(1-p)/p$ ensures the average transmission rate is $\beta_0$.
+
+\framebreak
+
+**Overdispersed measurement model:**
+$$\mathrm{cases}_t\,\big|\,\Delta N_{IR}=C_t \sim \dist{Normal}{\rho\,C_t,\;\rho\,(1-\rho)\,C_t+(\psi\,\rho\,C_t)^2}$$
+
+- $\rho$: reporting rate
+- $\psi$: overdispersion parameter
+- When $\psi=0$, the variance--mean relation reduces to that of the binomial distribution.
+
+
+## The partially observed Markov process model
+
+We require a simulator for our model.
+Notable complexities include:
+
+1. Incorporation of the known birthrate.
+2. The birth-cohort effect: a specified fraction of the cohort enters the susceptible pool all at once.
+3. Seasonality in the transmission rate: higher during school terms than holidays.
+4. Extra-demographic stochasticity in the form of a Gamma white-noise term acting multiplicatively on the force of infection.
+5. Demographic stochasticity implemented using Euler-multinomial distributions.
+
+
+## Implementation of the process model {.allowframebreaks}
+
+The process model is implemented in `pypomp.measles.model_001b`.
+Let's walk through it.
+
+**State variables and parameters:**
+
+\footnotesize
+```python
+statenames = ["S", "E", "I", "R", "W", "C"]
+accumvars = ["W", "C"]
+
+param_names = (
+    "R0", "sigma", "gamma", "iota", "rho",
+    "sigmaSE", "psi", "cohort", "amplitude",
+    "S_0", "E_0", "I_0", "R_0",
+)
+```
+\normalsize
+
+- $C$ is the true incidence (accumulator for new infections), reset each observation interval.
+- $W$ is cumulative white noise, useful for diagnostics.
+
+\framebreak
+
+**Cohort effect:** at the start of the school year (day~251), a fraction `cohort` of the year's births enter susceptibles all at once:
+
+\footnotesize
+```python
+t_mod = t - jnp.floor(t)
+is_cohort_time = jnp.abs(t_mod - 251.0/365.0) < 0.5*dt
+br = jnp.where(
+    is_cohort_time,
+    cohort * birthrate / dt + (1 - cohort) * birthrate,
+    (1 - cohort) * birthrate,
+)
+```
+\normalsize
+
+\framebreak
+
+**Term-time seasonality:**
+
+\footnotesize
+```python
+t_days = t_mod * 365.25
+in_term_time = (
+    ((t_days >= 7) & (t_days <= 100))
+    | ((t_days >= 115) & (t_days <= 199))
+    | ((t_days >= 252) & (t_days <= 300))
+    | ((t_days >= 308) & (t_days <= 356))
+)
+seas = jnp.where(
+    in_term_time,
+    1.0 + amplitude * 0.2411 / 0.7589,
+    1 - amplitude
+)
+beta = R0 * seas * (1.0 - jnp.exp(-(gamma + mu)*dt)) / dt
+```
+\normalsize
+
+\framebreak
+
+**Extra-demographic stochasticity and transitions:**
+
+\footnotesize
+```python
+# Force of infection
+foi = beta * (I + iota) / pop
+
+# Gamma white noise
+dw = fast_approx_rgamma(keys[0], dt/sigmaSE**2) * sigmaSE**2
+
+# Rates for Euler-multinomial transitions
+rate = jnp.array([foi*dw/dt, mu, sigma, mu, gamma, mu])
+
+# Poisson births
+births = fast_approx_rpoisson(keys[1], br * dt)
+
+# Euler-multinomial transitions
+transitions = fast_approx_rmultinom(keys[2], populations, rt_final)
+```
+\normalsize
+
+- `fast_approx_rgamma`, `fast_approx_rpoisson`, and `fast_approx_rmultinom` are JAX-compatible random variate generators provided by `pypomp`.
+
+\framebreak
+
+**State update:**
+
+\footnotesize
+```python
+S = S + births - trans_S[0] - trans_S[1]
+E = E + trans_S[0] - trans_E[0] - trans_E[1]
+I = I + trans_E[0] - trans_I[0] - trans_I[1]
+R = pop - S - E - I
+W = W + (dw - dt) / sigmaSE
+C = C + trans_I[0]
+```
+\normalsize
+
+- Since recognized measles cases are quarantined, most infection occurs before case recognition. True incidence $C$ counts individuals progressing from I to R.
+
+
+## State initializations
+
+The initial state allocates the population across compartments according to proportions $S_0, E_0, I_0, R_0$:
+
+```python
+def rinit(theta_, key, covars, t0):
+    S_0, E_0, I_0, R_0 = (
+        theta_["S_0"], theta_["E_0"],
+        theta_["I_0"], theta_["R_0"])
+    m = covars["pop"] / (S_0 + E_0 + I_0 + R_0)
+    S = jnp.round(m * S_0)
+    E = jnp.round(m * E_0)
+    I = jnp.round(m * I_0)
+    R = jnp.round(m * R_0)
+    return {"S": S, "E": E, "I": I, "R": R, "W": 0, "C": 0}
+```
+
+
+## Measurement model {.allowframebreaks}
+
+We model both under-reporting and measurement error.
+We want $\E[\mathrm{cases}|C] = \rho\,C$ and
+$\mathrm{Var}[\mathrm{cases}|C] = \rho\,(1-\rho)\,C + (\psi\,\rho\,C)^2$.
+
+Specifically,
+$\mathrm{cases}\mid C \sim f(\cdot\mid\rho,\psi,C)$, where
+$$
+f(c\mid\rho,\psi,C) = \Phi\!\left(c+\tfrac{1}{2},\,\rho C,\,\rho(1-\rho)C+(\psi\rho C)^2\right)
+- \Phi\!\left(c-\tfrac{1}{2},\,\rho C,\,\rho(1-\rho)C+(\psi\rho C)^2\right).
+$$
+Here, $\Phi(x,\mu,\sigma^2)$ is the c.d.f.\ of the normal distribution with mean $\mu$ and variance $\sigma^2$.
+
+\framebreak
+
+The measurement density `dmeas`:
+
+\footnotesize
+```python
+def dmeas(Y_, X_, theta_, covars, t):
+    rho, psi, C = theta_["rho"], theta_["psi"], X_["C"]
+    m = rho * C
+    v = m * (1.0 - rho + psi**2 * m)
+    sqrt_v = jnp.sqrt(v) + 1e-18
+    y = Y_["cases"]
+    upper = jax.scipy.stats.norm.cdf(y + 0.5, m, sqrt_v)
+    lower = jax.scipy.stats.norm.cdf(y - 0.5, m, sqrt_v)
+    lik = jnp.where(y > 1e-18, upper - lower, upper) + 1e-18
+    return jnp.log(lik)
+```
+\normalsize
+
+\framebreak
+
+The measurement simulator `rmeas`:
+
+\footnotesize
+```python
+def rmeas(X_, theta_, key, covars, t):
+    rho, psi, C = theta_["rho"], theta_["psi"], X_["C"]
+    m = rho * C
+    v = m * (1.0 - rho + psi**2 * m)
+    cases = jax.random.normal(key) * (jnp.sqrt(v) + 1e-18) + m
+    return jnp.where(cases > 0.0, jnp.round(cases), 0.0)
+```
+\normalsize
+
+
+## Data and covariates {.allowframebreaks}
+
+The `pypomp` package includes the UK measles data from @He2010.
+The `UKMeasles` class provides convenient access.
+
+We illustrate using London:
+
+```{python}
+#| echo: true
+london_data = UKMeasles.subset(units=["London"])
+dat = london_data["measles"]
+print(f"Date range: {dat['date'].min()} to {dat['date'].max()}")
+print(f"Number of observations: {len(dat)}")
+```
+
+\framebreak
+
+```{python}
+#| echo: false
+#| fig-cap: "Weekly measles case reports, London 1950--1963."
+dat_plot = dat[(dat["date"] >= "1950-01-01") & (dat["date"] <= "1964-01-01")]
+fig, ax = plt.subplots(figsize=(4.5, 2))
+ax.plot(dat_plot["date"], dat_plot["cases"], linewidth=0.5, color="black")
+ax.set_xlabel("Year")
+ax.set_ylabel("Weekly cases")
+ax.set_title("London")
+ax.grid(alpha=0.15)
+plt.tight_layout()
+plt.show()
+```
+
+\framebreak
+
+We smooth the covariates and delay the entry of newborns into the susceptible pool.
+This is handled internally by `UKMeasles.Pomp()`, which uses smoothing splines for population interpolation and shifts the birth rate by 4 years (the school-entry delay $\tau$).
+
+```{python}
+#| echo: false
+#| fig-cap: "Population and birth-rate covariates for London."
+demog_london = london_data["demog"]
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(4, 3), sharex=True)
+ax1.plot(demog_london["year"], demog_london["pop"]/1e6,
+         "ko", markersize=3)
+ax1.set_ylabel("Population (millions)")
+ax1.grid(alpha=0.15)
+ax2.plot(demog_london["year"], demog_london["births"]/1000,
+         "ko", markersize=3)
+ax2.set_ylabel("Annual births (thousands)")
+ax2.set_xlabel("Year")
+ax2.grid(alpha=0.15)
+plt.tight_layout()
+plt.show()
+```
+
+
+## Constructing the POMP object
+
+```{python}
+#| echo: true
+theta_london = mles["London"].to_dict()
+
+m1 = UKMeasles.Pomp(
+    unit=["London"],
+    theta=theta_london,
+    model="001b",
+    interp_method="shifted_splines",
+    first_year=1950,
+    last_year=1963,
+    dt=1/365.25,
+    clean=True
+)
+
+print(f"State names: {m1.statenames}")
+print(f"Time range: {m1.ys.index[0]:.2f} to {m1.ys.index[-1]:.2f}")
+print(f"Observations: {len(m1.ys)}")
+```
+
+
+## Estimates from @He2010
+
+@He2010 estimated the parameters of this model for all 20 cities.
+We verify that we get the same likelihood.
+
+```{python}
+#| echo: true
+key = jax.random.key(998468235)
+m1.pfilter(J=5000, key=key, reps=10, thresh=0, CLL=True)
+pf = m1.results_history[-1]
+logliks = pf.logLiks.values.flatten()
+ll = logmeanexp(logliks)
+ll_se = logmeanexp_se(logliks)
+print(f"Log-likelihood: {ll:.1f} (SE {ll_se:.2f})")
+```
+
+
+## Simulations at the MLE {.allowframebreaks}
+
+```{python}
+#| echo: true
+key = jax.random.key(42)
+X_sims, Y_sims = m1.simulate(key=key, nsim=3)
+```
+
+```{python}
+#| echo: false
+#| fig-cap: "Simulations (red) versus data (black) at the London MLE."
+fig, axes = plt.subplots(4, 1, figsize=(4.5, 5), sharex=True)
+times = m1.ys.index.values
+data_cases = m1.ys["cases"].values
+
+axes[0].plot(times, data_cases, color="black", linewidth=0.8)
+axes[0].set_title("data", fontsize=8)
+
+for i in range(3):
+    sim = Y_sims[(Y_sims["replicate"] == 0) & (Y_sims["sim"] == i)]
+    sim = sim.sort_values("time")
+    axes[i+1].plot(sim["time"].values, sim["obs_0"].values,
+                   color="red", linewidth=0.6)
+    axes[i+1].set_title(f"sim {i+1}", fontsize=8)
+
+for ax in axes:
+    ax.set_ylabel("cases", fontsize=7)
+    ax.tick_params(labelsize=6)
+axes[-1].set_xlabel("Year")
+plt.tight_layout()
+plt.show()
+```
+
+\framebreak
+
+```{python}
+#| echo: false
+#| fig-cap: "Simulation envelope (100 sims) versus data."
+key = jax.random.key(73)
+X_sims100, Y_sims100 = m1.simulate(key=key, nsim=100)
+sim_df = Y_sims100.pivot_table(
+    index="time", columns="sim", values="obs_0"
+)
+lo = sim_df.quantile(0.05, axis=1)
+med = sim_df.quantile(0.5, axis=1)
+hi = sim_df.quantile(0.95, axis=1)
+
+fig, ax = plt.subplots(figsize=(4.5, 2.5))
+ax.fill_between(sim_df.index, lo, hi, alpha=0.25, color="red",
+                label="5--95% sim envelope")
+ax.plot(sim_df.index, med, color="red", linewidth=0.8, label="median sim")
+ax.plot(times, data_cases, color="blue", linewidth=0.8, label="data")
+ax.set_xlabel("Year")
+ax.set_ylabel("Cases")
+ax.set_title("London")
+ax.legend(fontsize=6)
+ax.grid(alpha=0.15)
+plt.tight_layout()
+plt.show()
+```
+
+
+## Parameter transformations
+
+The parameters are constrained to be positive, and some lie between $0$ and $1$. We turn the likelihood maximization problem into an unconstrained one by transforming:
+
+- **Positive parameters** ($R_0$, $\sigma$, $\gamma$, $\iota$, $\sigma_{SE}$, $\psi$): log transform
+- **Parameters in $(0,1)$** ($\rho$, cohort, amplitude): logit transform
+- **Initial proportions** ($S_0, E_0, I_0, R_0$): log-barycentric transform
+
+These are implemented in `model_001b.to_est` and `model_001b.from_est`.
+
+
+## ARMA benchmark {.allowframebreaks}
+
+Linear, Gaussian auto-regressive moving-average (ARMA) models provide a flexible non-mechanistic benchmark.
+
+```{python}
+#| echo: true
+from statsmodels.tsa.arima.model import ARIMA
+
+cases = m1.ys["cases"].values
+log_y = np.log(np.maximum(cases, 1))
+
+arma_fit = ARIMA(log_y, order=(2, 0, 2)).fit()
+arma_loglik = arma_fit.llf - np.sum(log_y)
+
+print(f"ARMA(2,2) log-lik: {arma_loglik:.1f} (p=5)")
+print(f"SEIR model log-lik: {ll:.1f} (p=12)")
+```
+
+- Minimizing AIC, $2p - 2\loglik$, is equivalent to maximizing $\loglik - p$.
+- The aim of mechanistic modeling is not to beat benchmarks, but falling far behind can diagnose problems.
+- "Far" means many log units: differences of log-likelihoods are invariant to the scale of measurement.
+
+
+## Log-likelihood anomalies {.allowframebreaks}
+
+The benchmark and model log-likelihoods can both be decomposed as a sum of conditional log-likelihoods,
+$$\loglik(\theta)=\sum_{n=1}^N \loglik_n(\theta) \quad\text{where}\quad \loglik_n(\theta)=\log f_{Y_n|Y_{1:n-1}}(y^*_n\,|\,y^*_{1:n-1};\,\theta).$$
+
+The **anomaly** for the model at time $t_n$ is the difference between the model conditional log-likelihood and that of the benchmark.
+
+Anomalies can be used similarly to regression residuals: they can indicate points where the model fails; patterns can reveal scope for model improvement.
+
+\framebreak
+
+```{python}
+#| echo: false
+#| fig-cap: "Conditional log-likelihood anomalies for London. Positive anomalies indicate the model outperforms ARMA; negative anomalies indicate the model struggles."
+if pf.CLL is not None:
+    model_cll = pf.CLL.values[0, 0, :]
+    arma_resid = arma_fit.resid
+    arma_cll = -0.5 * np.log(2*np.pi*arma_fit.params[-1]) \
+               - 0.5 * arma_resid**2 / arma_fit.params[-1] \
+               - log_y
+    n = min(len(model_cll), len(arma_cll))
+    anomaly = model_cll[:n] - arma_cll[:n]
+    fig, ax = plt.subplots(figsize=(4.5, 2))
+    ax.plot(times[:n], anomaly, linewidth=0.5)
+    ax.axhline(0, color="gray", linestyle="--", linewidth=0.5)
+    ax.set_xlabel("Year")
+    ax.set_ylabel("Anomaly")
+    ax.set_title("London: SEIR vs ARMA(2,2) anomalies")
+    ax.grid(alpha=0.15)
+    plt.tight_layout()
+    plt.show()
+```
+
+
+## Particle filter variance
+
+```{python}
+#| echo: false
+#| fig-cap: "Variance of conditional log-likelihoods across replicates. Observations with high variance are numerically problematic."
+if pf.CLL is not None:
+    cll_all = pf.CLL.values[0, :, :]  # (reps, times)
+    cll_var = np.var(cll_all, axis=0)
+    fig, ax = plt.subplots(figsize=(4.5, 2))
+    ax.plot(times, cll_var, linewidth=0.5)
+    ax.set_xlabel("Year")
+    ax.set_ylabel("Var(cond. log-lik)")
+    ax.set_title("Particle filter variance, London")
+    ax.grid(alpha=0.15)
+    plt.tight_layout()
+    plt.show()
+```
+
+
+## Results from @He2010
+
+The fitting procedure used is as follows:
+
+- A large number of searches were started at points across the parameter space.
+- Iterated filtering was used to maximize the likelihood.
+- Point estimates of all parameters were obtained for 20 cities.
+- Profile likelihoods were constructed to quantify uncertainty in London and Hastings.
+
+The linked document `lesson5_profile.qmd` shows how a likelihood profile can be constructed using IF2 in `pypomp`.
+
+
+## Setting up IF2
+
+The IF2 algorithm requires specifying random walk standard deviations for each parameter being estimated:
+
+```{python}
+#| echo: true
+#| eval: false
+from pypomp import RWSigma
+
+rw_sd = RWSigma(
+    sigmas={
+        "R0": 0.02, "sigma": 0.02, "gamma": 0.02,
+        "iota": 0.0, "rho": 0.0,
+        "sigmaSE": 0.02, "psi": 0.02,
+        "cohort": 0.02, "amplitude": 0.02,
+        "S_0": 0.02, "E_0": 0.02, "I_0": 0.02, "R_0": 0.02
+    },
+    init_names=["S_0", "E_0", "I_0", "R_0"]
+)
+
+m1.mif(J=2000, M=50, a=0.95, rw_sd=rw_sd,
+       key=jax.random.key(1234567), thresh=0)
+```
+
+## Parameter estimates {.allowframebreaks}
+
+```{python}
+#| echo: false
+mle_df = UKMeasles.AK_mles()
+
+def mean_euler(rate, dt=1/365):
+    return dt / (1 - np.exp(-rate * dt))
+
+pop_1950 = (demog[demog["year"] == 1950]
+    .set_index("unit")["pop"])
+
+display_df = pd.DataFrame({
+    "town": mle_df.columns,
+    "pop": [pop_1950.get(t, np.nan) for t in mle_df.columns],
+    "R0": mle_df.loc["R0"].values,
+    "amplitude": mle_df.loc["amplitude"].values,
+    "LP": 365 * mean_euler(mle_df.loc["sigma"].values),
+    "IP": 365 * mean_euler(mle_df.loc["gamma"].values),
+    "iota": mle_df.loc["iota"].values,
+    "rho": mle_df.loc["rho"].values,
+    "psi": mle_df.loc["psi"].values,
+    "sigmaSE": mle_df.loc["sigmaSE"].values,
+}).sort_values("pop")
+
+display_df = display_df.round({"R0": 1, "amplitude": 2,
+    "LP": 1, "IP": 1, "iota": 2, "rho": 3, "psi": 2,
+    "sigmaSE": 3})
+
+print(display_df.to_string(index=False))
+```
+
+\framebreak
+
+The Spearman rank correlations between each parameter and $N_{1950}$ reveal which parameters vary systematically with city size.
+
+```{python}
+#| echo: false
+from scipy.stats import spearmanr
+
+params = ["R0", "amplitude", "LP", "IP", "iota", "rho",
+          "psi", "sigmaSE"]
+cors = {}
+for p in params:
+    mask = ~(display_df[p].isna() | display_df["pop"].isna())
+    if mask.sum() > 2:
+        r, _ = spearmanr(display_df.loc[mask, p],
+                         display_df.loc[mask, "pop"])
+        cors[p] = round(r, 2)
+print("Spearman r(parameter, N_1950):")
+for k, v in cors.items():
+    print(f"  {k:12s}: {v:+.2f}")
+```
+
+
+## Imported infections
+
+$$\text{force of infection} = \mu_{SE}=\frac{\beta(t)}{N(t)}\,(I+\iota)\,\zeta(t)$$
+
+Profile likelihoods over the imported infections parameter $\iota$ (computed in `lesson5_profile.qmd`) show that:
+
+- For London, $\iota$ is on the order of a few cases per week---the huge population sustains transmission and imported cases play a relatively small role.
+- For Hastings, $\iota$ is much larger relative to population, consistent with small-town dynamics where local fadeouts require reintroduction.
+
+
+## Seasonality
+
+Profile likelihoods over the amplitude of term-time seasonality show that:
+
+- Both London and Hastings have high seasonality amplitude ($a > 0.4$).
+- School terms drive measles transmission strongly.
+- The confidence intervals are fairly tight, indicating this parameter is well-identified.
+
+
+## Cohort effect
+
+Profile likelihoods over the cohort entry fraction show that:
+
+- The cohort effect is moderately well-identified in London.
+- In Hastings, the profile is flatter, reflecting weaker identifiability in small populations.
+
+
+## $R_0$ estimates inconsistent with literature
+
+Recall that $\Rzero$ is a measure of how communicable an infection is. Existing estimates ($\Rzero \approx 15$--20) come from serology surveys and feature-based methods.
+
+- The MLE estimates of $\Rzero$ from @He2010 are much higher: $\Rzero \approx 40$--60.
+- This reflects the fact that the susceptible fraction is much smaller than in a "virgin population" assumed by classical estimates.
+- Profile likelihoods over $\Rzero$ confirm this finding for both London and Hastings.
+
+
+## Extrademographic stochasticity
+
+$$\mu_{SE}=\frac{\beta(t)}{N(t)}\,(I+\iota)\,\zeta(t)$$
+
+- $\sigma_{SE} > 0$ is strongly supported by the data.
+- Without extra-demographic stochasticity, the model fits poorly.
+- Profile likelihoods over $\sigma_{SE}$ also reveal trade-offs with the infectious period (IP) and latent period (LP): as $\sigma_{SE}$ increases, IP tends to decrease.
+
+
+## Reporting rate
+
+```{python}
+#| echo: false
+#| fig-cap: "Reporting rate: regression estimate (cases/births slope) versus model MLE."
+mle_rho = mle_df.loc["rho"]
+
+# regression estimate of reporting rate
+regression_rho = {}
+for town in twenty_cities:
+    town_meas = measles[measles["unit"] == town].copy()
+    town_meas["year"] = town_meas["date"].dt.year
+    town_demog = demog[demog["unit"] == town]
+    yearly = (town_meas.groupby("year")["cases"].sum()
+              .reset_index())
+    yearly = yearly.merge(town_demog[["year", "births"]],
+                          on="year", how="inner")
+    if len(yearly) > 2:
+        cum_cases = yearly["cases"].cumsum()
+        cum_births = yearly["births"].cumsum()
+        if cum_births.iloc[-1] > 0:
+            from numpy.polynomial.polynomial import polyfit
+            c = polyfit(cum_births.values, cum_cases.values, 1)
+            regression_rho[town] = c[1]
+
+fig, ax = plt.subplots(figsize=(4.5, 3))
+towns_both = [t for t in twenty_cities if t in regression_rho]
+x = np.arange(len(towns_both))
+reg_vals = [regression_rho[t] for t in towns_both]
+mle_vals = [mle_rho[t] for t in towns_both]
+ax.plot(x, reg_vals, "s", label="regression", markersize=4)
+ax.plot(x, mle_vals, "o", label="model MLE", markersize=4)
+for i in range(len(towns_both)):
+    ax.plot([x[i], x[i]], [reg_vals[i], mle_vals[i]],
+            "k-", alpha=0.3, linewidth=0.5)
+ax.set_xticks(x)
+ax.set_xticklabels(towns_both, rotation=90, fontsize=5)
+ax.set_ylabel("Estimated reporting rate")
+ax.legend(fontsize=6)
+ax.grid(alpha=0.15)
+plt.tight_layout()
+plt.show()
+```
+
+
+## Predicted vs observed critical community size
+
+```{python}
+#| echo: false
+#| fig-cap: "Fraction of weeks with zero cases versus population size. The critical community size is approximately 300,000."
+# compute fraction of zero-case weeks from data
+fadeout_data = {}
+for town in measles["unit"].unique():
+    d = measles[(measles["unit"] == town)
+                & (measles["date"] >= "1950-01-01")
+                & (measles["date"] <= "1964-01-01")]
+    if len(d) > 0:
+        fadeout_data[town] = {
+            "mean_pop": demog[demog["unit"] == town]["pop"].mean(),
+            "prop_fadeout": (d["cases"] == 0).mean()
+        }
+fadeout_df = pd.DataFrame(fadeout_data).T
+fadeout_df = fadeout_df[fadeout_df["mean_pop"] > 0]
+
+fig, ax = plt.subplots(figsize=(4, 3))
+ax.scatter(fadeout_df["mean_pop"], fadeout_df["prop_fadeout"],
+           s=3, alpha=0.4, color="black")
+# highlight the 20 cities
+for town in twenty_cities:
+    if town in fadeout_df.index:
+        row = fadeout_df.loc[town]
+        ax.scatter(row["mean_pop"], row["prop_fadeout"],
+                   s=15, color="red", zorder=5)
+ax.set_xscale("log")
+ax.set_xlabel("Community size")
+ax.set_ylabel("Proportion of weeks without cases")
+ax.grid(alpha=0.15)
+plt.tight_layout()
+plt.show()
+```
+
+
+## Questions
+
+- What does it mean that parameter estimates from the fitting disagree with estimates from other data?
+
+- How can one interpret the correlation between infectious period and city size in the parameter estimates?
+
+- How do we interpret the need for extrademographic stochasticity in this model?
+
+
+## Exercise 5.1. Reformulate the model
+
+- Modify the @He2010 model to remove the cohort effect. Run simulations and compute likelihoods to convince yourself that the resulting codes agree with the original ones for `cohort = 0`.
+
+- Now modify the transmission seasonality to use a sinusoidal form. How many parameters must you use? Fixing the other parameters at their MLE values, compute and visualize a profile likelihood over these parameters.
+
+
+## Exercise 5.2. Extrademographic stochasticity
+
+Set the extrademographic stochasticity parameter $\sigma_{SE}=0$, set $\alpha=1$ (already the case in `model_001b`), and fix $\rho$ and $\iota$ at their MLE values, then maximize the likelihood over the remaining parameters.
+
+- How do your results compare with those at the MLE? Compare likelihoods but also use simulations to diagnose differences between the models.
+
+
+<!-- Bibliography auto-generated by natbib -->
