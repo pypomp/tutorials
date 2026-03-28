@@ -981,7 +981,10 @@ plt.show()
 
 ## Monte Carlo Adjusted Profile (MCAP)
 
-The `mcap` function in `pypomp` constructs a profile likelihood confidence interval that accounts for Monte Carlo error:
+The `mcap` function in `pypomp` constructs a profile likelihood confidence interval that accounts for Monte Carlo error (noise).
+
+* Here, the noise is small so MCAP is not essential. For larger and more complex models, substantial noise on the profile is unavoidable.
+
 
 ```{python}
 #| label: mcap
@@ -989,7 +992,7 @@ The `mcap` function in `pypomp` constructs a profile likelihood confidence inter
 mcap_result = pp.mcap(
     parameter=profile_eta_df['eta'].values,
     loglik=profile_eta_df['loglik'].values,
-    level=0.95, span=0.75)
+    level=0.95, span=0.4)
 
 print(f"MLE of eta: {mcap_result.mle:.4f}")
 print(f"95% CI: ({mcap_result.ci[0]:.4f},"
