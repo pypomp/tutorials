@@ -1,7 +1,10 @@
-default: slides.pdf notes.pdf
+default: slides.pdf notes.pdf exercises_notes.pdf
 
-slides.pdf : lesson5.qmd
-	quarto render "lesson5.qmd" --to beamer
+slides.pdf : source.qmd
+	quarto render "source.qmd" --to beamer
 
-notes.pdf : lesson5.qmd
-	quarto render "lesson5.qmd" --to pdf
+notes.pdf : source.qmd
+	quarto render "source.qmd" --to pdf
+
+exercises_notes.pdf : lesson3_exercises.qmd
+	quarto render "lesson3_exercises.qmd" --to pdf

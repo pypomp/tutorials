@@ -52,6 +52,7 @@ header-includes: |
 
 
 ```{python}
+#| label: set up
 #| echo: false
 #| output: false
 import jax
@@ -65,6 +66,16 @@ from pypomp.measles.measlesPomp import UKMeasles
 import pypomp.measles.model_001b as m001b
 from pypomp.util import logmeanexp, logmeanexp_se
 
+import os
+import pickle
+
+# run level 0 : quick, 1 : medium, 2 : slow
+RL = 0
+
+# manual control of cached using pickle
+# remove the cache directory to force recomputation
+cache_dir = "cache_" + str(RL)
+os.makedirs(cache_dir, exist_ok=True)
 np.random.seed(594709947)
 ```
 
@@ -144,6 +155,7 @@ Population sizes ranged from about 2,000 to 3.4 million.
 Weekly case reports span 1950--1963, with annual birth records and population sizes from 1944--1963.
 
 ```{python}
+#| label: load mle
 #| echo: true
 #| output: false
 all_data = UKMeasles.subset()
@@ -158,6 +170,7 @@ twenty_cities = list(mles.columns)
 ## Map of cities in the analysis
 
 ```{python}
+#| label: locations
 #| echo: false
 #| fig-cap: "Locations of the 20 cities in the @He2010 analysis."
 city_coord = coord[coord["unit"].isin(twenty_cities)]
@@ -176,6 +189,7 @@ plt.show()
 ## City case counts: smallest 8 cities
 
 ```{python}
+#| label: plot case counts 
 #| echo: false
 #| fig-height: 4
 mean_pop = (demog[demog["unit"].isin(twenty_cities)]
@@ -201,6 +215,7 @@ plt.show()
 ## City case counts: largest 8 cities
 
 ```{python}
+#| label: plot case counts largest
 #| echo: false
 #| fig-height: 4
 largest8 = mean_pop.index[-8:].tolist()
@@ -495,6 +510,7 @@ print(f"Number of observations: {len(dat)}")
 \framebreak
 
 ```{python}
+#| label: plot london cases
 #| echo: false
 #| fig-cap: "Weekly measles case reports, London 1950--1963."
 dat_plot = dat[(dat["date"] >= "1950-01-01") & (dat["date"] <= "1964-01-01")]
@@ -514,6 +530,7 @@ We smooth the covariates and delay the entry of newborns into the susceptible po
 This is handled internally by `UKMeasles.Pomp()`, which uses smoothing splines for population interpolation and shifts the birth rate by 4 years (the school-entry delay $\tau$).
 
 ```{python}
+#| label: plot london covariates
 #| echo: false
 #| fig-cap: "Population and birth-rate covariates for London."
 demog_london = london_data["demog"]
@@ -535,6 +552,7 @@ plt.show()
 ## Constructing the POMP object
 
 ```{python}
+#| label: build london pomp
 #| echo: true
 theta_london = mles["London"].to_dict()
 
@@ -561,13 +579,24 @@ print(f"Observations: {len(m1.ys)}")
 We verify that we get the same likelihood.
 
 ```{python}
+#| label: compute London loglik at he20 mle
 #| echo: true
 key = jax.random.key(998468235)
-m1.pfilter(J=5000, key=key, reps=10, thresh=0, CLL=True)
-pf = m1.results_history[-1]
-logliks = pf.logLiks.values.flatten()
-ll = logmeanexp(logliks)
-ll_se = logmeanexp_se(logliks)
+cache_file = cache_dir + "/london_pf.pkl"
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        london_pf = pickle.load(f)
+else:
+    m1.pfilter(J=[50,500,5000][RL], 
+        reps=[2,5,10][RL],
+        key=key, thresh=0, CLL=True)
+    london_pf = m1.results_history[-1]
+    with open(cache_file, 'wb') as f:
+        pickle.dump(london_pf,f)
+
+london_logliks = london_pf.logLiks.values.flatten()
+ll = logmeanexp(london_logliks)
+ll_se = logmeanexp_se(london_logliks)
 print(f"Log-likelihood: {ll:.1f} (SE {ll_se:.2f})")
 ```
 
@@ -575,12 +604,14 @@ print(f"Log-likelihood: {ll:.1f} (SE {ll_se:.2f})")
 ## Simulations at the MLE {.allowframebreaks}
 
 ```{python}
+#| label: simulations at the mle
 #| echo: true
 key = jax.random.key(42)
 X_sims, Y_sims = m1.simulate(key=key, nsim=3)
 ```
 
 ```{python}
+#| label: plot sims and data for London
 #| echo: false
 #| fig-cap: "Simulations (red) versus data (black) at the London MLE."
 fig, axes = plt.subplots(4, 1, figsize=(4.5, 5), sharex=True)
@@ -608,6 +639,7 @@ plt.show()
 \framebreak
 
 ```{python}
+#| label: simulation envelope for London
 #| echo: false
 #| fig-cap: "Simulation envelope (100 sims) versus data."
 key = jax.random.key(73)
@@ -650,6 +682,7 @@ These are implemented in `model_001b.to_est` and `model_001b.from_est`.
 Linear, Gaussian auto-regressive moving-average (ARMA) models provide a flexible non-mechanistic benchmark.
 
 ```{python}
+#| label: ARMA benchmark
 #| echo: true
 from statsmodels.tsa.arima.model import ARIMA
 
@@ -680,8 +713,10 @@ Anomalies can be used similarly to regression residuals: they can indicate point
 \framebreak
 
 ```{python}
+#| label: CLL anomalies for London
 #| echo: false
 #| fig-cap: "Conditional log-likelihood anomalies for London. Positive anomalies indicate the model outperforms ARMA; negative anomalies indicate the model struggles."
+pf = london_pf
 if pf.CLL is not None:
     model_cll = pf.CLL.values[0, 0, :]
     arma_resid = arma_fit.resid
@@ -705,6 +740,7 @@ if pf.CLL is not None:
 ## Particle filter variance
 
 ```{python}
+#| label: variance of CLL as diagnostic
 #| echo: false
 #| fig-cap: "Variance of conditional log-likelihoods across replicates. Observations with high variance are numerically problematic."
 if pf.CLL is not None:
@@ -738,6 +774,7 @@ The linked document `lesson5_profile.qmd` shows how a likelihood profile can be 
 The IF2 algorithm requires specifying random walk standard deviations for each parameter being estimated:
 
 ```{python}
+#| label: mif for London
 #| echo: true
 #| eval: false
 from pypomp import RWSigma
@@ -760,6 +797,7 @@ m1.mif(J=2000, M=50, a=0.95, rw_sd=rw_sd,
 ## Parameter estimates {.allowframebreaks}
 
 ```{python}
+#| label: tabulate mles for twenty cities
 #| echo: false
 mle_df = UKMeasles.AK_mles()
 
@@ -794,6 +832,7 @@ print(display_df.to_string(index=False))
 The Spearman rank correlations between each parameter and $N_{1950}$ reveal which parameters vary systematically with city size.
 
 ```{python}
+#| label: correlations between estimates and city size
 #| echo: false
 from scipy.stats import spearmanr
 
@@ -860,6 +899,7 @@ $$\mu_{SE}=\frac{\beta(t)}{N(t)}\,(I+\iota)\,\zeta(t)$$
 ## Reporting rate
 
 ```{python}
+#| label: reporting rate estimated two ways
 #| echo: false
 #| fig-cap: "Reporting rate: regression estimate (cases/births slope) versus model MLE."
 mle_rho = mle_df.loc["rho"]
@@ -905,22 +945,35 @@ plt.show()
 ## Predicted vs observed critical community size
 
 ```{python}
+#| label: critical community size
+#| echo: false
+# compute fraction of zero-case weeks from data for all 1422 districts
+cache_file = cache_dir + "/fadeout_df.pkl"
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        fadeout_df = pickle.load(f)
+else:
+    fadeout_data = {}
+    for town in measles["unit"].unique():
+        d = measles[(measles["unit"] == town)
+                    & (measles["date"] >= "1950-01-01")
+                    & (measles["date"] <= "1964-01-01")]
+        if len(d) > 0:
+            fadeout_data[town] = {
+                "mean_pop": demog[demog["unit"] == town]["pop"].mean(),
+                "prop_fadeout": (d["cases"] == 0).mean()
+            }
+    fadeout_df = pd.DataFrame(fadeout_data).T
+    fadeout_df = fadeout_df[fadeout_df["mean_pop"] > 0]
+    with open(cache_file, 'wb') as f:
+        pickle.dump(fadeout_df,f)
+
+```
+
+```{python}
+#| label: plot critical community size
 #| echo: false
 #| fig-cap: "Fraction of weeks with zero cases versus population size. The critical community size is approximately 300,000."
-# compute fraction of zero-case weeks from data
-fadeout_data = {}
-for town in measles["unit"].unique():
-    d = measles[(measles["unit"] == town)
-                & (measles["date"] >= "1950-01-01")
-                & (measles["date"] <= "1964-01-01")]
-    if len(d) > 0:
-        fadeout_data[town] = {
-            "mean_pop": demog[demog["unit"] == town]["pop"].mean(),
-            "prop_fadeout": (d["cases"] == 0).mean()
-        }
-fadeout_df = pd.DataFrame(fadeout_data).T
-fadeout_df = fadeout_df[fadeout_df["mean_pop"] > 0]
-
 fig, ax = plt.subplots(figsize=(4, 3))
 ax.scatter(fadeout_df["mean_pop"], fadeout_df["prop_fadeout"],
            s=3, alpha=0.4, color="black")
