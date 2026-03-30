@@ -6,5 +6,5 @@ slides.pdf : source.qmd
 notes.pdf : source.qmd
 	quarto render "source.qmd" --to pdf
 
-exercises_notes.pdf : lesson3_exercises.qmd
-	quarto render "lesson3_exercises.qmd" --to pdf
+exercises_notes.pdf : lesson5_exercises.qmd
+	quarto render "lesson5_exercises.qmd" --to pdf

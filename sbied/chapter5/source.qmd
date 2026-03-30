@@ -70,7 +70,7 @@ import os
 import pickle
 
 # run level 0 : quick, 1 : medium, 2 : slow
-RL = 0
+RL = 2
 
 # manual control of cached using pickle
 # remove the cache directory to force recomputation
@@ -161,10 +161,42 @@ Weekly case reports span 1950--1963, with annual birth records and population si
 all_data = UKMeasles.subset()
 measles = all_data["measles"]
 demog = all_data["demog"]
-coord = all_data["coord"]
+```
 
+```{python}
+#| label: load coordinates
+#| echo: false
+#| output: false
+
+# this has a bug
+#coord = all_data["coord"]
+
+from importlib import resources
+
+def read_csv_from_package_pandas(package_name, filename):
+    # Get a Path object for the resource (handles cases where file is in a zip)
+    ref = resources.files(package_name) / filename
+
+    # Use the Path object's open method to get a file-like object
+    with ref.open('rb') as f:
+         df = pd.read_csv(f)
+    return df
+
+#this is less complete than the following dataset 
+#coord = (read_csv_from_package_pandas(
+#    "pypomp", "data/uk_measles/raw/coord_urban.csv")
+#    .rename(columns={"X":"unit"})
+#)
+
+# data taken from https://github.com/kingaa/sbied/blob/master/measles/data/EW_Lat_Long.csv
+x = (pd.read_csv("EW_Lat_Long.csv")
+    .rename(columns={"town":"unit", "Long":"long", "Lat": "lat"})
+)
+
+coord=x
 mles = UKMeasles.AK_mles()
 twenty_cities = list(mles.columns)
+city_coord = coord[coord["unit"].isin(twenty_cities)]
 ```
 
 ## Map of cities in the analysis
@@ -173,7 +205,6 @@ twenty_cities = list(mles.columns)
 #| label: locations
 #| echo: false
 #| fig-cap: "Locations of the 20 cities in the @He2010 analysis."
-city_coord = coord[coord["unit"].isin(twenty_cities)]
 fig, ax = plt.subplots(figsize=(3, 4))
 ax.scatter(city_coord["long"], city_coord["lat"],
            c="red", s=20, zorder=5)
@@ -270,7 +301,7 @@ The model is a SEIR (susceptible--exposed--infectious--recovered) compartment mo
 \end{center}
 
 
-## Model specification {.allowframebreaks}
+## Model specification 
 
 **Covariates** (from data):
 
@@ -284,7 +315,8 @@ $$\mu_{BS}(t) = (1-c)\,B(t-\tau)+c\,\delta(t-\lfloor t\rfloor)\,\int_{t-1}^{t}\,
 - $\tau$: school-entry delay
 - $\lfloor t \rfloor$: most recent September~1 before $t$
 
-\framebreak
+
+##
 
 **Force of infection:**
 $$\mu_{SE}(t) = \frac{\beta(t)}{N(t)}\,(I+\iota)\,\zeta(t)$$
@@ -299,7 +331,8 @@ $$\beta(t) = \begin{cases}\beta_0\,\big(1+a(1-p)/p\big) &\text{during term}\\\be
 - $p=0.7589$: fraction of the year children are in school
 - The factor $(1-p)/p$ ensures the average transmission rate is $\beta_0$.
 
-\framebreak
+
+##
 
 **Overdispersed measurement model:**
 $$\mathrm{cases}_t\,\big|\,\Delta N_{IR}=C_t \sim \dist{Normal}{\rho\,C_t,\;\rho\,(1-\rho)\,C_t+(\psi\,\rho\,C_t)^2}$$
@@ -439,7 +472,8 @@ def rinit(theta_, key, covars, t0):
     E = jnp.round(m * E_0)
     I = jnp.round(m * I_0)
     R = jnp.round(m * R_0)
-    return {"S": S, "E": E, "I": I, "R": R, "W": 0, "C": 0}
+    return {"S": S, "E": E, "I": I, "R": R, 
+        "W": 0, "C": 0}
 ```
 
 
@@ -451,10 +485,11 @@ $\mathrm{Var}[\mathrm{cases}|C] = \rho\,(1-\rho)\,C + (\psi\,\rho\,C)^2$.
 
 Specifically,
 $\mathrm{cases}\mid C \sim f(\cdot\mid\rho,\psi,C)$, where
-$$
-f(c\mid\rho,\psi,C) = \Phi\!\left(c+\tfrac{1}{2},\,\rho C,\,\rho(1-\rho)C+(\psi\rho C)^2\right)
-- \Phi\!\left(c-\tfrac{1}{2},\,\rho C,\,\rho(1-\rho)C+(\psi\rho C)^2\right).
-$$
+\begin{eqnarray*}
+f(c\mid\rho,\psi,C) &=& \Phi\!\left(c+\tfrac{1}{2},\,\rho C,\,\rho(1-\rho)C+(\psi\rho C)^2\right)
+\\
+&& - \Phi\!\left(c-\tfrac{1}{2},\,\rho C,\,\rho(1-\rho)C+(\psi\rho C)^2\right).
+\end{eqnarray*}
 Here, $\Phi(x,\mu,\sigma^2)$ is the c.d.f.\ of the normal distribution with mean $\mu$ and variance $\sigma^2$.
 
 \framebreak
@@ -503,7 +538,8 @@ We illustrate using London:
 #| echo: true
 london_data = UKMeasles.subset(units=["London"])
 dat = london_data["measles"]
-print(f"Date range: {dat['date'].min()} to {dat['date'].max()}")
+print(f"Date range: {dat['date'].min()}",
+    f" to {dat['date'].max()}")
 print(f"Number of observations: {len(dat)}")
 ```
 
@@ -528,6 +564,9 @@ plt.show()
 
 We smooth the covariates and delay the entry of newborns into the susceptible pool.
 This is handled internally by `UKMeasles.Pomp()`, which uses smoothing splines for population interpolation and shifts the birth rate by 4 years (the school-entry delay $\tau$).
+
+
+##
 
 ```{python}
 #| label: plot london covariates
@@ -566,7 +605,12 @@ m1 = UKMeasles.Pomp(
     dt=1/365.25,
     clean=True
 )
+```
 
+
+```{python}
+#| label: print model info
+#| echo: false
 print(f"State names: {m1.statenames}")
 print(f"Time range: {m1.ys.index[0]:.2f} to {m1.ys.index[-1]:.2f}")
 print(f"Observations: {len(m1.ys)}")
@@ -578,6 +622,7 @@ print(f"Observations: {len(m1.ys)}")
 @He2010 estimated the parameters of this model for all 20 cities.
 We verify that we get the same likelihood.
 
+\small
 ```{python}
 #| label: compute London loglik at he20 mle
 #| echo: true
@@ -599,9 +644,9 @@ ll = logmeanexp(london_logliks)
 ll_se = logmeanexp_se(london_logliks)
 print(f"Log-likelihood: {ll:.1f} (SE {ll_se:.2f})")
 ```
+\normalsize
 
-
-## Simulations at the MLE {.allowframebreaks}
+## Simulations at the MLE 
 
 ```{python}
 #| label: simulations at the mle
@@ -609,6 +654,9 @@ print(f"Log-likelihood: {ll:.1f} (SE {ll_se:.2f})")
 key = jax.random.key(42)
 X_sims, Y_sims = m1.simulate(key=key, nsim=3)
 ```
+
+
+##
 
 ```{python}
 #| label: plot sims and data for London
@@ -773,6 +821,7 @@ The linked document `lesson5_profile.qmd` shows how a likelihood profile can be 
 
 The IF2 algorithm requires specifying random walk standard deviations for each parameter being estimated:
 
+\small
 ```{python}
 #| label: mif for London
 #| echo: true
@@ -793,9 +842,12 @@ rw_sd = RWSigma(
 m1.mif(J=2000, M=50, a=0.95, rw_sd=rw_sd,
        key=jax.random.key(1234567), thresh=0)
 ```
+\normalsize
 
-## Parameter estimates {.allowframebreaks}
 
+## 
+
+\footnotesize
 ```{python}
 #| label: tabulate mles for twenty cities
 #| echo: false
@@ -811,23 +863,24 @@ display_df = pd.DataFrame({
     "town": mle_df.columns,
     "pop": [pop_1950.get(t, np.nan) for t in mle_df.columns],
     "R0": mle_df.loc["R0"].values,
-    "amplitude": mle_df.loc["amplitude"].values,
+    "a": mle_df.loc["amplitude"].values,
     "LP": 365 * mean_euler(mle_df.loc["sigma"].values),
     "IP": 365 * mean_euler(mle_df.loc["gamma"].values),
     "iota": mle_df.loc["iota"].values,
     "rho": mle_df.loc["rho"].values,
     "psi": mle_df.loc["psi"].values,
-    "sigmaSE": mle_df.loc["sigmaSE"].values,
+    "sigSE": mle_df.loc["sigmaSE"].values,
 }).sort_values("pop")
 
-display_df = display_df.round({"R0": 1, "amplitude": 2,
+display_df = display_df.round({"R0": 1, "a": 2,
     "LP": 1, "IP": 1, "iota": 2, "rho": 3, "psi": 2,
-    "sigmaSE": 3})
+    "sigSE": 3})
 
 print(display_df.to_string(index=False))
 ```
+\normalsize
 
-\framebreak
+## Some parameter estimates vary with city size
 
 The Spearman rank correlations between each parameter and $N_{1950}$ reveal which parameters vary systematically with city size.
 
@@ -836,8 +889,8 @@ The Spearman rank correlations between each parameter and $N_{1950}$ reveal whic
 #| echo: false
 from scipy.stats import spearmanr
 
-params = ["R0", "amplitude", "LP", "IP", "iota", "rho",
-          "psi", "sigmaSE"]
+params = ["R0", "a", "LP", "IP", "iota", "rho",
+          "psi", "sigSE"]
 cors = {}
 for p in params:
     mask = ~(display_df[p].isna() | display_df["pop"].isna())
