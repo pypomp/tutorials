@@ -4,9 +4,11 @@
 Aaron A. King, Edward L. Ionides and Kunyang He
 
 
-| &nbsp;                            | &nbsp;                                                                                     |
-|:----------------------------------|:------------------------------------------------------------------------------------------:|
-| Lecture slides                    | [PDF](lesson4_beamer.pdf)
+| &nbsp;                            | &nbsp;                         |
+|:----------------------------------|:------------------------------:|
+| Lecture slides                    | [PDF](slides.pdf)              |
+| Lecture notes                     | [PDF](notes.pdf)               |
+
 
 
 
