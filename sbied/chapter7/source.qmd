@@ -124,6 +124,11 @@ from pypomp.random import (
     fast_approx_rpoisson,
 )
 from scipy.stats import chi2
+import pickle
+import os
+
+cache_dir = "cache"
+os.makedirs(cache_dir, exist_ok=True)
 
 np.random.seed(594709947)
 ```
@@ -474,9 +479,18 @@ plt.show()
 ```{python}
 #| label: sim-diagnostics
 #| echo: true
-key = jax.random.key(1234567)
-X_sims, Y_sims = gin.simulate(
-    key=key, nsim=200)
+cache_file = cache_dir + "/sim-diagnostics.pkl"
+
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        X_sims, Y_sims = pickle.load(f)
+else:
+    key = jax.random.key(1234567)
+    X_sims, Y_sims = gin.simulate(
+        key=key, nsim=200)
+    with open(cache_file, 'wb') as f:
+        pickle.dump((X_sims, Y_sims), f)
+
 print(f"Simulated {200} trajectories")
 ```
 
@@ -576,9 +590,17 @@ probes = {
     "ACF1": acf_1,
 }
 
-key = jax.random.key(887851050)
-probe_df = gin.probe(
-    probes=probes, nsim=500, key=key)
+cache_file = cache_dir + "/probe-results.pkl"
+
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        probe_df = pickle.load(f)
+else:
+    key = jax.random.key(887851050)
+    probe_df = gin.probe(
+        probes=probes, nsim=500, key=key)
+    with open(cache_file, 'wb') as f:
+        pickle.dump(probe_df, f)
 
 # Separate data and simulation values
 data_vals = probe_df[
@@ -589,7 +611,7 @@ sim_vals = probe_df[
 print("Probe results:")
 for name in probes:
     dv = float(data_vals[
-        data_vals['probe']==name]['value'])
+        data_vals['probe']==name]['value'].iloc[0])
     sv = sim_vals[
         sim_vals['probe']==name]['value']
     pval = float(np.mean(sv <= dv))
@@ -611,7 +633,7 @@ for i, name in enumerate(probe_names):
     sv = sim_vals[
         sim_vals['probe']==name]['value'].values
     dv = float(data_vals[
-        data_vals['probe']==name]['value'])
+        data_vals['probe']==name]['value'].iloc[0])
     ax.hist(sv[np.isfinite(sv)],
         bins=25, alpha=0.7)
     ax.axvline(dv, color='red', lw=2,
@@ -697,16 +719,29 @@ sle_forecast = pp.Pomp(
     statenames=sle.statenames,
     accumvars=("N_EI", "N_IR"))
 
-key = jax.random.key(12345)
-sle_forecast.pfilter(
-    J=1000, key=key, reps=5,
-    filter_mean=True)
-pf = sle_forecast.results_history.last()
+cache_file = cache_dir + "/forecast-pfilter.pkl"
 
-logliks = np.array([
-    float(pp.logmeanexp(
-        pf.logLiks.values[j, :]))
-    for j in range(n_forecast)])
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        pf_cache = pickle.load(f)
+    logliks = pf_cache['logliks']
+    fm_values = pf_cache['fm_values']
+else:
+    key = jax.random.key(12345)
+    sle_forecast.pfilter(
+        J=1000, key=key, reps=5,
+        filter_mean=True)
+    pf = sle_forecast.results_history.last()
+
+    logliks = np.array([
+        float(pp.logmeanexp(
+            pf.logLiks.values[j, :]))
+        for j in range(n_forecast)])
+    fm_values = np.array(pf.filter_mean.values)
+    with open(cache_file, 'wb') as f:
+        pickle.dump({'logliks': logliks,
+                     'fm_values': fm_values}, f)
+
 print(f"Log-likelihoods range: "
       f"[{logliks.min():.1f}, "
       f"{logliks.max():.1f}]")
@@ -720,7 +755,6 @@ We extract the filtered state means at the end of the data for use as initial co
 #| label: forecast-extract-states
 #| echo: true
 # filter_mean shape: (theta, replicate, time, state)
-fm = pf.filter_mean
 statenames_list = sle.statenames
 
 # Average over replicates, take last time point
@@ -728,7 +762,7 @@ forecast_thetas = []
 for j in range(n_forecast):
     th = param_samples[j].copy()
     # Mean filtered state across reps at last time
-    mean_state = fm.values[j, :, -1, :].mean(axis=0)
+    mean_state = fm_values[j, :, -1, :].mean(axis=0)
     for k_idx, name in enumerate(statenames_list):
         th[f"{name}_init"] = float(mean_state[k_idx])
     # Reset accumulators
@@ -748,30 +782,39 @@ last_week = float(sle.ys.index.max())
 forecast_weeks = np.arange(
     last_week + 1, last_week + 13)
 
-# Forecast rinit: read initial states from theta
-def rinit_forecast(theta_, key, covars, t0):
-    return {name: jnp.float32(
-                theta_[f"{name}_init"])
-            for name in statenames_list}
+cache_file = cache_dir + "/forecast-sims.pkl"
 
-# Dummy ys for forecast period
-forecast_ys = pd.DataFrame(
-    {"cases": np.zeros(len(forecast_weeks))},
-    index=forecast_weeks)
-forecast_ys.index.name = sle.ys.index.name
+if os.path.exists(cache_file):
+    with open(cache_file, 'rb') as f:
+        Y_fc = pickle.load(f)
+else:
+    # Forecast rinit: read initial states from theta
+    def rinit_forecast(theta_, key, covars, t0):
+        return {name: jnp.float32(
+                    theta_[f"{name}_init"])
+                for name in statenames_list}
 
-# Single Pomp with ALL forecast thetas in parallel
-fcast = pp.Pomp(
-    rinit=rinit_forecast, rproc=rproc,
-    dmeas=dmeas, rmeas=rmeas,
-    ys=forecast_ys, theta=forecast_thetas,
-    t0=last_week, dt=timestep, ydim=1,
-    covars=None,
-    statenames=statenames_list,
-    accumvars=("N_EI", "N_IR"))
+    # Dummy ys for forecast period
+    forecast_ys = pd.DataFrame(
+        {"cases": np.zeros(len(forecast_weeks))},
+        index=forecast_weeks)
+    forecast_ys.index.name = sle.ys.index.name
 
-key_fc = jax.random.key(555444333)
-_, Y_fc = fcast.simulate(key=key_fc, nsim=10)
+    # Single Pomp with ALL forecast thetas in parallel
+    fcast = pp.Pomp(
+        rinit=rinit_forecast, rproc=rproc,
+        dmeas=dmeas, rmeas=rmeas,
+        ys=forecast_ys, theta=forecast_thetas,
+        t0=last_week, dt=timestep, ydim=1,
+        covars=None,
+        statenames=statenames_list,
+        accumvars=("N_EI", "N_IR"))
+
+    key_fc = jax.random.key(555444333)
+    _, Y_fc = fcast.simulate(key=key_fc, nsim=10)
+    with open(cache_file, 'wb') as f:
+        pickle.dump(Y_fc, f)
+
 print(f"Forecast: {Y_fc.shape[0]} rows, "
       f"{n_forecast} param sets × 10 sims "
       f"× {len(forecast_weeks)} weeks")
