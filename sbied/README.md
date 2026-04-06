@@ -36,10 +36,8 @@ This is a Python-`pypomp` version of the previous [R-pomp](https://github.com/ki
 
 [**5. Case study: measles.  Recurrent epidemics, long time series, covariates, extra-demographic stochasticity, interpretation of parameter estimates.**](chapter5)
 
-[**6. Case study: polio. Workflow for a real research problem.**](chapter6)
+[**6. Case study: Ebola. Model diagnostics and forecasting.**](chapter7)
 
-[**7. Case study: Ebola. Model diagnostics and forecasting.**](chapter7)
 
-**8. Case study: HIV and fluctuating sexual contact rates. Panel data.** Not yet implemented.
 
 
