@@ -77,6 +77,12 @@ RL = 2
 cache_dir = "cache_" + str(RL)
 os.makedirs(cache_dir, exist_ok=True)
 np.random.seed(594709947)
+
+# for the map
+import geopandas as gpd
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+
 ```
 
 
@@ -197,6 +203,10 @@ coord=x
 mles = UKMeasles.AK_mles()
 twenty_cities = list(mles.columns)
 city_coord = coord[coord["unit"].isin(twenty_cities)]
+
+map_proj = ccrs.LambertConformal(central_longitude=-2, central_latitude=53)
+data_proj = ccrs.PlateCarree() # Data is in Lat/Long
+
 ```
 
 ## Map of cities in the analysis
@@ -205,14 +215,13 @@ city_coord = coord[coord["unit"].isin(twenty_cities)]
 #| label: locations
 #| echo: false
 #| fig-cap: "Locations of the 20 cities in the @He2010 analysis."
-fig, ax = plt.subplots(figsize=(3, 4))
+fig, ax = plt.subplots(figsize=(7, 5), subplot_kw={'projection': map_proj})
+ax.add_feature(cfeature.COASTLINE.with_scale('10m'), edgecolor='blue')
+ax.set_extent([-5, 2, 50, 55], crs=data_proj) # Set bounds for UK
 ax.scatter(city_coord["long"], city_coord["lat"],
-           c="red", s=20, zorder=5)
-ax.set_xlabel("Longitude")
-ax.set_ylabel("Latitude")
-ax.set_aspect(1.6)
-ax.grid(alpha=0.15)
-plt.tight_layout()
+           c="red", s=20, zorder=5, 
+           transform=ccrs.PlateCarree())
+ax.axis('off') 
 plt.show()
 ```
 
@@ -527,7 +536,7 @@ def rmeas(X_, theta_, key, covars, t):
 \normalsize
 
 
-## Data and covariates {.allowframebreaks}
+## Data and covariates
 
 The `pypomp` package includes the UK measles data from @He2010.
 The `UKMeasles` class provides convenient access.
@@ -543,7 +552,8 @@ print(f"Date range: {dat['date'].min()}",
 print(f"Number of observations: {len(dat)}")
 ```
 
-\framebreak
+
+## The case report data
 
 ```{python}
 #| label: plot london cases
@@ -560,9 +570,45 @@ plt.tight_layout()
 plt.show()
 ```
 
-\framebreak
 
-We smooth the covariates and delay the entry of newborns into the susceptible pool.
+## Reviewing covariates in time series analysis
+
+Suppose our time series of primary interest is $y_{1:N}$. A **covariate time series** is data ${z_{1:N}}$ which is used to help explain $y_{1:N}$.
+
+* It may be implicit that a covariate ${z_{1:N}}$ is considered an **external forcing** to the system producing $y_{1:N}$, i.e., ${z_{1:N}}$ causally affects $y_{1:N}$ but not vice versa.
+
+* E.g., weather might affect human health, but human health has negligible effect on weather: weather is an external forcing to human health.
+
+When the process leading to  ${z_{1:N}}$ is not external to the system generating it, we must be alert to the possibility of **reverse causation** and **confounding variables**.
+
+* Here, births are external, assuming negligible effect of measles on live births. 
+
+* For a mechanistic POMP, a covariate does not have to enter the equations linearly, as in a standard linear model.
+
+
+## Covariates in Pypomp
+
+* A covariate table is incorporated into the POMP object by the `covars` argument to `pp.Pomp`.
+
+* The named coviariates are delivered to the model components, after look up at the corresponding time, `t`.
+
+
+## Other common POMP covariates
+
+A linear or nonlinear trend through time in any parameter or rate or latent state can be modeled using covariates.
+
+* Seasonality can be modeled as a covariate which can enter the model in any scientifically plausible way.
+
+* Periodic B-splines provide a flexible way to incorporate seasonality; the source code for `pp.dacca` provides an example.
+
+* The measles model describes seasonality directly via the `t` variable accessible in all the model components.
+
+
+## Covariate pre-processing for measles
+
+* Discretely measured covariates must be interpolated at arbitrary times for a continuous-time POMP.
+
+We interpolate the covariates and delay the entry of newborns into the susceptible pool.
 This is handled internally by `UKMeasles.Pomp()`, which uses smoothing splines for population interpolation and shifts the birth rate by 4 years (the school-entry delay $\tau$).
 
 
@@ -576,11 +622,11 @@ demog_london = london_data["demog"]
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(4, 3), sharex=True)
 ax1.plot(demog_london["year"], demog_london["pop"]/1e6,
          "ko", markersize=3)
-ax1.set_ylabel("Population (millions)")
+ax1.set_ylabel("Population\n(millions)")
 ax1.grid(alpha=0.15)
 ax2.plot(demog_london["year"], demog_london["births"]/1000,
          "ko", markersize=3)
-ax2.set_ylabel("Annual births (thousands)")
+ax2.set_ylabel("Annual births\n(thousands)")
 ax2.set_xlabel("Year")
 ax2.grid(alpha=0.15)
 plt.tight_layout()
@@ -633,8 +679,8 @@ if os.path.exists(cache_file):
         london_pf = pickle.load(f)
 else:
     m1.pfilter(J=[50,500,5000][RL], 
-        reps=[2,5,10][RL],
-        key=key, thresh=0, CLL=True)
+        reps=[2,5,10][RL], key=key, thresh=0, 
+        CLL=True, ESS=True)
     london_pf = m1.results_history[-1]
     with open(cache_file, 'wb') as f:
         pickle.dump(london_pf,f)
@@ -662,7 +708,8 @@ X_sims, Y_sims = m1.simulate(key=key, nsim=3)
 #| label: plot sims and data for London
 #| echo: false
 #| fig-cap: "Simulations (red) versus data (black) at the London MLE."
-fig, axes = plt.subplots(4, 1, figsize=(4.5, 5), sharex=True)
+#| out-width: 3
+fig, axes = plt.subplots(4, 1, figsize=(6, 4.5), sharex=True)
 times = m1.ys.index.values
 data_cases = m1.ys["cases"].values
 
@@ -803,6 +850,52 @@ if pf.CLL is not None:
     plt.tight_layout()
     plt.show()
 ```
+
+
+## 
+
+```{python}
+#| label: ESS as diagnostic
+#| echo: false
+#| fig-cap: "Effective sample size for one particle filter in London."
+ess_all = london_pf.ESS.values[0, :, :]  # (reps, times)
+ess1 = ess_all[0,:]
+fig, ax = plt.subplots(figsize=(4.5, 2))
+ax.plot(times, ess1, linewidth=0.5)
+ax.set_xlabel("Year")
+ax.set_ylabel("ESS")
+ax.grid(alpha=0.15)
+plt.tight_layout()
+plt.show()
+```
+
+**Effective sample size** is $\mathrm{ESS}=\left(\sum_{j=1}^J w_j^2\right)^{-1}$, where $w_j$ are the resampling probabilities, i.e., the normalized filter weights.
+
+* ESS is the equivalent number of independent particles. 
+* If $w_j=1/J$ for all $j$ then $\mathrm{ESS}=J$.
+
+
+## Interpretation of ESS
+
+```{python}
+#| label: interpretation of ESS
+#| echo: false
+#| fig-cap: "Mean of replicated ESS."
+ess_all = london_pf.ESS.values[0, :, :]  # (reps, times)
+ess_mean = np.mean(ess_all,axis=0)
+fig, ax = plt.subplots(figsize=(4.5, 2))
+ax.plot(times, ess_mean, linewidth=0.5)
+ax.set_yscale('log')
+ax.set_xlabel("Year")
+ax.set_ylabel("ESS")
+ax.grid(alpha=0.15)
+plt.tight_layout()
+plt.show()
+```
+
+* As a rule of thumb, $\mathrm{ESS}<100$ is not good.
+
+* Some time points here are problematic and could usefully be investigated further. Is there a problem with either the model or the data at these points?
 
 
 ## Results from @He2010
