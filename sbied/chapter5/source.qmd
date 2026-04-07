@@ -1,17 +1,18 @@
 ---
-title: >
-  Lesson 5: Case Study --- Measles in Large and Small Towns
+title: "Lesson 5: Case Study --- Measles in Large and Small Towns \\vspace{5mm}"
 author:
   - Aaron A. King
   - Edward L. Ionides
   - Kunyang He
+subtitle: "[Source code at](https://github.com/pypomp/tutorials/tree/main/sbied/chapter5/source.qmd) $\\newline$  [pypomp/tutorials/sbied/chapter5](https://github.com/pypomp/tutorials/tree/main/sbied/chapter5)"
 date: today
-date-format: full
-
+date-format: "[Compiled on] MMMM D, YYYY"
 bibliography: ../sbied.bib
 
 format:
   beamer:
+    colorlinks: true
+    urlcolor: blue
     code-block-font-size: \tiny
     fontsize: 11pt
     cite-method: natbib
@@ -22,6 +23,8 @@ format:
       \setbeamertemplate{footline}[page number]
     output-file: slides.pdf
   pdf:
+    colorlinks: true
+    urlcolor: blue
     documentclass: article
     fontsize: 11pt
     cite-method: natbib
@@ -62,9 +65,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
+import pypomp as pp
 from pypomp.measles.measlesPomp import UKMeasles
 import pypomp.measles.model_001b as m001b
-from pypomp.util import logmeanexp, logmeanexp_se
 
 import os
 import pickle
@@ -174,9 +177,6 @@ demog = all_data["demog"]
 #| echo: false
 #| output: false
 
-# this has a bug
-#coord = all_data["coord"]
-
 from importlib import resources
 
 def read_csv_from_package_pandas(package_name, filename):
@@ -188,18 +188,11 @@ def read_csv_from_package_pandas(package_name, filename):
          df = pd.read_csv(f)
     return df
 
-#this is less complete than the following dataset 
-#coord = (read_csv_from_package_pandas(
-#    "pypomp", "data/uk_measles/raw/coord_urban.csv")
-#    .rename(columns={"X":"unit"})
-#)
-
 # data taken from https://github.com/kingaa/sbied/blob/master/measles/data/EW_Lat_Long.csv
-x = (pd.read_csv("EW_Lat_Long.csv")
+coord = (pd.read_csv("data/EW_Lat_Long.csv")
     .rename(columns={"town":"unit", "Long":"long", "Lat": "lat"})
 )
 
-coord=x
 mles = UKMeasles.AK_mles()
 twenty_cities = list(mles.columns)
 city_coord = coord[coord["unit"].isin(twenty_cities)]
@@ -686,8 +679,8 @@ else:
         pickle.dump(london_pf,f)
 
 london_logliks = london_pf.logLiks.values.flatten()
-ll = logmeanexp(london_logliks)
-ll_se = logmeanexp_se(london_logliks)
+ll = pp.logmeanexp(london_logliks)
+ll_se = pp.logmeanexp_se(london_logliks)
 print(f"Log-likelihood: {ll:.1f} (SE {ll_se:.2f})")
 ```
 \normalsize
@@ -999,12 +992,74 @@ for k, v in cors.items():
 
 ## Imported infections
 
+For implementation, see the [exercise notes](https://pypomp.github.io/tutorials/sbied/chapter5/exercises_notes.pdf) and their [source code](https://github.com/pypomp/tutorials/blob/main/sbied/chapter5).
 $$\text{force of infection} = \mu_{SE}=\frac{\beta(t)}{N(t)}\,(I+\iota)\,\zeta(t)$$
+```{python}
+#| echo: false
+#| label: iota profile plot
+iota_prof = pd.read_csv("data/iota.csv")
+df = iota_prof
+df1 = df[df.iloc[:,0].str.contains('London')]
+x1 = df1['iota']
+y1 = df1['loglik']
+mcap1 = pp.mcap(
+    parameter=np.log(x1.values),
+    loglik=y1.values,
+    level=0.95, span=0.5)
 
-Profile likelihoods over the imported infections parameter $\iota$ (computed in `lesson5_profile.qmd`) show that:
+df2 = df[df.iloc[:,0].str.contains('Hastings')]
+x2 = df2['iota']
+y2 = df2['loglik']
+mcap2 = pp.mcap(
+    parameter=np.log(x2.values),
+    loglik=y2.values,
+    level=0.95, span=0.6)
 
-- For London, $\iota$ is on the order of a few cases per week---the huge population sustains transmission and imported cases play a relatively small role.
-- For Hastings, $\iota$ is much larger relative to population, consistent with small-town dynamics where local fadeouts require reintroduction.
+fig, (ax1, ax2) = plt.subplots(nrows=2, ncols=1,
+    figsize=(5, 2.5), sharex=True)
+fig.supylabel('Profile log-likelihood', fontweight='bold', 
+    fontsize='medium',x=0.02)
+ax1.scatter(x1,y1,
+    s=8, alpha=0.4, label='raw')
+ax1.plot(np.exp(mcap1.fit['parameter']),
+    mcap1.fit['smoothed'],
+    'r-', lw=2, label='MCAP smoothed')
+max_sm = np.nanmax(mcap1.fit['smoothed'])
+ax1.axhline(max_sm - mcap1.delta,
+    color='blue', linestyle='--',
+    label='MCAP cutoff')
+ax1.set_ylim(max_sm - 15, max_sm + 0.5)
+ax1.grid(alpha=0.3)
+ax1.spines['top'].set_visible(False)
+ax1.spines['right'].set_visible(False)
+ax1.set_xscale('log')
+ax1.set_xlim(0.001, 100)
+ax1.tick_params(labelbottom=False)
+ax1.text(0.003, max_sm, "London", va='bottom', ha='center')
+
+ax2.scatter(x2,y2,
+    s=8, alpha=0.4, label='raw')
+ax2.plot(np.exp(mcap2.fit['parameter']),
+    mcap2.fit['smoothed'],
+    'r-', lw=2, label='MCAP smoothed')
+max_sm = np.nanmax(mcap2.fit['smoothed'])
+ax2.axhline(max_sm - mcap2.delta,
+    color='blue', linestyle='--',
+    label='MCAP cutoff')
+ax2.set(xlabel=r'$\iota')
+ax2.set_ylim(max_sm - 15, max_sm + 0.5)
+ax2.grid(alpha=0.3)
+ax2.spines['top'].set_visible(False)
+ax2.spines['right'].set_visible(False)
+ax2.set_xticks([]) 
+ax2.set_xscale('log')
+ax2.text(0.003, max_sm, "Hastings", va='bottom', ha='center')
+
+plt.tight_layout()
+plt.show()
+
+
+```
 
 
 ## Seasonality

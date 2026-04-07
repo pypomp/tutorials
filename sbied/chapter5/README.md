@@ -1,5 +1,5 @@
 
-# Lesson 5: Case Study — Measles in Large and Small Towns
+# Lesson 5: Case Study: Measles in Large and Small Towns
 
 Aaron A. King, Edward L. Ionides and Kunyang He
 
