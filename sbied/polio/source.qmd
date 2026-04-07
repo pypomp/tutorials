@@ -1,13 +1,13 @@
 ---
 title: >
-  Lesson 6: Case Study - Polio in Wisconsin
+    Case Study - Polio in Wisconsin
 author:
   - Aaron A. King
   - Edward L. Ionides
   - Translated in pypomp by Kunyang He
 
 shortauthor: "King & Ionides et al."   
-shorttitle: "Lesson 6"  
+shorttitle: "Polio in Wisconsin"  
 date: "December 24, 2025"
 
 bibliography: ../sbied.bib             

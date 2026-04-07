@@ -1,17 +1,18 @@
 ---
-title: >
-  Lesson 7: Case Study - Forecasting Ebola
+title: "Chapter 6: Case Study - Forecasting Ebola  \\vspace{5mm}"
 author:
   - Aaron A. King
   - Edward L. Ionides
   - Kunyang He
+subtitle: "[Source code at](https://github.com/pypomp/tutorials/tree/main/sbied/chapter6/source.qmd) $\\newline$  [pypomp/tutorials/sbied/chapter6](https://github.com/pypomp/tutorials/tree/main/sbied/chapter6)"
 date: today
-date-format: full
-
+date-format: "[Compiled on] MMMM D, YYYY"
 bibliography: ../sbied.bib             
 
 format:
   beamer:
+    colorlinks: true
+    urlcolor: blue
     code-block-font-size: \small
     fontsize: 11pt
     cite-method: natbib
@@ -22,6 +23,8 @@ format:
       \setbeamertemplate{footline}[page number]
     output-file: slides.pdf
   pdf:
+    colorlinks: true
+    urlcolor: blue
     documentclass: article
     fontsize: 11pt
     cite-method: natbib
@@ -46,14 +49,32 @@ header-includes: |
   \newcommand{\lik}{\mathcal{L}}
   \newcommand{\loglik}{\ell}
   \newcommand{\equals}{=}
-  \newcommand{\dist}[2]{\operatorname{#1}\!\bigl(#2\bigr)}
+  \newcommand{\dist}[2]{\operatorname{#1}\bigl(#2\bigr)}
   \newcommand{\myexercise}{\paragraph{Exercise}}
 ---
 
 ```{python}
+#| label: packages
 #| echo: false
-#| output: false
-"trying an empty chunk to see if it helps compilation"
+import jax
+import jax.numpy as jnp
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import pypomp as pp
+from pypomp.random import (
+    fast_approx_rbinom,
+    fast_approx_rgamma,
+    fast_approx_rpoisson,
+)
+from scipy.stats import chi2
+import pickle
+import os
+
+cache_dir = "cache"
+os.makedirs(cache_dir, exist_ok=True)
+
+np.random.seed(594709947)
 ```
 
 ## Introduction
@@ -94,56 +115,31 @@ As is to be expected in the case of a fast-moving outbreak of a novel pathogen i
 
 ## Best practices
 
-- The @King2015 paper focused critical attention on the economical and therefore common practice of fitting deterministic transmission models to cumulative incidence data.
+- @King2015 focused critical attention on the simple and therefore common practice of fitting deterministic transmission models to cumulative incidence data.
 
 - Specifically, @King2015 showed how this practice easily leads to overconfident prediction that, worryingly, can mask their own presence.
 
 ##
 
-- The paper recommended the use of POMP models, for several reasons:
-  - Such models can accommodate a wide range of hypothetical forms.
-  - They can be readily fit to incidence data, especially during the exponential growth phase of an outbreak.
-  - Stochastic models afford a more explicit treatment of uncertainty.
-  - POMP models come with a number of diagnostic approaches built-in, which can be used to assess model misspecification.
+The paper recommended the use of POMP models, for several reasons:
+
+- Such models can accommodate a wide range of hypothetical forms.
+- They can be readily fit to incidence data, especially during the exponential growth phase of an outbreak.
+- Stochastic models afford a more explicit treatment of uncertainty.
+- POMP models come with a number of diagnostic approaches built-in, which can be used to assess model misspecification.
 
 
 ## Situation-report data
 
 ```{python}
-#| label: packages
-#| echo: true
-import jax
-import jax.numpy as jnp
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import pypomp as pp
-from pypomp.random import (
-    fast_approx_rbinom,
-    fast_approx_rgamma,
-    fast_approx_rpoisson,
-)
-from scipy.stats import chi2
-import pickle
-import os
-
-cache_dir = "cache"
-os.makedirs(cache_dir, exist_ok=True)
-
-np.random.seed(594709947)
-```
-
-##
-
-```{python}
 #| label: load-data
 #| echo: true
-dat = pd.read_csv(
-    "https://kingaa.github.io/sbied/ebola/ebola_data.csv")
+dat = pd.read_csv("ebola_data.csv")
 print(dat.head(10))
 ```
 
-##
+
+## Known population size
 
 ```{python}
 #| label: popsizes
@@ -154,6 +150,7 @@ populations = {
     "SierraLeone": 6190280.0,
 }
 ```
+
 
 ##
 
@@ -364,9 +361,7 @@ def build_ebola_model(country="Guinea"):
         + [f"E{i+1}" for i in range(nstageE)]
         + ["I", "R", "N_EI", "N_IR"])
 
-    profs = pd.read_csv(
-        "https://kingaa.github.io/sbied/"
-        "ebola/ebola_profiles.csv")
+    profs = pd.read_csv("ebola_profiles.csv")
     best = profs[profs["country"] == country]
     best = best.loc[best["loglik"].idxmax()]
     N = float(populations[country])
@@ -414,9 +409,7 @@ print("Models built for Guinea, "
 ```{python}
 #| label: load-profiles
 #| echo: true
-profs = pd.read_csv(
-    "https://kingaa.github.io/sbied/"
-    "ebola/ebola_profiles.csv")
+profs = pd.read_csv("ebola_profiles.csv")
 
 for country in ["Guinea","SierraLeone","Liberia"]:
     best = profs[profs["country"] == country]
