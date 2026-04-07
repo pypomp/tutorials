@@ -1057,44 +1057,317 @@ ax2.text(0.003, max_sm, "Hastings", va='bottom', ha='center')
 
 plt.tight_layout()
 plt.show()
-
-
 ```
 
 
 ## Seasonality
 
-Profile likelihoods over the amplitude of term-time seasonality show that:
-
 - Both London and Hastings have high seasonality amplitude ($a > 0.4$).
 - School terms drive measles transmission strongly.
-- The confidence intervals are fairly tight, indicating this parameter is well-identified.
+- This parameter is well-identified, especially in London.
 
+```{python}
+#| echo: false
+#| label: seasonal amplitude profile plot
+seas_prof = pd.read_csv("data/amplitude.csv")
+df = seas_prof
+df1 = df[df.iloc[:,0].str.contains('London')]
+x1 = df1['amplitude']
+y1 = df1['loglik']
+mcap1 = pp.mcap(
+    parameter=x1.values,
+    loglik=y1.values,
+    level=0.95, span=0.5)
+
+df2 = df[df.iloc[:,0].str.contains('Hastings')]
+x2 = df2['amplitude']
+y2 = df2['loglik']
+mcap2 = pp.mcap(
+    parameter=x2.values,
+    loglik=y2.values,
+    level=0.95, span=0.6)
+
+fig, (ax1, ax2) = plt.subplots(nrows=2, ncols=1,
+    figsize=(5, 2.5), sharex=True)
+fig.supylabel('Profile log-likelihood', fontweight='bold', 
+    fontsize='medium',x=0.02)
+ax1.scatter(x1,y1,
+    s=8, alpha=0.4, label='raw')
+ax1.plot(mcap1.fit['parameter'],
+    mcap1.fit['smoothed'],
+    'r-', lw=2, label='MCAP smoothed')
+max_sm = np.nanmax(mcap1.fit['smoothed'])
+ax1.axhline(max_sm - mcap1.delta,
+    color='blue', linestyle='--',
+    label='MCAP cutoff')
+ax1.set_ylim(max_sm - 15, max_sm + 0.5)
+ax1.grid(alpha=0.3)
+ax1.spines['top'].set_visible(False)
+ax1.spines['right'].set_visible(False)
+ax1.set_xlim(0.01, 1)
+ax1.tick_params(labelbottom=False)
+ax1.text(0.02, max_sm, "London", va='bottom', ha='center')
+
+ax2.scatter(x2,y2,
+    s=8, alpha=0.4, label='raw')
+ax2.plot(mcap2.fit['parameter'],
+    mcap2.fit['smoothed'],
+    'r-', lw=2, label='MCAP smoothed')
+max_sm = np.nanmax(mcap2.fit['smoothed'])
+ax2.axhline(max_sm - mcap2.delta,
+    color='blue', linestyle='--',
+    label='MCAP cutoff')
+ax2.set(xlabel='amplitude of term-time seasonality')
+ax2.set_ylim(max_sm - 15, max_sm + 0.5)
+ax2.grid(alpha=0.3)
+ax2.spines['top'].set_visible(False)
+ax2.spines['right'].set_visible(False)
+ax2.set_xticks([]) 
+ax2.set_xscale('linear')
+ax2.text(0.02, max_sm, "Hastings", va='bottom', ha='center')
+
+plt.tight_layout()
+plt.show()
+```
 
 ## Cohort effect
 
-Profile likelihoods over the cohort entry fraction show that:
-
 - The cohort effect is moderately well-identified in London.
-- In Hastings, the profile is flatter, reflecting weaker identifiability in small populations.
+- The flatter profile in Hastings suggests weaker identifiability in small populations.
+
+
+```{python}
+#| echo: false
+#| label: cohort effect profile plot
+seas_prof = pd.read_csv("data/cohort.csv")
+df = seas_prof
+df1 = df[df.iloc[:,0].str.contains('London')]
+x1 = df1['cohort']
+y1 = df1['loglik']
+mcap1 = pp.mcap(
+    parameter=x1.values,
+    loglik=y1.values,
+    level=0.95, span=0.5)
+
+df2 = df[df.iloc[:,0].str.contains('Hastings')]
+x2 = df2['cohort']
+y2 = df2['loglik']
+mcap2 = pp.mcap(
+    parameter=x2.values,
+    loglik=y2.values,
+    level=0.95, span=0.6)
+
+fig, (ax1, ax2) = plt.subplots(nrows=2, ncols=1,
+    figsize=(5, 2.5), sharex=True)
+fig.supylabel('Profile log-likelihood', fontweight='bold', 
+    fontsize='medium',x=0.02)
+ax1.scatter(x1,y1,
+    s=8, alpha=0.4, label='raw')
+ax1.plot(mcap1.fit['parameter'],
+    mcap1.fit['smoothed'],
+    'r-', lw=2, label='MCAP smoothed')
+max_sm = np.nanmax(mcap1.fit['smoothed'])
+ax1.axhline(max_sm - mcap1.delta,
+    color='blue', linestyle='--',
+    label='MCAP cutoff')
+ax1.set_ylim(max_sm - 15, max_sm + 0.5)
+ax1.grid(alpha=0.3)
+ax1.spines['top'].set_visible(False)
+ax1.spines['right'].set_visible(False)
+ax1.set_xlim(0, 1)
+ax1.tick_params(labelbottom=False)
+ax1.text(0.02, max_sm, "London", va='bottom', ha='center')
+
+ax2.scatter(x2,y2,
+    s=8, alpha=0.4, label='raw')
+ax2.plot(mcap2.fit['parameter'],
+    mcap2.fit['smoothed'],
+    'r-', lw=2, label='MCAP smoothed')
+max_sm = np.nanmax(mcap2.fit['smoothed'])
+ax2.axhline(max_sm - mcap2.delta,
+    color='blue', linestyle='--',
+    label='MCAP cutoff')
+ax2.set(xlabel='amplitude of term-time seasonality')
+ax2.set_ylim(max_sm - 15, max_sm + 0.5)
+ax2.grid(alpha=0.3)
+ax2.spines['top'].set_visible(False)
+ax2.spines['right'].set_visible(False)
+ax2.set_xticks([]) 
+ax2.set_xscale('linear')
+ax2.text(0.02, max_sm, "Hastings", va='bottom', ha='center')
+
+plt.tight_layout()
+plt.show()
+```
 
 
 ## $R_0$ estimates inconsistent with literature
 
 Recall that $\Rzero$ is a measure of how communicable an infection is. Existing estimates ($\Rzero \approx 15$--20) come from serology surveys and feature-based methods.
 
-- The MLE estimates of $\Rzero$ from @He2010 are much higher: $\Rzero \approx 40$--60.
-- This reflects the fact that the susceptible fraction is much smaller than in a "virgin population" assumed by classical estimates.
-- Profile likelihoods over $\Rzero$ confirm this finding for both London and Hastings.
+```{python}
+#| echo: false
+#| label: R0 profile plot
+R0_prof = pd.read_csv("data/R0profile.csv")
+df = R0_prof
+df1 = df[df.iloc[:,0].str.contains('London')]
+x1 = df1['R0']
+y1 = df1['loglik']
+mcap1 = pp.mcap(
+    parameter=x1.values,
+    loglik=y1.values,
+    level=0.95, span=0.5)
+
+df2 = df[df.iloc[:,0].str.contains('Hastings')]
+x2 = df2['R0']
+y2 = df2['loglik']
+mcap2 = pp.mcap(
+    parameter=x2.values,
+    loglik=y2.values,
+    level=0.95, span=0.6)
+
+fig, (ax1, ax2) = plt.subplots(nrows=2, ncols=1,
+    figsize=(5, 2.5), sharex=True)
+fig.supylabel('Profile log-likelihood', fontweight='bold', 
+    fontsize='medium',x=0.02)
+ax1.scatter(x1,y1,
+    s=8, alpha=0.4, label='raw')
+ax1.plot(mcap1.fit['parameter'],
+    mcap1.fit['smoothed'],
+    'r-', lw=2, label='MCAP smoothed')
+max_sm = np.nanmax(mcap1.fit['smoothed'])
+ax1.axhline(max_sm - mcap1.delta,
+    color='blue', linestyle='--',
+    label='MCAP cutoff')
+ax1.set_ylim(max_sm - 15, max_sm + 0.5)
+ax1.grid(alpha=0.3)
+ax1.spines['top'].set_visible(False)
+ax1.spines['right'].set_visible(False)
+ax1.set_xlim(8, 100)
+ax1.tick_params(labelbottom=False)
+ax1.text(10, max_sm, "London", va='bottom', ha='center')
+
+ax2.scatter(x2,y2,
+    s=8, alpha=0.4, label='raw')
+ax2.plot(mcap2.fit['parameter'],
+    mcap2.fit['smoothed'],
+    'r-', lw=2, label='MCAP smoothed')
+max_sm = np.nanmax(mcap2.fit['smoothed'])
+ax2.axhline(max_sm - mcap2.delta,
+    color='blue', linestyle='--',
+    label='MCAP cutoff')
+ax2.set(xlabel='basic reproductive number, R0')
+ax2.set_ylim(max_sm - 15, max_sm + 0.5)
+ax2.grid(alpha=0.3)
+ax2.spines['top'].set_visible(False)
+ax2.spines['right'].set_visible(False)
+ax2.set_xticks([]) 
+ax2.set_xscale('linear')
+ax2.text(10, max_sm, "Hastings", va='bottom', ha='center')
+
+plt.tight_layout()
+plt.show()
+```
 
 
 ## Extrademographic stochasticity
 
 $$\mu_{SE}=\frac{\beta(t)}{N(t)}\,(I+\iota)\,\zeta(t)$$
 
-- $\sigma_{SE} > 0$ is strongly supported by the data.
-- Without extra-demographic stochasticity, the model fits poorly.
-- Profile likelihoods over $\sigma_{SE}$ also reveal trade-offs with the infectious period (IP) and latent period (LP): as $\sigma_{SE}$ increases, IP tends to decrease.
+$\sigma_{SE} > 0$ is strongly supported by the data.  
+Trace plots show trade-offs with the infectious period (IP, dashed black line) and latent period (LP, solid black line).
+
+```{python}
+#| echo: false
+#| label: sigSE profile plot
+
+def mean_euler(rate,dt=1/365):
+    return(dt/(1-np.exp(-rate*dt)))
+
+sigSE_prof = pd.read_csv("data/env_noise.csv")
+df = sigSE_prof
+df1 = df[df.iloc[:,0].str.contains('London')]
+x1 = 1/np.sqrt(df1['eta']) # different scale used by He et al. (2010)
+y1 = df1['loglik']
+IP1 = mean_euler(df1['gamma'])*365
+LP1 = mean_euler(df1['sigma'])*365
+
+mcap1 = pp.mcap(
+    parameter=np.log(x1.values),
+    loglik=y1.values,
+    level=0.95, span=0.5)
+
+df2 = df[df.iloc[:,0].str.contains('Hastings')]
+x2 = 1/np.sqrt(df2['eta']) # different scale used by He et al. (2010)
+y2 = df2['loglik']
+IP2 = mean_euler(df2['gamma'])*365
+LP2 = mean_euler(df2['sigma'])*365
+mcap2 = pp.mcap(
+    parameter=np.log(x2.values),
+    loglik=y2.values,
+    level=0.95, span=0.6)
+
+
+fig, (ax1, ax2) = plt.subplots(nrows=2, ncols=1,
+    figsize=(5, 2.5), sharex=True)
+fig.supylabel('Loglik (left). Duration (right)', fontweight='bold', 
+    fontsize='small',x=0.02)
+#fig.text(0.98,0.5,'Duration (days)', fontweight='bold', 
+#    fontsize='medium', horizontalalignment='right',
+#    rotation=90)
+
+dur1 = ax1.twinx() # right axis for durations
+
+ax1.scatter(x1,y1,
+    s=8, alpha=0.4, label='raw')
+ax1.plot(np.exp(mcap1.fit['parameter']),
+    mcap1.fit['smoothed'],
+    'r-', lw=2, label='MCAP smoothed')
+dur1.plot(x1,IP1,
+    'k-', lw=2, label='Infectious period')    
+dur1.plot(x1,LP1,
+    'k--', lw=2, label='Infectious period')    
+max_sm = np.nanmax(mcap1.fit['smoothed'])
+ax1.axhline(max_sm - mcap1.delta,
+    color='blue', linestyle='--',
+    label='MCAP cutoff')
+ax1.set_ylim(max_sm - 15, max_sm + 0.5)
+ax1.grid(alpha=0.3)
+ax1.spines['top'].set_visible(False)
+ax1.spines['right'].set_visible(False)
+dur1.spines['top'].set_visible(False)
+ax1.set_xscale('log')
+ax1.set_xlim(0.004, 0.5)
+ax1.tick_params(labelbottom=False)
+ax1.text(0.01, max_sm, "London", va='bottom', ha='center')
+
+dur2 = ax2.twinx() # right axis for durations
+dur2.plot(x2,IP2,
+    'k-', lw=2, label='Infectious period')    
+dur2.plot(x2,LP2,
+    'k--', lw=2, label='Infectious period')    
+ax2.scatter(x2,y2,
+    s=8, alpha=0.4, label='raw')
+ax2.plot(np.exp(mcap2.fit['parameter']),
+    mcap2.fit['smoothed'],
+    'r-', lw=2, label='MCAP smoothed')
+max_sm = np.nanmax(mcap2.fit['smoothed'])
+ax2.axhline(max_sm - mcap2.delta,
+    color='blue', linestyle='--',
+    label='MCAP cutoff')
+ax2.set(xlabel=r'sigSE')
+ax2.set_ylim(max_sm - 15, max_sm + 0.5)
+ax2.grid(alpha=0.3)
+ax2.spines['top'].set_visible(False)
+dur2.spines['top'].set_visible(False)
+ax2.spines['right'].set_visible(False)
+ax2.set_xticks([]) 
+ax2.set_xscale('log')
+ax2.text(0.01, max_sm, "Hastings", va='bottom', ha='center')
+
+plt.tight_layout()
+plt.show()
+```
 
 
 ## Reporting rate
