@@ -74,7 +74,9 @@ import os
 cache_dir = "cache"
 os.makedirs(cache_dir, exist_ok=True)
 
-np.random.seed(594709947)
+np.random.seed(1331)
+key_chain = jax.random.key(14641)
+
 ```
 
 ## Introduction
@@ -189,14 +191,7 @@ where $m$ is an integer.
 
 The model structure is:
 $$S \to E_1 \to E_2 \to E_3 \to I \to R/\text{dead}$$
-
-##
-
-The observations are modeled as a negative binomial process conditional on the number of infections. That is, if $C_t$ are the reported cases at week $t$ and $H_t$ is the true incidence, then we postulate that $C_t | H_t$ is negative binomial with
-$$\mathbb{E}\left[ C_t|H_t \right] = \rho\,H_t \quad \text{and} \quad \mathrm{Var}\left[ C_t|H_t \right] = \rho\,H_t\,(1+k\,\rho\,H_t).$$
-
-
-## Building the model in pypomp
+The equations are solved numerically by Euler's method.
 
 ```{python}
 #| label: model-setup
@@ -204,6 +199,13 @@ $$\mathbb{E}\left[ C_t|H_t \right] = \rho\,H_t \quad \text{and} \quad \mathrm{Va
 nstageE = 3
 timestep = 0.1
 ```
+
+
+##
+
+The observations are modeled as a negative binomial process conditional on the number of infections. That is, if $C_t$ are the reported cases at week $t$ and $H_t$ is the true incidence, then we postulate that $C_t | H_t$ is negative binomial with
+$$\mathbb{E}\left[ C_t|H_t \right] = \rho\,H_t \quad \text{and} \quad \mathrm{Var}\left[ C_t|H_t \right] = \rho\,H_t\,(1+k\,\rho\,H_t).$$
+
 
 ##
 
@@ -231,6 +233,8 @@ def rinit(theta_, key, covars, t0):
 ```
 
 ##
+
+`rproc` deals with multiple $E$ compartments:
 
 ```{python}
 #| label: rproc
@@ -297,8 +301,8 @@ def rproc(X_, theta_, key, covars, t, dt):
 ##
 
 ```{python}
-#| label: dmeas
-#| echo: true
+#| label: nbinom
+#| echo: false
 def nbinom_logpmf(x, k, mu):
     x, k, mu = (jnp.asarray(v) for v in (x, k, mu))
     logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
@@ -309,7 +313,11 @@ def nbinom_logpmf(x, k, mu):
             + k * jnp.log(k / (k + safe_mu))
             + x * jnp.log(safe_mu / (k + safe_mu)))
     return jnp.where(mu == 0.0, logp_zero, core)
+```
 
+```{python}
+#| label: dmeas
+#| echo: true
 def dmeas(Y_, X_, theta_, covars, t):
     rho = theta_["rho"]
     k = theta_["k"]
@@ -346,9 +354,16 @@ def rmeas(X_, theta_, key, covars, t):
 
 ## Building the pomp object
 
+We define a function `python build_ebola_model(country)` that builds a POMP model corresponding to `country`.
+
+* Parameter values correspond to the MLE of a previous search.
+
+* Model components are constructed above.
+
+
 ```{python}
 #| label: build-model
-#| echo: true
+#| echo: false
 def build_ebola_model(country="Guinea"):
     country_data = dat[
         dat['country'] == country].copy()
@@ -361,6 +376,7 @@ def build_ebola_model(country="Guinea"):
         + [f"E{i+1}" for i in range(nstageE)]
         + ["I", "R", "N_EI", "N_IR"])
 
+    # saved profiles give parameter values
     profs = pd.read_csv("ebola_profiles.csv")
     best = profs[profs["country"] == country]
     best = best.loc[best["loglik"].idxmax()]
@@ -404,13 +420,18 @@ print("Models built for Guinea, "
 - A Latin hypercube design was used to initiate a large number of iterated filtering runs.
 - Profile likelihoods were computed for each country against the parameters $k$ (the measurement model overdispersion) and $\Rzero$ (the basic reproductive ratio).
 
-##
+
+## Pre-computed MLEs
 
 ```{python}
 #| label: load-profiles
 #| echo: true
 profs = pd.read_csv("ebola_profiles.csv")
+```
 
+```{python}
+#| label: show mles
+#| echo: false
 for country in ["Guinea","SierraLeone","Liberia"]:
     best = profs[profs["country"] == country]
     best = best.loc[best["loglik"].idxmax()]
@@ -435,10 +456,11 @@ for j, country in enumerate(
     cp = profs[profs["country"] == country]
 
     for i, par in enumerate(["R0", "k"]):
+        df = cp[cp["profile"] == par]
         ax = axes[i, j]
-        ax.scatter(cp[par], cp["loglik"],
+        ax.scatter(df[par], df["loglik"],
             s=8, alpha=0.5)
-        max_ll = cp["loglik"].max()
+        max_ll = df["loglik"].max()
         cutoff = max_ll - 0.5*chi2.ppf(0.99, df=1)
         ax.axhline(cutoff, color='red',
             linestyle='--', lw=0.8)
@@ -474,13 +496,13 @@ plt.show()
 #| echo: true
 cache_file = cache_dir + "/sim-diagnostics.pkl"
 
+key_chain, key_sim = jax.random.split(key_chain)
 if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
         X_sims, Y_sims = pickle.load(f)
 else:
-    key = jax.random.key(1234567)
     X_sims, Y_sims = gin.simulate(
-        key=key, nsim=200)
+        key=key_sim, nsim=200)
     with open(cache_file, 'wb') as f:
         pickle.dump((X_sims, Y_sims), f)
 
@@ -515,6 +537,7 @@ plt.show()
 
 - Let's quantify this using the `probe` method in `pypomp`.
 
+
 ##
 
 ```{python}
@@ -533,7 +556,12 @@ def growth_rate(df):
     t_m, y_m = t[mask], log_y[mask]
     return float(np.cov(t_m, y_m)[0, 1]
                  / np.var(t_m))
+```
 
+
+##
+
+```{python}
 def residual_sd(df):
     """SD of residuals from exponential trend."""
     y = df.iloc[:, 0].values
@@ -548,7 +576,9 @@ def residual_sd(df):
     intercept = y_m.mean() - slope * t_m.mean()
     resid = y_m - (slope * t_m + intercept)
     return float(np.std(resid))
+```
 
+```{python}
 def quantile_1(df):
     """1st quartile of log cases."""
     y = np.maximum(df.iloc[:, 0].values, 0.5)
@@ -655,8 +685,6 @@ plt.show()
 
 ## Forecasting using POMP models
 
-### Sources of uncertainty
-
 - A set of key issues surrounds quantifying the forecast uncertainty.
 
 - This arises from four sources:
@@ -670,9 +698,7 @@ plt.show()
 
 ## Forecasting Ebola: an empirical Bayes approach
 
-### Parameter uncertainty
-
-We take an [*empirical Bayes*](https://en.wikipedia.org/wiki/Empirical_Bayes_method) approach.
+To incorporate **parameter uncertainty**, we use [**empirical Bayes**](https://en.wikipedia.org/wiki/Empirical_Bayes_method). 
 
 First, we set up a collection of parameter vectors in a neighborhood of the maximum likelihood estimate containing the region of high likelihood.
 
@@ -689,19 +715,15 @@ for _ in range(n_forecast):
         th[p] = float(base_theta[p]) \
             * np.exp(np.random.normal(0, 0.15))
     param_samples.append(th)
-
-print(f"Generated {len(param_samples)} "
-      f"parameter samples")
 ```
 
-##
 
-### Process noise and measurement error
+## Process noise and measurement error
 
-Next, we carry out a particle filter at each parameter vector, which gives us estimates of both the likelihood and the filter distribution at that parameter value.
+To incorporate **dynamic noise and measurement error** we use a particle filter at each parameter vector, which gives us estimates of both the likelihood and the filter distribution at that parameter value.
 
 ```{python}
-#| label: forecast-pfilter
+#| label: forecast POMP
 #| echo: true
 sle_forecast = pp.Pomp(
     rinit=rinit, rproc=rproc,
@@ -711,9 +733,15 @@ sle_forecast = pp.Pomp(
     covars=None,
     statenames=sle.statenames,
     accumvars=("N_EI", "N_IR"))
+```
+* We set `theta` to an array of parameters, which will trigger simulations at each parameter vector.
 
+##
+
+```{python}
+#| label: forecast-pfilter
+#| echo: true
 cache_file = cache_dir + "/forecast-pfilter.pkl"
-
 if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
         pf_cache = pickle.load(f)
@@ -768,15 +796,23 @@ for j in range(n_forecast):
 
 We simulate forward from the filtered states to generate forecasts.
 
+* For the forecast, we set `rinit` to copy the previous filter state, saved in the parameter vector.
+
+* We set the initial time `t0` to be the time of the last observation.
+
+* The input observations, `ys`, are needed only for their time index, which will be the time at which the simulations are recorded.
+
+* See [the source code](https://github.com/pypomp/tutorials/blob/main/sbied/chapter6/source.qmd) for full details.
+
 ```{python}
 #| label: forecast-simulate
-#| echo: true
+#| echo: false
 last_week = float(sle.ys.index.max())
 forecast_weeks = np.arange(
     last_week + 1, last_week + 13)
 
+key_chain, key_fc = jax.random.split(key_chain)
 cache_file = cache_dir + "/forecast-sims.pkl"
-
 if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
         Y_fc = pickle.load(f)
@@ -803,7 +839,6 @@ else:
         statenames=statenames_list,
         accumvars=("N_EI", "N_IR"))
 
-    key_fc = jax.random.key(555444333)
     _, Y_fc = fcast.simulate(key=key_fc, nsim=10)
     with open(cache_file, 'wb') as f:
         pickle.dump(Y_fc, f)
@@ -847,6 +882,7 @@ for j in range(n_forecast):
         ax.plot(fs['time'], fs['obs_0'],
             alpha=alpha, color='blue', lw=0.5)
 
+ax.set_ylim(0,5000)
 ax.axvline(last_week, color='gray',
     ls=':', label='Forecast start')
 ax.set(xlabel='Week', ylabel='Cases',
