@@ -1,0 +1,27 @@
+
+# notes on setting up Python
+# a version of specific packages loaded to run the chapters
+# is in requirements.txt
+
+python3.14 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install jupyter matplotlib pandas statsmodels
+
+# for pandas.df.to_markdown
+pip install tabulate
+
+# for calling R when needed
+pip install rpy2
+
+# for POMP models 
+pip install pypomp
+# installs various other packages useful for statistical work
+# this will install jax, but if working on a gpu we need jax with cuda
+# pip install jax[cuda12]
+
+# convenient for accessing quarto on greatlakes
+pip install quarto-cli
+
+# for the map in chapter5
+pip install geopandas cartopy
