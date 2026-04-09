@@ -1,10 +1,10 @@
 ---
-title: "Chapter 6: Case Study - Forecasting Ebola  \\vspace{5mm}"
+title: "Chapter 6: Case Study -- Forecasting Ebola  \\vspace{5mm}"
 author:
   - Aaron A. King
   - Edward L. Ionides
   - Kunyang He
-subtitle: "[Source code at](https://github.com/pypomp/tutorials/tree/main/sbied/chapter6/source.qmd) $\\newline$  [pypomp/tutorials/sbied/chapter6](https://github.com/pypomp/tutorials/tree/main/sbied/chapter6)"
+subtitle: "[Source code at](https://github.com/pypomp/tutorials/tree/main/sbied/chapter6/source.qmd) [pypomp/tutorials/sbied/chapter6](https://github.com/pypomp/tutorials/tree/main/sbied/chapter6)"
 date: today
 date-format: "[Compiled on] MMMM D, YYYY"
 bibliography: ../sbied.bib             
@@ -912,14 +912,14 @@ plt.show()
 
 ## Exercises
 
-**Exercise 7.1.** *The Sierra Leone outbreak.*
+**Exercise 6.1.** *The Sierra Leone outbreak.*
 Apply probes to investigate the extent to which the SEIR model above is an adequate description of the data from the Sierra Leone outbreak.
 Have a look at the probes provided with `pypomp` (`probe` method).
 Try also to come up with some informative probes of your own. Discuss the implications of your findings.
 
 ##
 
-**Exercise 7.2.** *Decomposing the uncertainty.*
+**Exercise 6.2.** *Decomposing the uncertainty.*
 As we have discussed, the uncertainty shown in the forecasts above has three sources: parameter uncertainty, process noise, and measurement error.
 Show how you can break the total uncertainty into these three components.
 Produce plots similar to that above showing each of the components.

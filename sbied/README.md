@@ -19,8 +19,9 @@ This is a Python-`pypomp` version of the previous [R-pomp](https://github.com/ki
 1. To help students familiar with the **R-pomp** package to transfer that expertise to **pypomp**.
 1. To give students opportunities to work with inference methods, including methodologies that use automatic differentiation and GPUs which are not accessible via **pomp**.
 1. To provide documented examples for student re-use.
+1. All source code is available at <https://github.com/pypomp/tutorials/tree/main/sbied>.
 
-----------------------
+----------------
 
 ## Lessons
 
@@ -36,7 +37,11 @@ This is a Python-`pypomp` version of the previous [R-pomp](https://github.com/ki
 
 [**5. Case study: measles.  Recurrent epidemics, long time series, covariates, extra-demographic stochasticity, interpretation of parameter estimates.**](chapter5)
 
-[**6. Case study: Ebola. Model diagnostics and forecasting.**](chapter7)
+[**6. Case study: Ebola. Model diagnostics and forecasting.**](chapter6)
+
+---------------
+
+Additional background on time series analysis and POMP models, following the notation and approach of this short course, is provided in a full-semester extension of this couurse, [Modeling and Analysis of Time Series Data](https://ionides.github.io/531w26/).
 
 
 

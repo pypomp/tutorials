@@ -1,17 +1,19 @@
 ---
-title: >
-  Lesson 4: Iterated Filtering --- Principles and Practice
+title: "Chapter 4: Iterated Filtering -- Principles and Practice  \\vspace{5mm}"
 author:
   - Aaron A. King
   - Edward L. Ionides
   - Kunyang He
+subtitle: "[Source code at](https://github.com/pypomp/tutorials/tree/main/sbied/chapter4/source.qmd) [pypomp/tutorials/sbied/chapter4](https://github.com/pypomp/tutorials/tree/main/sbied/chapter4)"
 date: today
-date-format: full
+date-format: "[Compiled on] MMMM D, YYYY"
 
 bibliography: ../sbied.bib
 
 format:
   beamer:
+    colorlinks: true
+    urlcolor: blue
     pdf-engine: pdflatex
     code-block-font-size: \small
     fontsize: 11pt
@@ -23,6 +25,8 @@ format:
       \setbeamertemplate{footline}[page number]
     output-file: slides.pdf
   pdf:
+    colorlinks: true
+    urlcolor: blue
     documentclass: article
     fontsize: 11pt
     cite-method: natbib

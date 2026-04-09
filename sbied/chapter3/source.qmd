@@ -1,17 +1,19 @@
 ---
-title: >
-  Lesson 3: Likelihood-based Inference for POMP Models
+title: "Chapter 3: Likelihood-based Inference for POMP Models \\vspace{5mm}"
 author:
   - Aaron A. King
   - Edward L. Ionides
   - Kunyang He
+subtitle: "[Source code at](https://github.com/pypomp/tutorials/tree/main/sbied/chapter3/source.qmd) [pypomp/tutorials/sbied/chapter3](https://github.com/pypomp/tutorials/tree/main/sbied/chapter3)"
 date: today
-date-format: full
+date-format: "[Compiled on] MMMM D, YYYY"
 
 bibliography: ../sbied.bib
 
 format:
   beamer:
+    colorlinks: true
+    urlcolor: blue
     code-block-font-size: \small
     fontsize: 11pt
     cite-method: natbib
@@ -22,6 +24,8 @@ format:
       \setbeamertemplate{footline}[page number]
     output-file: slides.pdf
   pdf:
+    colorlinks: true
+    urlcolor: blue
     documentclass: article
     fontsize: 11pt
     cite-method: natbib
@@ -782,6 +786,7 @@ plt.tight_layout()
 plt.show()
 ```
 
+
 ##
 
 ```{python}
@@ -917,6 +922,7 @@ plt.show()
 
 - Standard numerical optimizers can struggle to maximize **noisy** and **computationally expensive** Monte Carlo functions.
 
+
 ##
 
 **Trade-offs:**
@@ -958,6 +964,7 @@ $$
 - AIC was derived as an approach to minimizing prediction error.
 
 - Increasing parameters leads to overfitting which can decrease predictive skill.
+
 
 ##
 
@@ -1014,5 +1021,6 @@ Compute a slice of the likelihood in the $\beta$-$\eta$ plane.
 **4.** **Likelihood-based inference** provides tools for: **Maximum likelihood estimation**,  **Profile likelihood confidence intervals**, **Likelihood ratio tests**, **Model comparison via AIC**
 
 **5.** The **geometry of the likelihood surface** reveals important features, e.g., **Wedge-shaped relationships between parameters**.
+
 
 # References

@@ -1,17 +1,19 @@
 ---
-title: >
-  Lesson 1: Introduction to Simulation-based Inference for Epidemiological Dynamics
+title: "Chapter 1: Introduction to Simulation-based Inference for Epidemiological Dynamics  \\vspace{5mm}"
 author:
   - Aaron A. King
   - Edward L. Ionides
   - Kunyang He
+subtitle: "[Source code at](https://github.com/pypomp/tutorials/tree/main/sbied/chapter1/source.qmd) $\\newline$  [pypomp/tutorials/sbied/chapter1](https://github.com/pypomp/tutorials/tree/main/sbied/chapter1)"
 date: today
-date-format: full
+date-format: "[Compiled on] MMMM D, YYYY"
 
 bibliography: ../sbied.bib             
 
 format:
   beamer:
+    colorlinks: true
+    urlcolor: blue
     code-block-font-size: \tiny                    
     fontsize: 11pt
     cite-method: natbib
@@ -22,6 +24,8 @@ format:
       \setbeamertemplate{footline}[page number]
     output-file: slides.pdf
   pdf:
+    colorlinks: true
+    urlcolor: blue
     documentclass: article          
     fontsize: 11pt
     cite-method: natbib           
