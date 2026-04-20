@@ -13,70 +13,71 @@ We demonstrate by building the linear Gaussian model (available as `pypomp.LG()`
 First, we import the necessary packages.
 
 ```{python Import package}
+import jax
 import jax.numpy as jnp
 import jax.random
 import pypomp as pp
 import pandas as pd
+import plotnine as p9
 from functools import partial
+
+print(f"pypomp version: {pp.__version__}")
+print(f"JAX version: {jax.__version__}")
 ```
 
-Because the model parameters will all be passed in one JAX array, it can be helpful to define functions that pack the values into the array or unpack them into a more natural form. 
+In `pypomp`, model components receive parameters as a dictionary (or `ParamDict`). 
+It can be helpful to define a utility function to unpack these into the matrices used by our model equations. 
 We also generate a pseudorandom number generation (PRNG) key to be used with JAX.
 
 ```{python Define the linear Gaussian model}
-def get_thetas(theta):
+def get_matrices(theta: dict[str, float]):
     """
-    Cast a theta vector into A, C, Q, and R matrices as if casting iron.
+    Unpack the theta dictionary into A, C, Q, and R matrices.
     """
-    A = theta[0:4].reshape(2, 2)
-    C = theta[4:8].reshape(2, 2)
-    Q = theta[8:12].reshape(2, 2)
-    R = theta[12:16].reshape(2, 2)
+    A = jnp.array([[theta["A11"], theta["A12"]], [theta["A21"], theta["A22"]]])
+    C = jnp.array([[theta["C11"], theta["C12"]], [theta["C21"], theta["C22"]]])
+    Q = jnp.array([[theta["Q11"], theta["Q12"]], [theta["Q21"], theta["Q22"]]])
+    R = jnp.array([[theta["R11"], theta["R12"]], [theta["R21"], theta["R22"]]])
     return A, C, Q, R
 
-
-def transform_thetas(A, C, Q, R):
-    """
-    Take A, C, Q, and R matrices and melt them into a single 1D array.
-    """
-    return jnp.concatenate([A.flatten(), C.flatten(), Q.flatten(), R.flatten()])
 
 key = jax.random.key(1)
 ```
 
 Next, we define the model mechanics. 
-We require users to provide the function code to an object constructor that, among other things, checks that all of the necessary function arguments are included and are in the expected order. 
 This is required because, internally, `pypomp` uses `jax.vmap()` to vectorize the component functions to efficiently run them for thousands of particles. 
 `jax.vmap()` maps the function over input arrays based on position rather than by keyword, so the order needs to be enforced on the user. 
 Although every expected argument must be included, it is not necessary for the function to use all of them. 
 
 ```{python}
-@partial(pp.RInit, t0=0.0)
 def rinit(theta_, key, covars=None, t0=None):
     """Initial state process simulator for the linear Gaussian model"""
-    A, C, Q, R = get_thetas(theta_)
-    return jax.random.multivariate_normal(key=key, mean=jnp.array([0, 0]), cov=Q)
+    A, C, Q, R = get_matrices(theta_)
+    res = jax.random.multivariate_normal(key=key, mean=jnp.array([0, 0]), cov=Q)
+    return {"X1": res[0], "X2": res[1]}
 
 
-@partial(pp.RProc, step_type="fixedstep", nstep=1)
 def rproc(X_, theta_, key, covars=None, t=None, dt=None):
     """Process simulator for the linear Gaussian model"""
-    A, C, Q, R = get_thetas(theta_)
-    return jax.random.multivariate_normal(key=key, mean=A @ X_, cov=Q)
+    A, C, Q, R = get_matrices(theta_)
+    X_arr = jnp.array([X_["X1"], X_["X2"]])
+    res = jax.random.multivariate_normal(key=key, mean=A @ X_arr, cov=Q)
+    return {"X1": res[0], "X2": res[1]}
 
 
-@pp.DMeas
 def dmeas(Y_, X_, theta_, covars=None, t=None):
-    """Measurement model distribution for the linear Gaussian model"""
-    A, C, Q, R = get_thetas(theta_)
-    return jax.scipy.stats.multivariate_normal.logpdf(Y_, X_, R)
+    """Measurement model distribution for the linear Gaussian model (log-likelihood)"""
+    A, C, Q, R = get_matrices(theta_)
+    X_arr = jnp.array([X_["X1"], X_["X2"]])
+    Y_arr = jnp.array([Y_["Y1"], Y_["Y2"]])
+    return jax.scipy.stats.multivariate_normal.logpdf(Y_arr, X_arr, R)
 
 
-@partial(pp.RMeas, ydim=2)
 def rmeas(X_, theta_, key, covars=None, t=None):
     """Measurement simulator for the linear Gaussian model"""
-    A, C, Q, R = get_thetas(theta_)
-    return jax.random.multivariate_normal(key=key, mean=C @ X_, cov=R)
+    A, C, Q, R = get_matrices(theta_)
+    X_arr = jnp.array([X_["X1"], X_["X2"]])
+    return jax.random.multivariate_normal(key=key, mean=C @ X_arr, cov=R)
 ```
 
 The `Pomp` constructor also requires model parameters.
@@ -117,9 +118,9 @@ To make this example cleaner, we cheat a little bit by using the function `LG()`
 ```{python Generate data}
 key, subkey = jax.random.split(key)
 T = 100
-sims = pp.LG(T=T).simulate(key=subkey)
+X_sims, Y_sims = pp.models.LG(T=T).simulate(key=subkey)
 ys = pd.DataFrame(
-    sims[0]["Y_sims"].squeeze(),
+    Y_sims.squeeze(),
     index=range(1, T + 1),
     columns=pd.Index(["Y1", "Y2"]),
 )
@@ -132,13 +133,15 @@ Each argument to `Pomp` is accessible from the object as an attribute.
 
 ```{python Make the model}
 LG_obj = pp.Pomp(
+    ys=ys,
+    theta=theta_list,
+    statenames=["X1", "X2"],
+    t0=0.0,
     rinit=rinit,
     rproc=rproc,
     dmeas=dmeas,
     rmeas=rmeas,
-    ys=ys,
-    theta=theta_list,
-    covars=None,
+    nstep=1,
 )
 ```
 
@@ -147,10 +150,16 @@ Results are stored in a list under `LG_obj.results_history`, where each element 
 Each element includes results such as the log-likelihood and parameter estimates when applicable as well as the inputs used for the function call, so it is easy to keep track of how the results were calculated. 
 If multiple parameter sets are supplied in a list as an argument, the method evaluates at each set and the results for each are stored.
 
-We implement IF2 as the `Pomp` method `mif()`.
-The random walk standard deviation is controlled by `sigmas` and `sigmas_init`. 
-`sigmas` controls the random walk standard deviation after time $t_0$ whereas `sigmas_init` controls it for time $t_0$, allowing the user to perturb initial value parameters just once per iteration.
-These arguments can be provided as arrays where each entry dictates the random walk standard deviation of the parameter with the corresponding index, or they can be provided as a float which gets broadcasted to all parameters.
+We implement IF2 as the `Pomp` method `mif()`. 
+The random walk standard deviations are controlled via an `RWSigma` object. 
+
+The `RWSigma` constructor takes a dictionary of standard deviations and an optional list of `init_names`. 
+Parameters in `init_names` are perturbed only at the initial time $t_0$, while others are perturbed at every time step.
+In this case, we perturb all parameters at every time step.
+
+```{python Define the random walk standard deviations}
+rw_sd = pp.RWSigma(sigmas={k: 0.02 for k in theta.keys()})
+```
 
 Notably, `Pomp` methods such as `mif()` can update attributes other than `results_history`.
 For example, `LG_obj.mif()` and `LG_obj.train()` replace `LG_obj.theta` with the parameter estimate from the end of the last iteration. 
@@ -158,8 +167,10 @@ Furthermore, each method that takes a key as an argument stores an unused child 
 Consequently, the following sequence of method calls is valid.
 
 ```{python}
+
+
 key, subkey = jax.random.split(key)
-LG_obj.mif(J=200, M=100, sigmas=0.02, sigmas_init=0.02, a=0.5, key=subkey)
+LG_obj.mif(J=200, M=100, rw_sd=rw_sd, a=0.5, key=subkey)
 LG_obj.pfilter(J=200, reps=20)
 ```
 
@@ -173,7 +184,17 @@ LG_obj.results()
 
 We can also use `LG_obj.traces()` to access the traces of the parameters and log-likelihood as a data frame.
 This includes log-likelihood estimates from `pfilter()` as well. 
+We can easily plot these traces to visualize the convergence of the algorithm.
 
 ```{python}
 LG_obj.traces()
 ```
+
+<!-- 
+```{python}
+(p9.ggplot(LG_obj.traces().reset_index(), p9.aes(x="iteration", y="logLik"))
+    + p9.geom_line(color="steelblue")
+    + p9.theme_minimal()
+    + p9.labs(x="Iteration", y="Log-Likelihood", title="IF2 Convergence")
+)
+``` -->
