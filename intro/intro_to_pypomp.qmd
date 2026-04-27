@@ -1,5 +1,6 @@
 ---
 title: "Introduction to pypomp"
+date: today
 format:
   html:
     toc: true
@@ -8,26 +9,25 @@ jupyter: python3
 ---
 
 This document showcases basic functions in `pypomp`. 
-We demonstrate by building the linear Gaussian model (available as `pypomp.LG()`) from scratch.
+We demonstrate by building the linear Gaussian model (available as `pypomp.models.LG()`) from scratch.
 
 First, we import the necessary packages.
 
 ```{python Import package}
 import jax
 import jax.numpy as jnp
-import jax.random
+import numpy as np
 import pypomp as pp
+from pypomp.types import *
 import pandas as pd
 import plotnine as p9
-from functools import partial
 
 print(f"pypomp version: {pp.__version__}")
 print(f"JAX version: {jax.__version__}")
 ```
 
 In `pypomp`, model components receive parameters as a dictionary (or `ParamDict`). 
-It can be helpful to define a utility function to unpack these into the matrices used by our model equations. 
-We also generate a pseudorandom number generation (PRNG) key to be used with JAX.
+For the linear Gaussian model, it is helpful to define a utility function to unpack these into the matrices used by the model equations. 
 
 ```{python Define the linear Gaussian model}
 def get_matrices(theta: dict[str, float]):
@@ -38,26 +38,44 @@ def get_matrices(theta: dict[str, float]):
     C = jnp.array([[theta["C11"], theta["C12"]], [theta["C21"], theta["C22"]]])
     Q = jnp.array([[theta["Q11"], theta["Q12"]], [theta["Q21"], theta["Q22"]]])
     R = jnp.array([[theta["R11"], theta["R12"]], [theta["R21"], theta["R22"]]])
+
     return A, C, Q, R
-
-
-key = jax.random.key(1)
 ```
 
-Next, we define the model mechanics. 
-This is required because, internally, `pypomp` uses `jax.vmap()` to vectorize the component functions to efficiently run them for thousands of particles. 
-`jax.vmap()` maps the function over input arrays based on position rather than by keyword, so the order needs to be enforced on the user. 
+Next, we define the model mechanics, which need to have a specific set of arguments and a specific output format. 
+This is required so the functions can properly slot in to the internal `pypomp` code.
+For example, `pypomp` needs to know the order in which to pass arguments to the model mechanics.
+There are two ways `pypomp` can determine the order of arguments to pass to the model mechanics:
+
+1. The `Pomp` constructor checks if the model mechanics functions have particular argument names that appear in a predetermined order, in which case internal functions can pass arguments to the functions in a default order without issue.
+
+2. Failing that, it checks if they have particular type hints included in `pypomp.types`, in which case it passes arguments in the order specified by the type hints.
+
+For demonstration, we use both the type hints and the default argument names.
+
 Although every expected argument must be included, it is not necessary for the function to use all of them. 
 
 ```{python}
-def rinit(theta_, key, covars=None, t0=None):
+def rinit(
+    theta_: ParamDict,
+    key: RNGKey,
+    covars: CovarDict = None,
+    t0: InitialTimeFloat = None,
+):
     """Initial state process simulator for the linear Gaussian model"""
     A, C, Q, R = get_matrices(theta_)
     res = jax.random.multivariate_normal(key=key, mean=jnp.array([0, 0]), cov=Q)
     return {"X1": res[0], "X2": res[1]}
 
 
-def rproc(X_, theta_, key, covars=None, t=None, dt=None):
+def rproc(
+    X_: StateDict,
+    theta_: ParamDict,
+    key: RNGKey,
+    covars: CovarDict = None,
+    t: TimeFloat = None,
+    dt: StepSizeFloat = None,
+):
     """Process simulator for the linear Gaussian model"""
     A, C, Q, R = get_matrices(theta_)
     X_arr = jnp.array([X_["X1"], X_["X2"]])
@@ -65,19 +83,54 @@ def rproc(X_, theta_, key, covars=None, t=None, dt=None):
     return {"X1": res[0], "X2": res[1]}
 
 
-def dmeas(Y_, X_, theta_, covars=None, t=None):
+def dmeas(
+    Y_: ObservationDict,
+    X_: StateDict,
+    theta_: ParamDict,
+    covars: CovarDict = None,
+    t: TimeFloat = None,
+):
     """Measurement model distribution for the linear Gaussian model (log-likelihood)"""
     A, C, Q, R = get_matrices(theta_)
     X_arr = jnp.array([X_["X1"], X_["X2"]])
     Y_arr = jnp.array([Y_["Y1"], Y_["Y2"]])
-    return jax.scipy.stats.multivariate_normal.logpdf(Y_arr, X_arr, R)
+    return jax.scipy.stats.multivariate_normal.logpdf(Y_arr, C @ X_arr, R)
 
 
-def rmeas(X_, theta_, key, covars=None, t=None):
+def rmeas(
+    X_: StateDict,
+    theta_: ParamDict,
+    key: RNGKey,
+    covars: CovarDict = None,
+    t: TimeFloat = None,
+):
     """Measurement simulator for the linear Gaussian model"""
     A, C, Q, R = get_matrices(theta_)
     X_arr = jnp.array([X_["X1"], X_["X2"]])
     return jax.random.multivariate_normal(key=key, mean=C @ X_arr, cov=R)
+```
+
+The algorithms implemented in `pypomp` for searching the parameter space assume that the parameters exist on the real line. 
+To handle parameters that are constrained, such as the diagonal elements of $Q$ and $R$ which must be positive, we write functions describing how to transform the parameters to the real line and back and store them in a `ParTrans` object. 
+
+```{python}
+def to_est(theta):
+    new_theta = {**theta}
+    for name in "ACQR":
+        new_theta[f"{name}11"] = jnp.log(theta[f"{name}11"])
+        new_theta[f"{name}22"] = jnp.log(theta[f"{name}22"])
+    return new_theta
+
+
+def from_est(theta):
+    new_theta = {**theta}
+    for name in "ACQR":
+        new_theta[f"{name}11"] = jnp.exp(theta[f"{name}11"])
+        new_theta[f"{name}22"] = jnp.exp(theta[f"{name}22"])
+    return new_theta
+
+
+ptrans = pp.ParTrans(to_est=to_est, from_est=from_est)
 ```
 
 The `Pomp` constructor also requires model parameters.
@@ -86,6 +139,8 @@ Each item in a dictionary should include the parameter name as the key and the p
 If the parameter sets are provided as a list of dictionaries, methods such as `pfilter()` run on each set of parameters. 
 Here, we use `Pomp.sample_params()` to sample sets of parameters from uniform distributions with bounds passed as a dictionary of length-2 tuples. 
 `Pomp.sample_params()` returns a ready-to-use list of dictionaries with the sampled parameters. 
+
+We also generate a pseudorandom number generation (PRNG) key to be used with JAX.
 
 ```{python}
 theta = {
@@ -108,22 +163,9 @@ theta = {
 }
 param_bounds = {k: (v * 0.9, v * 1.1) for k, v in theta.items()}
 n = 5  # Number of parameter sets to sample
+key = jax.random.key(1)
 key, subkey = jax.random.split(key)
 theta_list = pp.Pomp.sample_params(param_bounds, n, subkey)
-```
-
-We do not have real data in this example, so we generate our own.
-To make this example cleaner, we cheat a little bit by using the function `LG()` to construct the completed linear Gaussian model object and then generate the data using `simulate()` (a future update will make it easier to populate a data-less `Pomp` object with simulated data). 
-
-```{python Generate data}
-key, subkey = jax.random.split(key)
-T = 100
-X_sims, Y_sims = pp.models.LG(T=T).simulate(key=subkey)
-ys = pd.DataFrame(
-    Y_sims.squeeze(),
-    index=range(1, T + 1),
-    columns=pd.Index(["Y1", "Y2"]),
-)
 ```
 
 We finally construct the POMP model object. 
@@ -131,10 +173,21 @@ Observation times are provided to the `Pomp` constructor via the `pandas.DataFra
 If covariates were provided, the times at which the covariates were observed would also be provided by the `pandas.DataFrame` row index. 
 Each argument to `Pomp` is accessible from the object as an attribute. 
 
+We do not have real data in this example, so we generate our own.
+We do this by creating a dummy data frame with the desired observation times and column names, and then we generate the observations using `Pomp.simulate()`, which returns a new `Pomp` object with simulated data.
+
 ```{python Make the model}
-LG_obj = pp.Pomp(
+key, subkey = jax.random.split(key)
+T = 100
+ys = pd.DataFrame(
+    np.zeros((T, 2)),
+    index=range(1, T + 1),
+    columns=pd.Index(["Y1", "Y2"]),
+)
+
+LG_obj_empty = pp.Pomp(
     ys=ys,
-    theta=theta_list,
+    theta=theta_list[0],
     statenames=["X1", "X2"],
     t0=0.0,
     rinit=rinit,
@@ -142,7 +195,10 @@ LG_obj = pp.Pomp(
     dmeas=dmeas,
     rmeas=rmeas,
     nstep=1,
+    par_trans=ptrans,
 )
+LG_obj = LG_obj_empty.simulate(key=subkey, as_pomp=True)
+LG_obj.theta = theta_list
 ```
 
 Unlike the R family of POMP packages, some `Pomp` methods including `pfilter()`, `mif()`, and `train()` yield results by modifying the object in place instead of returning new objects.
@@ -158,7 +214,8 @@ Parameters in `init_names` are perturbed only at the initial time $t_0$, while o
 In this case, we perturb all parameters at every time step.
 
 ```{python Define the random walk standard deviations}
-rw_sd = pp.RWSigma(sigmas={k: 0.02 for k in theta.keys()})
+theta_names = LG_obj.canonical_param_names
+rw_sd = pp.RWSigma(sigmas={k: 0.01 for k in theta_names})
 ```
 
 Notably, `Pomp` methods such as `mif()` can update attributes other than `results_history`.
@@ -167,8 +224,6 @@ Furthermore, each method that takes a key as an argument stores an unused child 
 Consequently, the following sequence of method calls is valid.
 
 ```{python}
-
-
 key, subkey = jax.random.split(key)
 LG_obj.mif(J=200, M=100, rw_sd=rw_sd, a=0.5, key=subkey)
 LG_obj.pfilter(J=200, reps=20)
@@ -190,11 +245,32 @@ We can easily plot these traces to visualize the convergence of the algorithm.
 LG_obj.traces()
 ```
 
-<!-- 
 ```{python}
-(p9.ggplot(LG_obj.traces().reset_index(), p9.aes(x="iteration", y="logLik"))
-    + p9.geom_line(color="steelblue")
+(
+    p9.ggplot(
+        LG_obj.traces().reset_index(),
+        p9.aes(x="iteration", y="logLik", color="factor(theta_idx)"),
+    )
+    + p9.geom_line()
     + p9.theme_minimal()
-    + p9.labs(x="Iteration", y="Log-Likelihood", title="IF2 Convergence")
+    + p9.labs(x="Iteration", y="Log-Likelihood", title="IF2 Convergence", color="Chain")
 )
-``` -->
+```
+
+
+```{python}
+traces_long = (
+    LG_obj.traces()
+    .reset_index()
+    .melt(id_vars=["iteration", "theta_idx"], value_vars=theta_names)
+)
+
+(
+    p9.ggplot(traces_long, p9.aes(x="iteration", y="value", color="factor(theta_idx)"))
+    + p9.geom_line()
+    + p9.facet_wrap("~variable", scales="free_y")
+    + p9.theme_minimal()
+    + p9.theme(figure_size=(10, 8))
+    + p9.labs(x="Iteration", y="Value", title="Parameter Traces", color="Chain")
+)
+```
