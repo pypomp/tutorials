@@ -51,7 +51,7 @@ format:
     journal:
       include-jss-default: false
 bibliography: references.bib
-abstract: Methods for fitting and evaluating partially observed Markov process (POMP) mechanistic models are useful in a variety of fields such as epidemiology, ecology, and finance, but they are limited by their computational demands. In response, we introduce **pypomp**, a high-performance Python package for statistical inference using POMP models. Built to handle complex stochastic dynamic systems, it implements plug-and-play algorithms for likelihood-based inference including sequential Monte Carlo and iterated filtering. By utilizing parallel processing on graphical processing unit (GPU) hardware, **pypomp** is able to run these algorithms faster and more efficiently than its predecessor, the R package **pomp**. Models that took months to fit and evaluate in **pomp** now take only days in **pypomp**, facilitating the use of previously impractical models. The package offers a comprehensive interface that streamlines the entire pipeline of model construction, fitting, and analysis, allowing practitioners to develop and test large, complex models with minimal implementation overhead.
+abstract: Methods for fitting and evaluating partially observed Markov process (POMP) mechanistic models are useful in a variety of fields such as epidemiology, ecology, and finance, but they are limited by their computational demands. In response, we introduce **pypomp**, a high-performance Python package for statistical inference using POMP models. Built to handle complex stochastic dynamic systems, it implements plug-and-play algorithms for likelihood-based inference including sequential Monte Carlo and iterated filtering. By utilizing parallel processing on graphical processing unit (GPU) hardware, **pypomp** is able to run these algorithms faster and more efficiently than its predecessor, the R package **pomp**. Models that took months to fit and evaluate in **pomp** now take only days in **pypomp**, facilitating the use of previously impractical models. In addition, **pypomp** includes methods for performing gradient descent on differentiable particle filters using JAX, which can maximize the likelihood of a model higher than what is practically possible with iterated filtering alone. The package offers a comprehensive interface that streamlines the entire pipeline of model construction, fitting, and analysis, allowing practitioners to develop and test large, complex models with minimal implementation overhead.
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -119,8 +119,8 @@ Graphics processing unit (GPU) devices are well-suited for embarassingly paralle
 To address the need for plug-and-play POMP methods that leverage GPU acceleration, we introduce the package `pypomp` [@abkemeier2024].
 Briefly stated, it is a Python implementation of the core algorithms in `pomp` and `panelPomp`, but written such that they can be run on both GPUs and CPUs.
 We accomplish this by using JAX [@bradbury2018], a high-performance numerical computing library that supports hardware acceleration and automatic vectorization. 
-\AAnote{Need to change "70 times faster" to something more specific after we more rigorously compare pypomp with pomp. In addition, I think we should include the @korevaar2020 data set fit in this paper, as it provides perhaps the strongest motivation for developing pypomp.}
-The resulting package runs methods up to 70 times faster on GPUs than `pomp` can on CPUs.
+\AAnote{Need to change "90 times faster" to something more specific after we more rigorously compare pypomp with pomp. In addition, I think we should include the @korevaar2020 data set fit in this paper, as it provides perhaps the strongest motivation for developing pypomp.}
+The resulting package runs methods up to 90 times faster on GPUs than `pomp` can on CPUs.
 Jobs that would take months in `pomp` can be completed in days in `pypomp`, enabling plug-and-play likelihood-based inference on data sets that would otherwise be intractably large.
 This is demonstrated in Section \AAnote{add this section}, where we fit a panel POMP model to the @korevaar2020 England and Wales measles dataset, which contains over one million observations. 
 While this would normally take over 5 months in `pomp`, `pypomp` can finish the job in 41 hours \AAnote{revise these numbers as appropriate}.
@@ -323,7 +323,7 @@ T = 100
 # key = jax.random.PRNGKey(1)
 
 key, subkey = jax.random.split(key)
-_, ys = pp.LG(T=T).simulate(key=subkey)
+_, ys = pp.models.LG(T=T).simulate(key=subkey)
 ys = ys.rename(columns={"obs_0": "Y1", "obs_1": "Y2"})
 ys = ys[["time", "Y1", "Y2"]]
 ys.set_index("time", inplace=True)
@@ -335,7 +335,6 @@ LG_obj = pp.Pomp(
     rmeas=rmeas,
     t0=0.0,
     nstep=1,
-    ydim=2,
     ys=ys,
     theta=theta_list,
     statenames=["X1", "X2"],
@@ -498,7 +497,6 @@ LG_obj_2 = pp.Pomp(
     rmeas=rmeas,
     t0=0.0,
     nstep=1,
-    ydim=2,
     ys=ys,
     theta=theta_list,
     statenames=["X1", "X2"],
@@ -642,6 +640,8 @@ This makes the algorithm suitable for AD and stochastic gradient descent algorit
 Beyond a well-constructed `Pomp` object, the method requires only the number of particles `J`, the evaluation parameter `theta`, a PRNG key, and the cooling factor $\alpha$. 
 Results are stored in the `results_history` attribute as a list of `jax.Array` objects, one for each parameter set, representing the estimated log-likelihood of the observations. For example, we run
 
+\AAnote{Update for removal of MOP method.}
+
 ```{python}
 # | label: lg-mop
 # | echo: true
@@ -653,14 +653,12 @@ LG_obj_3 = pp.Pomp(
     rmeas=rmeas,
     t0=0.0,
     nstep=1,
-    ydim=2,
     ys=ys,
     theta=theta_list,
     statenames=["X1", "X2"],
 )
 
-LG_obj_3.mop(J=1000, key=subkey, alpha=0.97)
-
+# LG_obj_3.mop(J=1000, key=subkey, alpha=0.97)
 ```
 
 Generally, the `result_history` only updates: 
@@ -752,43 +750,34 @@ LG_obj_4 = pp.Pomp(
     rmeas=rmeas,
     t0=0.0,
     nstep=1,
-    ydim=2,
     ys=ys,
     theta=theta_list,
     statenames=["X1", "X2"],
 )
 
 rw_sd = pp.RWSigma(
-        sigmas={
-            "A11": 0.02,
-            "A12": 0.02,
-            "A21": 0.02,
-            "A22": 0.02,
-            "C11": 0.02,
-            "C12": 0.02,
-            "C21": 0.02,
-            "C22": 0.02,
-            "Q11": 0.02,
-            "Q12": 0.02,
-            "Q21": 0.02,
-            "Q22": 0.02,
-            "R11": 0.02,
-            "R12": 0.02,
-            "R21": 0.02,
-            "R22": 0.0,
-        },
-        init_names=[],
-    )
-
-LG_obj_4.mif(
-  rw_sd = rw_sd, 
-  J = 1000,
-  M = 2,
-  a = 0.5,
-  key = subkey
+    sigmas={
+        "A11": 0.02,
+        "A12": 0.02,
+        "A21": 0.02,
+        "A22": 0.02,
+        "C11": 0.02,
+        "C12": 0.02,
+        "C21": 0.02,
+        "C22": 0.02,
+        "Q11": 0.02,
+        "Q12": 0.02,
+        "Q21": 0.02,
+        "Q22": 0.02,
+        "R11": 0.02,
+        "R12": 0.02,
+        "R21": 0.02,
+        "R22": 0.0,
+    },
+    init_names=[],
 )
 
-
+LG_obj_4.mif(rw_sd=rw_sd, J=1000, M=2, a=0.5, key=subkey)
 ```
 
 
@@ -843,7 +832,6 @@ LG_obj_5 = pp.Pomp(
     rmeas=rmeas,
     t0=0.0,
     nstep=1,
-    ydim=2,
     ys=ys,
     theta=theta_list,
     statenames=["X1", "X2"],
