@@ -1,6 +1,15 @@
 
 # for article
 article/ms.tex
+*.fls
+*.lof
+*.lot
+*.out
+*.run.xml
+*.synctex.gz
+**.fdb_latexmk
+**/jmlr-template.pdf
+
 
 # For jupyter users
 .ipynb_checkpoints/

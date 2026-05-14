@@ -1,0 +1,58 @@
+\documentclass[twoside,11pt]{article}
+\usepackage{jmlr2e}
+
+% Any additional header includes from YAML
+$header-includes$
+
+$highlighting-macros$
+
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+$if(title)$
+\title{$title$}
+$endif$
+
+\author{%
+$for(author)$
+  $if(author.name)$
+    \name $author.name$ $if(author.email)$\email $author.email$$endif$ \\
+    $if(author.affiliations)$
+      $for(author.affiliations)$
+        \addr $it.name$$if(it.department)$, $it.department$$endif$ \\
+      $endfor$
+    $endif$
+  $else$
+    $author$
+  $endif$
+  $sep$ \AND
+$endfor$
+}
+
+\editor{} % Set editor here if needed
+
+\begin{document}
+
+\maketitle
+
+$if(abstract)$
+\begin{abstract}
+$abstract$
+\end{abstract}
+$endif$
+
+$if(keywords)$
+\begin{keywords}
+$for(keywords)$$keywords$$sep$, $endfor$
+\end{keywords}
+$endif$
+
+$body$
+
+$if(natbib)$
+$if(bibliography)$
+\bibliography{$for(bibliography)$$bibliography$$sep$,$endfor$}
+$endif$
+$endif$
+
+\end{document}
