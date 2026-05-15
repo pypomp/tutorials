@@ -78,38 +78,48 @@ import jax
 # Introduction {#sec-intro}
 Partially Observable Markov Process (POMP) models, also known as state-space models or hidden Markov models, provide a flexible mechanistic framework for modeling time-series dynamic systems where the underlying state process is not directly observed.
 Methods such as particle filtering [@arulampalam2002] and iterated filtering [@ionides2006; @ionides2015] have been developed to perform maximum likelihood estimation and evaluation for POMP models. 
-A defining strength of these methods is that they are performed by simulating from the process model instead of evaluating exact transition probabilities (a property known as plug-and-play [@breto2009]), which makes them suitable for examining a wide range of models unconstrained by needs for mathematical convenience. 
+A defining strength of these methods is that they are performed by simulating from the process model instead of evaluating exact transition probabilities (a property known as plug-and-play [@breto2009]), which makes them suitable for examining a wide range of models unconstrained by a need for mathematical convenience. 
 Consequently, POMP models find extensive application in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains where mechanistic modeling is desired.
 
 Thus far, the `pomp` package ecosystem in R has provided a basis for POMP modeling of several types. 
 The `pomp` package is designed for standard POMP models, while its extension packages `panelPomp`, `spatpomp`, and `phyloPomp` further enhance its capabilities for panel, spatio-temporal, and phylodynamic data analysis, respectively [@king2016; @breto2025; @asfaw2024].
 
-While powerful, statistical inference for POMP models poses substantial computational challenges, and the existing tools are held back by their dependence on CPUs. 
-To address the need for plug-and-play POMP methods that leverage GPU acceleration, we introduce the package `pypomp` [@abkemeier2024].
-Briefly stated, it is a Python implementation of the core algorithms in `pomp` and `panelPomp`, but written such that they can be run on both GPUs and CPUs.
-We accomplish this by using JAX [@bradbury2018], a high-performance numerical computing library that supports hardware acceleration and automatic vectorization. 
+While powerful, statistical inference for POMP models poses substantial computational challenges, which existing packages struggle with due to their lack of support for GPU acceleration and automatic differentiation. 
+To address this, we introduce the package `pypomp` [@abkemeier2024], a JAX-based [@bradbury2018] Python implementation of core `pomp` and `panelPomp` algorithms. 
 \AAnote{Need to change "90 times faster" to something more specific after we more rigorously compare pypomp with pomp. In addition, I think we should include the @korevaar2020 data set fit in this paper, as it provides perhaps the strongest motivation for developing pypomp.}
-The resulting package runs methods up to 90 times faster on GPUs than `pomp` can on CPUs.
-Jobs that would take months in `pomp` can be completed in days in `pypomp`, enabling plug-and-play likelihood-based inference on data sets that would otherwise be intractably large.
+By leveraging GPU acceleration, the package allows users to run methods up to 90 times faster than the CPU-based alternatives, enabling plug-and-play likelihood-based inference on data sets that would otherwise be intractably large.
 This is demonstrated in Section \AAnote{add this section}, where we fit a panel POMP model to the @korevaar2020 England and Wales measles dataset, which contains over one million observations. 
 While this would normally take over 5 months in `pomp`, `pypomp` can finish the job in 41 hours \AAnote{revise these numbers as appropriate}.
-
+In addition to GPU acceleration, `pypomp` uses JAX to perform gradient descent on differentiable particle filters [@tan2024], which can further accelerate parameter estimation.
 
 The remainder of this paper is organized as follows. 
-@sec-pomp-models demonstrates the mathematical notation for POMP models and their related implementation in `pypomp`. 
 @sec-pomp-methods introduces the embedded methodologies. 
 @sec-analysis presents data analysis workflows and benchmarking results. 
 @sec-discussion concludes with a discussion of future work.
 
-# POMP Models in pypomp {#sec-pomp-models}
+# POMP Modeling {#sec-pomp}
 
-A partially observed Markov process (POMP) model is defined by an initial density $f_{X_0}(x_0; \theta)$, a transition density $f_{X_n|X_{n-1}}(x_n \mid x_{n-1}; \theta)$, and a measurement density $f_{Y_n|X_n}(y_n \mid x_n; \theta)$. 
-In `pypomp`, these are implemented as an object of class `Pomp`, which encapsulates the model mechanics and parameters.
+A POMP model is defined by an initial density $f_{X_0}(x_0; \theta)$, a transition density $f_{X_n|X_{n-1}}(x_n \mid x_{n-1}; \theta)$, and a measurement density $f_{Y_n|X_n}(y_n \mid x_n; \theta)$. 
 
+# POMP Inference Methods in `pypomp` {#sec-pomp-methods}
+
+`pypomp` implements several core likelihood-based inference methods, all of which leverage the plug-and-play property [@ionides2006] and JAX-powered acceleration. 
+These methods are implemented as methods of the `Pomp` class and modify the object in place by appending results to `results_history`.
+
+1.  **Particle Filter (`pfilter`)**: 
+A standard sequential Monte Carlo (SMC) algorithm for likelihood evaluation and state estimation.
+2.  **Iterated Filtering (`mif`)**: 
+An implementation of the IF2 algorithm [@ionides2015] for maximum likelihood estimation. 
+It combines particle filtering with sequential random walk perturbations and a cooling schedule to explore the parameter space.
+3.  **Automatic Differentiation (`mop` and `train`)**: 
+`pypomp` includes a differentiable particle filter (MOP-$\alpha$, @tan2024) that enables the use of JAX's automatic differentiation. 
+The `train()` method uses these gradients for local optimization.
+
+The following example demonstrates a typical inference workflow: starting with global exploration via IF2, followed by gradient-based local refinement, and concluding with a final likelihood evaluation.
 While users can define custom models by providing JAX-compatible Python functions for each component, `pypomp` we demonstrate the API with the premade S&P500 model. 
 
 ```{python}
-# | label: spx-setup
+# | label: spx-inference-workflow
 # | echo: true
 import pypomp as pp
 import jax
@@ -118,33 +128,15 @@ spx_obj = pp.models.spx()
 
 key = jax.random.key(1)
 key, subkey = jax.random.split(key)
-```
-
-
-# POMP Inference Methods {#sec-pomp-methods}
-
-`pypomp` implements several core likelihood-based inference methods, all of which leverage the **plug-and-play property** [@ionides2006] and JAX-powered acceleration. 
-These methods are implemented as methods of the `Pomp` class and modify the object in place by appending results to `results_history`.
-
-1.  **Particle Filter (`pfilter`)**: A standard sequential Monte Carlo (SMC) algorithm for likelihood evaluation and state estimation. It provides unbiased Monte Carlo estimates of the log-likelihood.
-2.  **Iterated Filtering (`mif`)**: An implementation of the IF2 algorithm [@ionides2015] for maximum likelihood estimation. It combines particle filtering with sequential random-walk perturbations and a cooling schedule to explore the parameter space.
-3.  **Automatic Differentiation (`mop` and `train`)**: `pypomp` introduces a differentiable variant of the particle filter (MOP-$\alpha$, @tan2024) that enables the use of JAX's automatic differentiation. The `train()` method uses these gradients (and optionally Hessians) for local optimization.
-
-By utilizing JAX, these methods achieve high performance via JIT compilation and vectorization, allowing them to run efficiently on both CPUs and GPUs. 
-The following example demonstrates a typical inference workflow: starting with global exploration via IF2, followed by gradient-based local refinement, and concluding with a final likelihood evaluation.
-
-```{python}
-# | label: spx-inference-workflow
-# | echo: true
 
 rw_sd = pp.RWSigma(
     sigmas={
-        "mu": 0.0001,
-        "kappa": 0.01,
-        "theta": 0.00001,
-        "xi": 0.001,
-        "rho": 0.05,
-        "V_0": 0.001,
+        "mu": 0.02,
+        "kappa": 0.02,
+        "theta": 0.02,
+        "xi": 0.02,
+        "rho": 0.02,
+        "V_0": 0.1,
     },
     init_names=["V_0"],
 )
@@ -155,12 +147,11 @@ spx_obj.train(J=1000, M=10, eta=eta, optimizer="Adam")
 
 spx_obj.pfilter(J=1000, reps=10, key=subkey)
 
-print(spx_obj.traces().tail())
+print(spx_obj.traces().head())
 ```
 
-Each method call generates a result object (e.g., `PompPFilterResult`, `PompMIFResult`, `PompTrainResult`) which contains execution time, parameter traces, and log-likelihood estimates. 
-These objects are derived from a common base class and provide helper functions like `results()`, `traces()`, and `print_summary()`. 
-This unified architecture ensures that complex multi-stage inference workflows are easily manageable.
+Each method call generates a result object which contains execution time, parameter traces, and log-likelihood estimates. 
+These objects provide helper functions to view the results, such as the parameter and log-likelihood traces across multiple method calls.
 
 
 # Discussion {#sec-discussion}
@@ -171,3 +162,5 @@ This unified architecture ensures that complex multi-stage inference workflows a
 :::
 
 # Appendix {#sec-appendix}
+
+\AAnote{Include imporant numerical results here? Or refer to the quant repo?}
