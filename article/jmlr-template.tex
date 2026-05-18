@@ -14,19 +14,23 @@ $if(title)$
 $endif$
 
 \author{%
-$for(author)$
-  $if(author.name)$
-    \name $author.name$ $if(author.email)$\email $author.email$$endif$ \\
-    $if(author.affiliations)$
-      $for(author.affiliations)$
-        \addr $it.name$$if(it.department)$, $it.department$$endif$ \\
-      $endfor$
+$for(by-author)$
+  $if(by-author.name.given)$
+    \name $by-author.name.literal$%
+    $if(by-author.affiliations)$
+      \textsuperscript{$for(by-author.affiliations)$$it.number$$sep$,$endfor$}%
     $endif$
+    $if(by-author.email)$ \email $by-author.email$$endif$ \\
   $else$
-    $author$
+    $if(by-author.name.literal)$
+      $by-author.name.literal$ \\
+    $else$
+      $by-author$ \\
+    $endif$
   $endif$
-  $sep$ \AND
 $endfor$
+\AND
+\addr $for(affiliations)$\textsuperscript{$it.number$}$it.name$$if(it.department)$, $it.department$$endif$$sep$; $endfor$
 }
 
 \editor{} % Set editor here if needed
