@@ -1,5 +1,5 @@
 ---
-title: "pypomp: Inference for partially observed Markov process models in Python with JAX \\newline DRAFT IN PROGRESS"
+title: "Pypomp: Inference for partially observed Markov process models in Python with JAX \\newline DRAFT IN PROGRESS"
 author: 
   - name: "Aaron J. Abkemeier^$\\ast$^"
     affiliations:
@@ -51,7 +51,7 @@ format:
     keep-tex: true
     cite-method: natbib
 bibliography: references.bib
-abstract: Methods for fitting and evaluating partially observed Markov process (POMP) mechanistic models are useful in a variety of fields such as epidemiology, ecology, and finance, but are often hindered by high computational demands. We introduce **pypomp**, a high-performance Python package for statistical inference using POMP models. Designed for complex stochastic dynamic systems, **pypomp** implements plug-and-play, likelihood-based algorithms including sequential Monte Carlo and iterated filtering. By leveraging GPU acceleration, **pypomp** significantly outperforms its predecessor, the R package **pomp**. Models that previously required months to fit now complete in days, enabling statistical inference on previously intractable models. Furthermore, **pypomp** uses JAX to perform gradient descent on differentiable particle filters, achieving likelihood maximization beyond the practical limits of iterated filtering alone. The package provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
+abstract: Model development and parameter estimation for non-Gaussian partially observed Markov process (POMP) mechanistic models are fundamental challenges in a variety of fields including epidemiology, ecology, and finance. This task is often hindered by high computational demands. We introduce Pypomp, a high-performance Python package for statistical inference using POMP models. Designed for complex stochastic dynamic systems, Pypomp implements plug-and-play, likelihood-based algorithms including sequential Monte Carlo and iterated filtering. By leveraging GPU acceleration, Pypomp significantly outperforms its predecessor, the R package pomp \EInote{MAYBE DON'T MENTION R-POMP IN THE ABSTRACT?}. Models that previously required months to fit now complete in days, enabling statistical inference on previously intractable models. Furthermore, Pypomp uses JAX to perform gradient descent on differentiable particle filters, achieving likelihood maximization beyond the practical limits of iterated filtering alone. The package provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -62,7 +62,7 @@ header-includes:
   - \newcommand{\eic}[1]{\textcolor{orange}([#1])}
   - \newcommand{\giventh}{\, ; \,}
   - \newcommand{\prob}{P}
-  - '\ShortHeadings{pypomp: Inference for POMP models in Python with JAX}{Abkemeier et al.}'
+  - '\ShortHeadings{Pypomp: Inference for POMP models in Python with JAX}{Abkemeier et al.}'
   - '\firstpageno{1}'
 ---
 ```{python}
@@ -81,13 +81,14 @@ import jax
 Partially Observable Markov Process (POMP) models, also known as state-space models or hidden Markov models, provide a flexible mechanistic framework for modeling time-series dynamic systems where the underlying state process is not directly observed.
 Methods such as particle filtering [@arulampalam2002] and iterated filtering [@ionides2006; @ionides2015] have been developed to perform maximum likelihood estimation and evaluation for POMP models. 
 A defining strength of these methods is that they are performed by simulating from the process model instead of evaluating exact transition probabilities (a property known as plug-and-play [@breto2009]), which makes them suitable for examining a wide range of models unconstrained by a need for mathematical convenience. 
+Remarkably, algorithms based on particle filtering permit statistically efficient, likelihood-based inference in various practical situations even when the likelihood can be approximated only by Monte Carlo methods.
 Consequently, POMP models find extensive application in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains where mechanistic modeling is desired.
 
-Thus far, the `pomp` package ecosystem in R has provided a basis for POMP modeling of several types. 
-The `pomp` package is designed for standard POMP models, while its extension packages `panelPomp`, `spatpomp`, and `phyloPomp` further enhance its capabilities for panel, spatio-temporal, and phylodynamic data analysis, respectively [@king2016; @breto2025; @asfaw2024].
+The R-pomp ecosystem in R provides a basis for POMP modeling of several types \EInote{I'VE TRIED REWORKING THIS. SEE IF YOU LIKE IT. MAYBE THERE'S MORE TO DO, BECAUSE THE FOCUS MUST BE ON PYPOMP NOT R-POMP}.
+The core of R-pomp is the `pomp` package [@king16] designed for standard POMP models, while its extension packages `panelPomp`, `spatPomp`, and `phyloPomp` add capabilities for panel, spatio-temporal, and phylodynamic data analysis, respectively [@breto2025; @asfaw2024; @king22].
 
 While powerful, statistical inference for POMP models poses substantial computational challenges, which existing packages struggle with due to their lack of support for GPU acceleration and automatic differentiation. 
-To address this, we introduce the package `pypomp` [@abkemeier2026], a JAX-based [@bradbury2018] Python implementation of core `pomp` and `panelPomp` algorithms. 
+To address this, we introduce the package Pypomp [@abkemeier2026], a JAX-based [@bradbury2018] Python implementation of core R-pomp algorithms [USUALLY, SOFTWARE PACKAGES DON'T DEFINE ALGORITHMS].
 \AAnote{Need to change "90 times faster" to something more specific after we more rigorously compare pypomp with pomp. In addition, I think we should include the @korevaar2020 data set fit in this paper, as it provides perhaps the strongest motivation for developing pypomp.}
 By leveraging GPU acceleration, the package allows users to run methods up to 90 times faster than the CPU-based alternatives, enabling plug-and-play likelihood-based inference on data sets that would otherwise be intractably large.
 This is demonstrated in Section \AAnote{add this section}, where we fit a panel POMP model to the @korevaar2020 England and Wales measles dataset, which contains over one million observations. 
