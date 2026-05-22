@@ -34,3 +34,9 @@ pip install jupyter seaborn
 
 ```
 
+## Notes from May 21
+
+- Need to differentiate between our package and ``dynamax`` and ``pomp``.
+  - For the former, they have no support for highly nonlinear/non-Gaussian SSMS, with unknown process densities, or the particle filter.
+    - Can we improve upon Linderman's AOAS paper on a neural system?
+  - For the latter, we compete mostly in terms of speed and likelihood optimization, as well as in providing CUDA/GPU and native Python support. 
