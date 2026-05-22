@@ -51,7 +51,7 @@ format:
     keep-tex: true
     cite-method: natbib
 bibliography: references.bib
-abstract: Model development and parameter estimation for non-Gaussian partially observed Markov process (POMP) mechanistic models are fundamental challenges in a variety of fields including epidemiology, ecology, and finance. This task is often hindered by high computational demands. We introduce Pypomp, a high-performance Python package for statistical inference using POMP models. Designed for complex stochastic dynamic systems, Pypomp implements plug-and-play, likelihood-based algorithms including sequential Monte Carlo and iterated filtering. By leveraging GPU acceleration, Pypomp significantly outperforms its predecessor, the R package pomp \EInote{MAYBE DON'T MENTION R-POMP IN THE ABSTRACT?}. Models that previously required months to fit now complete in days, enabling statistical inference on previously intractable models. Furthermore, Pypomp uses JAX to perform gradient descent on differentiable particle filters, achieving likelihood maximization beyond the practical limits of iterated filtering alone. The package provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
+abstract: Model development and parameter estimation for non-Gaussian partially observed Markov process (POMP) mechanistic models are fundamental challenges in a variety of fields including epidemiology, ecology, and finance. Particle filter methods can provide statistically efficient inference for highly nonlinear POMP models, but their practical application is limited by high computational demands. We introduce Pypomp, a high-performance Python library for statistical inference using POMP models. Pypomp includes state-of-the-art particle filtering algorithms to take advantage of GPU hardware, just-in-time computation, and automatic differentiation accessed using JAX. Basic inference algorithms run up to 1000 faster than on a CPU, and advanced algorithms provide further acceleration \EInote{THIS SEEMS LIKE A BIG CLAIM, BUT IF WE CAN MAKE AND ADEQUATELY SUPPORT A BIG CLAIM, WE SHOULD DO SO}. Pypomp provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -78,24 +78,41 @@ import jax
 ```
 
 # Introduction {#sec-intro}
-Partially Observable Markov Process (POMP) models, also known as state-space models or hidden Markov models, provide a flexible mechanistic framework for modeling time-series dynamic systems where the underlying state process is not directly observed.
-Methods such as particle filtering [@arulampalam2002] and iterated filtering [@ionides2006; @ionides2015] have been developed to perform maximum likelihood estimation and evaluation for POMP models. 
+Partially Observable Markov Process (POMP) models, also known as state-space models or hidden Markov models, provide a flexible mechanistic framework for modeling dynamic systems where the underlying state process is not directly observed.
+The particle filter [@arulampalam2002], also known as sequential Monte Carlo, enables evaluation of the likelihood for POMP models. The extension of particle filtering to iterated filtering [@ionides2006; @ionides2015] permits maximum likelihood estimation.
 A defining strength of these methods is that they are performed by simulating from the process model instead of evaluating exact transition probabilities (a property known as plug-and-play [@breto2009]), which makes them suitable for examining a wide range of models unconstrained by a need for mathematical convenience. 
 Remarkably, algorithms based on particle filtering permit statistically efficient, likelihood-based inference in various practical situations even when the likelihood can be approximated only by Monte Carlo methods.
-Consequently, POMP models find extensive application in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains where mechanistic modeling is desired.
+Consequently, particle filter based methods for POMP models find application in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains where mechanistic dynamic modeling is desired.
 
-The R-pomp ecosystem in R provides a basis for POMP modeling of several types \EInote{I'VE TRIED REWORKING THIS. SEE IF YOU LIKE IT. MAYBE THERE'S MORE TO DO, BECAUSE THE FOCUS MUST BE ON PYPOMP NOT R-POMP}.
-The core of R-pomp is the `pomp` package [@king16] designed for standard POMP models, while its extension packages `panelPomp`, `spatPomp`, and `phyloPomp` add capabilities for panel, spatio-temporal, and phylodynamic data analysis, respectively [@breto2025; @asfaw2024; @king22].
+Pypomp is a Python library combining advances in hardware, software and algorithms to provide novel capabilities for POMP models, with an emphasis on inference via particle filters.
+Pypomp is build using JAX [@bradbury2018] which provides access to massively parallel hardware such as GPUs.
+Pypomp inherits software design principles from the successful R pomp package [@king2016], providing interoperable frameworks for the development of new models and new statistical methods. 
+Pypomp implements algorithmic advances that are required to take advantage of the GPU and automatic differentiation (AD) capabilities of JAX.
+AD for particle filters is a current research topic, and Pypomp implements a state-of-the-art approach that can simultaneously control the bias and variance [@tan2024].
+The particle filter involves many simulated random variables, and traditional rejection sampling algorithms for commonly used distributions are not well suited to GPU architectures.
+Pypomp addresses this by incorporating alternative sampling algorithms. 
 
-While powerful, statistical inference for POMP models poses substantial computational challenges, which existing packages struggle with due to their lack of support for GPU acceleration and automatic differentiation. 
-To address this, we introduce the package Pypomp [@abkemeier2026], a JAX-based [@bradbury2018] Python implementation of core R-pomp algorithms [USUALLY, SOFTWARE PACKAGES DON'T DEFINE ALGORITHMS].
+For systems taking values in a small discrete state space, or for systems well modeled by a linear Gaussian process, or sufficiently close to linear Gaussian that approximations can take advantage of the close form Gaussian filtering equations, it is not necessary to use the particle filter.
+In these cases, the Dynamax library [@linderman2025] provides a JAX-based solution.
+As dynamic models increase in complexity and nonlinearity, the particle filter methods in Pypomp become increasingly valuable. 
+This makes Pypomp especially relevant to applications in ecology and epidemiology.
+The plug-and-play property of the particle filter makes Pypomp a convenient exploratory tool, enabling rapid model development even in situations where alternative methods are applicable.
+Pypomp incorporates advances in high-dimensional particle filter inference for panel data [@breto2020] to address a theoretical limitation of the particle filter, that it scales poorly with state space dimension. 
+
+
 \AAnote{Need to change "90 times faster" to something more specific after we more rigorously compare pypomp with pomp. In addition, I think we should include the @korevaar2020 data set fit in this paper, as it provides perhaps the strongest motivation for developing pypomp.}
+\EInote{WITH SUITABLE DISCLAIMERS, WE HAVE OBTAINTED ERC VALUES OF AROUND 1000, RIGHT? THAT'S ANOTHER ORDER OF MAGNITUDE BIGGER. IT NEEDS EXTRA VMAPPING, SO THE STATEMENT WOULD HAVE TO BE CAREFUL, BUT PRESUMABLY ONE COULD DRAFT SOMETHING CORRECT THAT DISPLAYS THE BEST RATIO WE HAVE.}
 By leveraging GPU acceleration, the package allows users to run methods up to 90 times faster than the CPU-based alternatives, enabling plug-and-play likelihood-based inference on data sets that would otherwise be intractably large.
 This is demonstrated in Section \AAnote{add this section}, where we fit a panel POMP model to the @korevaar2020 England and Wales measles dataset, which contains over one million observations. 
-While this would normally take over 5 months in `pomp`, `pypomp` can finish the job in 41 hours \AAnote{revise these numbers as appropriate}.
-In addition to GPU acceleration, `pypomp` uses JAX to perform gradient descent on differentiable particle filters [@tan2024], which can further accelerate parameter estimation.
+While this would normally take over 5 months in `pomp`, `pypomp` can finish the job in 41 hours \AAnote{revise these numbers as appropriate}. \EInote{WHAT IS THE COMPARISON HERE? 1 GPU TO HOW MANY CPU CORES?}
 
-# POMP Modeling {#sec-pomp}
+\EInote{A BRAINSTORMING IDEA: IN THE SMC READING GROUP, I STARTED USING THE PHRASE ``MICHIGAN NOTATION'' TO EXPLAIN OUR COHERENT SET OF NAMES AND NOTATIONS THAT IS SOMEWHAT DIFFERENT TO THE DIVERSE TERMINOLOGIES FOUND ELSEWHERE. I'M NOT SURE IF THIS IS THE RIGHT PLACE, BUT MAYBE IT IS. ANYWAY, HERE'S A GO}
+
+# POMP Modeling: The Michigan notation {#sec-pomp}
+
+Diverse terminologies and notations have evolved for POMP models in different communities. 
+Pypomp uses the Michigan notation that arose from the program to build a unifying software environment to represent a wide range of proposed statistical methodologies in the R pomp package. 
+Dinstinguishing features are: (i) $t$ is used to represent continuous time, allowing proper handling scientific units and situations where the latent variable is defined not just at times it is observed; (ii) $\{t_n, n=1,\dots,N\}$ is a discrete sequence of $N$ measurement times; (iii) ranges are upper-case Roman letters with the corresponding lower-case often used as an index; (iv) joint and conditional densities are defined using appropriate subscripts and avoiding overloading, for example, $f_{Y_n|X_n}(y_n|x_n;\theta)$ denotes the conditional density of $Y_n$ given $X_n$; (v) sequences are denoted by colons, for example, $\{t_n, n=1,\dots,N\}$ is written as $t_{1:N}$. \EInote{TO BE CONTINUED, IF WE GO THIS ROUTE}.
 
 A POMP model includes a random vector of observed data $Y_{1:N}$, and the observed values are denoted as $y^*_{1:N}$. 
 The data are generated based on the values of the unobserved process, $\{X(t), t_0 \leq t \leq t_{N}\}$, where $t_{1:N}$ are the times at which $Y_{1:N}$ are observed, $t_0$ is the time at which the initial state is defined, and $X_n := X(t_n)$. 
@@ -161,6 +178,7 @@ The following example demonstrates a possible inference workflow, expressed in f
 ```{python}
 # | label: spx-inference-workflow
 # | echo: true
+# | cache: true
 import pypomp as pp
 spx_obj = pp.models.spx()
 key = jax.random.key(1)
