@@ -1,4 +1,4 @@
-default: slides.pdf notes.pdf exercises_notes.pdf
+default: slides.pdf notes.pdf
 
 slides.pdf : source.qmd
 	quarto render "source.qmd" --to beamer

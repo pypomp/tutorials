@@ -58,6 +58,7 @@ header-includes: |
 #| label: set up
 #| echo: false
 #| output: false
+import sys
 import jax
 import jax.numpy as jnp
 import pandas as pd
@@ -66,11 +67,17 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
 import pypomp as pp
-from pypomp.models import UKMeasles
-import pypomp.models.measles.model_001b as m001b
 
 import os
 import pickle
+
+# backward compatibility with older pypomp results location
+import pypomp.core.results
+import pypomp.core.rw_sigma
+sys.modules['pypomp.results'] = pypomp.core.results
+sys.modules['pypomp.RWSigma_class'] = pypomp.core.rw_sigma
+
+
 
 # run level 0 : quick, 1 : medium, 2 : slow
 RL = 2
@@ -167,7 +174,7 @@ Weekly case reports span 1950--1963, with annual birth records and population si
 #| label: load mle
 #| echo: true
 #| output: false
-all_data = UKMeasles.subset()
+all_data = pp.models.UKMeasles.subset()
 measles = all_data["measles"]
 demog = all_data["demog"]
 ```
@@ -193,7 +200,7 @@ coord = (pd.read_csv("data/EW_Lat_Long.csv")
     .rename(columns={"town":"unit", "Long":"long", "Lat": "lat"})
 )
 
-mles = UKMeasles.AK_mles()
+mles = pp.models.UKMeasles.AK_mles()
 twenty_cities = list(mles.columns)
 city_coord = coord[coord["unit"].isin(twenty_cities)]
 
@@ -538,7 +545,7 @@ We illustrate using London:
 
 ```{python}
 #| echo: true
-london_data = UKMeasles.subset(units=["London"])
+london_data = pp.models.UKMeasles.subset(units=["London"])
 dat = london_data["measles"]
 print(f"Date range: {dat['date'].min()}",
     f" to {dat['date'].max()}")
@@ -634,7 +641,7 @@ plt.show()
 #| echo: true
 theta_london = mles["London"].to_dict()
 
-m1 = UKMeasles.Pomp(
+m1 = pp.models.UKMeasles.Pomp(
     unit=["London"],
     theta=theta_london,
     model="001b",
@@ -710,7 +717,7 @@ axes[0].plot(times, data_cases, color="black", linewidth=0.8)
 axes[0].set_title("data", fontsize=8)
 
 for i in range(3):
-    sim = Y_sims[(Y_sims["replicate"] == 0) & (Y_sims["sim"] == i)]
+    sim = Y_sims[(Y_sims["theta_idx"] == 0) & (Y_sims["sim"] == i)]
     sim = sim.sort_values("time")
     axes[i+1].plot(sim["time"].values, sim["obs_0"].values,
                    color="red", linewidth=0.6)
@@ -858,7 +865,8 @@ plt.show()
 #| echo: false
 #| fig-cap: "Effective sample size for one particle filter in London."
 df_ess = london_pf.ESS()
-ess1 = df_ess.loc[df_ess['rep']==0,['ESS']]
+rep_col = 'rep' if 'rep' in df_ess.columns else 'replicate'
+ess1 = df_ess.loc[df_ess[rep_col]==0,['ESS']]
 fig, ax = plt.subplots(figsize=(4.5, 2))
 ax.plot(times, ess1, linewidth=0.5)
 ax.set_xlabel("Year")
@@ -921,9 +929,7 @@ The IF2 algorithm requires specifying random walk standard deviations for each p
 #| label: mif for London
 #| echo: true
 #| eval: false
-from pypomp import RWSigma
-
-rw_sd = RWSigma(
+rw_sd = pp.RWSigma(
     sigmas={
         "R0": 0.02, "sigma": 0.02, "gamma": 0.02,
         "iota": 0.0, "rho": 0.0,
@@ -946,7 +952,7 @@ m1.mif(J=2000, M=50, a=0.95, rw_sd=rw_sd,
 ```{python}
 #| label: tabulate mles for twenty cities
 #| echo: false
-mle_df = UKMeasles.AK_mles()
+mle_df = pp.models.UKMeasles.AK_mles()
 
 def mean_euler(rate, dt=1/365):
     return dt / (1 - np.exp(-rate * dt))

@@ -34,3 +34,6 @@ article/ms.tex
 
 # Don't save run level 0 cache
 *_0
+
+# VSCode
+.vscode

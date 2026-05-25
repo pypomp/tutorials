@@ -207,7 +207,7 @@ import jax
 import matplotlib.pyplot as plt
 
 d = pp.models.dacca() # constructs an example POMP model
-key = jax.random.key(42)
+key = jax.random.key(1)
 n_sims = 1
 X_sims, Y_sims = d.simulate(key,nsim=n_sims)
 sim_df = Y_sims.pivot_table(

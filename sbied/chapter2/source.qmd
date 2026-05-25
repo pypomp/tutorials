@@ -591,9 +591,9 @@ def rproc(X_, theta_, key, covars, t, dt):
     N = theta_["N"]
     p_SI = 1.0 - jnp.exp(-Beta * I / N * dt)
     p_IR = 1.0 - jnp.exp(-mu_IR * dt)
-    key_SI, key_IR = jax.random.split(key)
-    dN_SI = pp.random.fast_binomial(key_SI, n=S, p=p_SI)
-    dN_IR = pp.random.fast_binomial(key_IR, n=I, p=p_IR)
+    dN_stacked = pp.random.fast_binomial(key, n=jnp.array([S, I]), p=jnp.array([p_SI, p_IR]))
+    dN_SI = dN_stacked[0]
+    dN_IR = dN_stacked[1]
     S_new = S - dN_SI
     I_new = I + dN_SI - dN_IR
     R_new = R + dN_IR
@@ -643,7 +643,7 @@ def rmeas(X_, theta_, key, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    reports = pp.random.fast_nbinomial(key, k, mu=mu)
+    reports = pp.random.fast_nbinomial(key, n=k, mu=mu)
     return jnp.array([reports])
 ```
 \normalsize

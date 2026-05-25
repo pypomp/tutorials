@@ -79,12 +79,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import chi2
 from copy import deepcopy
 
-from pypomp import Pomp, RWSigma, ParTrans, mcap
-from pypomp.maths import logmeanexp, logmeanexp_se
-
-from pypomp.models import UKMeasles
-import pypomp.models.measles.model_001b as m001b
-import pypomp.models.measles.model_001c as m001c
+import pypomp as pp
 
 np.random.seed(594709947)
 ```
@@ -93,10 +88,10 @@ np.random.seed(594709947)
 
 ```{python}
 #| label: load-model
-mles = UKMeasles.AK_mles()
+mles = pp.models.UKMeasles.AK_mles()
 theta_mle = mles["London"].to_dict()
 
-measles_pomp = UKMeasles.Pomp(
+measles_pomp = pp.models.UKMeasles.Pomp(
     unit=["London"],
     theta=theta_mle,
     model="001b",
@@ -134,6 +129,7 @@ key = jax.random.key(42)
 # simulate() returns DataFrames with columns:
 # replicate, sim, time, state_0/obs_0, state_1/obs_1, ...
 X_sims, Y_sims = measles_pomp.simulate(key=key, nsim=20)
+rep_col = 'theta_idx' if 'theta_idx' in Y_sims.columns else 'replicate'
 
 # Plot simulations vs data
 fig, axes = plt.subplots(3, 1, figsize=(8, 8))
@@ -146,7 +142,7 @@ n_sims = Y_sims['sim'].nunique()
 # Panel 1: All simulations overlaid
 ax = axes[0]
 for sim_idx in range(n_sims):
-    sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == sim_idx)]
+    sim_data = Y_sims[(Y_sims[rep_col] == 0) & (Y_sims['sim'] == sim_idx)]
     sim_data = sim_data.sort_values('time')
     ax.plot(sim_data['time'].values, sim_data['obs_0'].values, 
             alpha=0.2, color='blue', linewidth=0.5)
@@ -159,7 +155,7 @@ ax.legend()
 
 # Panel 2: Single simulation comparison
 ax = axes[1]
-sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == 0)]
+sim_data = Y_sims[(Y_sims[rep_col] == 0) & (Y_sims['sim'] == 0)]
 sim_data = sim_data.sort_values('time')
 ax.plot(sim_data['time'].values, sim_data['obs_0'].values, 
         color='blue', linewidth=1, label='Simulation')
@@ -179,7 +175,7 @@ sim_count = np.zeros(366)
 data_mean = np.zeros(366)
 
 # Get first simulation for comparison
-sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == 0)]
+sim_data = Y_sims[(Y_sims[rep_col] == 0) & (Y_sims['sim'] == 0)]
 sim_data = sim_data.sort_values('time')
 sim_obs = sim_data['obs_0'].values
 
@@ -234,21 +230,21 @@ data_max = np.nanmax(data_cases)
 # Compute max for each simulation
 sim_maxes = []
 for sim_idx in range(n_sims):
-    sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == sim_idx)]
+    sim_data = Y_sims[(Y_sims[rep_col] == 0) & (Y_sims['sim'] == sim_idx)]
     sim_maxes.append(np.nanmax(sim_data['obs_0'].values))
 print(f"{'Max cases':<25} {data_max:>10.0f} {np.mean(sim_maxes):>12.0f}")
 
 data_mean_val = np.nanmean(data_cases)
 sim_means = []
 for sim_idx in range(n_sims):
-    sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == sim_idx)]
+    sim_data = Y_sims[(Y_sims[rep_col] == 0) & (Y_sims['sim'] == sim_idx)]
     sim_means.append(np.nanmean(sim_data['obs_0'].values))
 print(f"{'Mean cases':<25} {data_mean_val:>10.0f} {np.mean(sim_means):>12.0f}")
 
 data_std = np.nanstd(data_cases)
 sim_stds = []
 for sim_idx in range(n_sims):
-    sim_data = Y_sims[(Y_sims['replicate'] == 0) & (Y_sims['sim'] == sim_idx)]
+    sim_data = Y_sims[(Y_sims[rep_col] == 0) & (Y_sims['sim'] == sim_idx)]
     sim_stds.append(np.nanstd(sim_data['obs_0'].values))
 print(f"{'Std dev':<25} {data_std:>10.0f} {np.mean(sim_stds):>12.0f}")
 
@@ -372,7 +368,7 @@ for sigmaSE in sigmaSE_values:
     theta_test['sigmaSE'] = sigmaSE
     
     # Create new POMP object with modified parameters
-    pomp_test = UKMeasles.Pomp(
+    pomp_test = pp.models.UKMeasles.Pomp(
         unit=["London"],
         theta=theta_test,
         model="001b",
@@ -388,8 +384,8 @@ for sigmaSE in sigmaSE_values:
     
     pf_result = pomp_test.results_history[-1]
     logliks = pf_result.logLiks.values.flatten()
-    ll = logmeanexp(logliks)
-    ll_se = logmeanexp_se(logliks)
+    ll = pp.maths.logmeanexp(logliks)
+    ll_se = pp.maths.logmeanexp_se(logliks)
     
     results.append({
         'sigmaSE': sigmaSE,
@@ -461,7 +457,7 @@ def compute_profile_point(cohort_value, theta_base, key):
     theta_fixed["cohort"] = cohort_value
     
     # Create RWSigma with cohort fixed (sigma=0)
-    rw_sd = RWSigma(
+    rw_sd = pp.RWSigma(
         sigmas={
             "R0": 0.02, "sigma": 0.02, "gamma": 0.02,
             "sigmaSE": 0.02, "psi": 0.02, "amplitude": 0.02,
@@ -473,7 +469,7 @@ def compute_profile_point(cohort_value, theta_base, key):
     )
     
     # Create POMP object
-    pomp_obj = UKMeasles.Pomp(
+    pomp_obj = pp.models.UKMeasles.Pomp(
         unit=["London"], theta=theta_fixed, model="001b",
         first_year=1950, last_year=1963, dt=1/365.25, clean=True
     )
@@ -490,7 +486,7 @@ def compute_profile_point(cohort_value, theta_base, key):
     
     return {
         "cohort": cohort_value,
-        "loglik": logmeanexp(logliks),
+        "loglik": pp.maths.logmeanexp(logliks),
         "theta": deepcopy(pomp_obj.theta)
     }
 ```
@@ -588,7 +584,7 @@ key = jax.random.key(789012)
 theta_fixed_rho = deepcopy(theta_mle)
 theta_fixed_rho['rho'] = 0.6
 
-pomp_fixed = UKMeasles.Pomp(
+pomp_fixed = pp.models.UKMeasles.Pomp(
     unit=["London"],
     theta=theta_fixed_rho,
     model="001b",
@@ -602,8 +598,8 @@ pomp_fixed = UKMeasles.Pomp(
 pomp_fixed.pfilter(J=3000, key=key, reps=10, thresh=0)
 pf_result = pomp_fixed.results_history[-1]
 logliks = pf_result.logLiks.values.flatten()
-ll_fixed = logmeanexp(logliks)
-ll_fixed_se = logmeanexp_se(logliks)
+ll_fixed = pp.maths.logmeanexp(logliks)
+ll_fixed_se = pp.maths.logmeanexp_se(logliks)
 
 print(f"Likelihood with rho = 0.6 (fixed):")
 print(f"  Log-likelihood: {ll_fixed:.1f} (SE: {ll_fixed_se:.2f})")
@@ -638,7 +634,7 @@ print(f"{'sigmaSE':<15} {theta_mle['sigmaSE']:.4f}{'':<15} {'~0.06 (lower)':<20}
 key = jax.random.key(999888)
 measles_pomp.pfilter(J=3000, key=key, reps=10, thresh=0)
 pf_mle = measles_pomp.results_history[-1]
-ll_mle = logmeanexp(pf_mle.logLiks.values.flatten())
+ll_mle = pp.maths.logmeanexp(pf_mle.logLiks.values.flatten())
 
 print("Likelihood Comparison:")
 print("=" * 50)

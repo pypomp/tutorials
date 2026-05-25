@@ -56,6 +56,7 @@ header-includes: |
 ```{python}
 #| label: packages
 #| echo: false
+import sys
 import jax
 import jax.numpy as jnp
 import pandas as pd
@@ -65,6 +66,14 @@ import pypomp as pp
 from scipy.stats import chi2
 import pickle
 import os
+
+# backward compatibility with older pypomp results location
+import pypomp.core.results
+import pypomp.core.rw_sigma
+sys.modules['pypomp.results'] = pypomp.core.results
+sys.modules['pypomp.RWSigma_class'] = pypomp.core.rw_sigma
+
+
 
 cache_dir = "cache"
 os.makedirs(cache_dir, exist_ok=True)
@@ -256,22 +265,20 @@ def rproc(X_, theta_, key, covars, t, dt):
         -nstageE * alpha * timestep)
     pI = 1.0 - jnp.exp(-gamma * timestep)
 
-    keys = jax.random.split(key, 2 + nstageE)
-
-    transS = pp.random.fast_binomial(
-        keys[0], n=S, p=pS)
-
-    transE = []
-    for i in range(nstageE):
-        transEi = pp.random.fast_binomial(
-            keys[1 + i],
-            n=jnp.maximum(E[i], 0),
-            p=pE)
-        transE.append(transEi)
-    transE = jnp.stack(transE)
-
-    transI = pp.random.fast_binomial(
-        keys[-1], n=I, p=pI)
+    n_stacked = jnp.concatenate([
+        jnp.atleast_1d(S),
+        jnp.maximum(E, 0),
+        jnp.atleast_1d(I)
+    ])
+    p_stacked = jnp.concatenate([
+        jnp.atleast_1d(pS),
+        jnp.repeat(pE, nstageE),
+        jnp.atleast_1d(pI)
+    ])
+    draws = pp.random.fast_binomial(key, n=n_stacked, p=p_stacked)
+    transS = draws[0]
+    transE = draws[1 : 1 + nstageE]
+    transI = draws[-1]
 
     S_new = S - transS
     E_new = jnp.zeros(nstageE)
@@ -486,6 +493,7 @@ else:
         pickle.dump((X_sims, Y_sims), f)
 
 print(f"Simulated {200} trajectories")
+rep_col = 'theta_idx' if 'theta_idx' in Y_sims.columns else 'replicate'
 ```
 
 ##
@@ -495,7 +503,7 @@ print(f"Simulated {200} trajectories")
 #| echo: false
 fig, ax = plt.subplots(figsize=(4.5, 2.5))
 for i in range(min(20, 200)):
-    sd = Y_sims[(Y_sims['replicate']==0)
+    sd = Y_sims[(Y_sims[rep_col]==0)
                 & (Y_sims['sim']==i)]
     ax.plot(sd['time'], sd['obs_0'],
         alpha=0.2, color='blue', lw=0.5)
@@ -840,7 +848,8 @@ else:
 
 print(f"Forecast: {Y_fc.shape[0]} rows, "
       f"{n_forecast} param sets × 10 sims "
-      f"× {len(forecast_weeks)} weeks")
+      f"columns: {Y_fc.columns.tolist()}")
+rep_col_fc = 'theta_idx' if 'theta_idx' in Y_fc.columns else 'replicate'
 ```
 
 
@@ -870,7 +879,7 @@ ax.plot(dat_s['week'], dat_s['cases'],
 
 # Plot weighted forecast simulations
 for j in range(n_forecast):
-    fj = Y_fc[Y_fc['replicate'] == j]
+    fj = Y_fc[Y_fc[rep_col_fc] == j]
     for s in range(min(5, 10)):
         fs = fj[fj['sim'] == s]
         alpha = np.clip(weights[j]*5, 0.02, 0.5)

@@ -23,6 +23,7 @@ format:
     toc: true  
     slide-level: 3
     highlight-style: tango  
+    output-file: exercises_beamer.pdf
   
   pdf:
     documentclass: article          
@@ -31,6 +32,7 @@ format:
     biblio-style: apalike
     toc: true
     geometry: margin=1in
+    output-file: exercises.pdf
     
 jupyter: python3 
 
@@ -86,8 +88,7 @@ from scipy.optimize import minimize
 from scipy.stats import nbinom, chi2, qmc
 from copy import deepcopy
 
-from pypomp import Pomp, RWSigma, ParTrans
-from pypomp.util import logmeanexp, logmeanexp_se
+import pypomp as pp
 
 np.random.seed(594709947)
 ```
@@ -187,7 +188,7 @@ def rproc(X_, theta_, key, covars, t, dt):
     
     key, subkey = jax.random.split(key)
     epsilon = jax.lax.cond(var_epsilon < 1e-6, lambda _: 1.0,
-        lambda _: jax.random.gamma(subkey, 1.0/var_epsilon) * var_epsilon, operand=None)
+        lambda _: pp.random.fast_gamma(subkey, 1.0/var_epsilon) * var_epsilon, operand=None)
     
     lambda_n = lambda_bar * epsilon
     p = jnp.exp(-(delta + lambda_n) / 12.0)
@@ -268,7 +269,7 @@ ys = data_filtered[['cases']].copy()
 ys.index = data_filtered['time']
 ys = ys.loc[ys.index.intersection(covars.index)]
 
-polio = Pomp(
+polio = pp.Pomp(
     ys=ys,
     theta=params_guess,
     rinit=rinit,
@@ -278,8 +279,7 @@ polio = Pomp(
     covars=covars,
     statenames=statenames,
     t0=t0,
-    nstep=1,
-    ydim=1
+    nstep=1
 )
 
 print(f"Pomp object created with {len(ys)} observations")
@@ -581,7 +581,7 @@ Discuss the potential problems that may have arisen in the fitting of this model
 
 ```{python}
 #| echo: true
-rw_sd = RWSigma(
+rw_sd = pp.RWSigma(
     sigmas={
         'b1': 0.02, 'b2': 0.02, 'b3': 0.02, 
         'b4': 0.02, 'b5': 0.02, 'b6': 0.02,
@@ -610,24 +610,31 @@ print("Diagnostics computed")
 #| echo: true
 #| fig-width: 6
 #| fig-height: 3
-if hasattr(pf_result, 'CLL') and pf_result.CLL is not None:
-    fig, ax = plt.subplots(figsize=(6, 3))
-    times = polio.ys.index.values
-    cll = pf_result.CLL.values[0, 0, :]
+if hasattr(pf_result, 'CLL') and not pf_result.CLL().empty:
+    import plotnine as pn
     
-    ax.plot(times, cll, 'b-', linewidth=0.5)
-    ax.axhline(y=np.mean(cll), color='r', linestyle='--', label='Mean')
-    ax.axhline(y=np.mean(cll) - 2*np.std(cll), color='orange', 
-               linestyle=':', label='Mean - 2*SD')
-    ax.set_xlabel('Year')
-    ax.set_ylabel('Conditional Log-Likelihood')
-    ax.set_title('Identifying Potential Outliers')
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
+    df_cll = pf_result.CLL(average=True)
     
-    threshold = np.mean(cll) - 3*np.std(cll)
-    outliers = times[cll < threshold]
+    cll_mean = df_cll['CLL'].mean()
+    cll_std = df_cll['CLL'].std()
+    
+    p = (
+        pn.ggplot(df_cll, pn.aes(x='time', y='CLL'))
+        + pn.geom_line(color='blue', size=0.5)
+        + pn.geom_hline(yintercept=cll_mean, color='red', linetype='dashed')
+        + pn.geom_hline(yintercept=cll_mean - 2 * cll_std, color='orange', linetype='dotted')
+        + pn.labs(
+            x='Year',
+            y='Conditional Log-Likelihood',
+            title='Identifying Potential Outliers (Mean and Mean - 2*SD)'
+        )
+        + pn.theme_minimal()
+        + pn.theme(figure_size=(6, 3))
+    )
+    print(p)
+    
+    threshold = cll_mean - 3 * cll_std
+    outliers = df_cll.loc[df_cll['CLL'] < threshold, 'time'].values
     print(f"Potential outlier times: {outliers}")
 else:
     print("CLL not computed - run pfilter with CLL=True")
@@ -639,21 +646,27 @@ else:
 #| echo: true
 #| fig-width: 6
 #| fig-height: 3
-if hasattr(pf_result, 'ESS') and pf_result.ESS is not None:
-    fig, ax = plt.subplots(figsize=(6, 3))
-    times = polio.ys.index.values
-    ess = pf_result.ESS.values[0, 0, :]
-    ax.plot(times, ess, 'g-', linewidth=0.5)
-    ax.axhline(y=Np/2, color='r', linestyle='--', label='Np/2 threshold')
-    ax.set_xlabel('Year')
-    ax.set_ylabel('Effective Sample Size')
-    ax.set_title('Particle Filter ESS')
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
+if hasattr(pf_result, 'ESS') and not pf_result.ESS().empty:
+    import plotnine as pn
     
-    low_ess = np.sum(ess < Np/10)
-    print(f"Times with ESS < Np/10: {low_ess} out of {len(ess)}")
+    df_ess = pf_result.ESS(average=True)
+    
+    p = (
+        pn.ggplot(df_ess, pn.aes(x='time', y='ESS'))
+        + pn.geom_line(color='green', size=0.5)
+        + pn.geom_hline(yintercept=Np/2, color='red', linetype='dashed')
+        + pn.labs(
+            x='Year',
+            y='Effective Sample Size',
+            title='Particle Filter ESS'
+        )
+        + pn.theme_minimal()
+        + pn.theme(figure_size=(6, 3))
+    )
+    print(p)
+    
+    low_ess = np.sum(df_ess['ESS'] < Np/10)
+    print(f"Times with ESS < Np/10: {low_ess} out of {len(df_ess)}")
 else:
     print("ESS not computed - run pfilter with ESS=True")
 ```
@@ -664,22 +677,32 @@ else:
 #| echo: true
 #| fig-width: 6
 #| fig-height: 4
-if hasattr(mif_result, 'traces_da') and mif_result.traces_da is not None:
-    traces_da = mif_result.traces_da
+if hasattr(mif_result, 'traces') and not mif_result.traces().empty:
+    import plotnine as pn
     
+    df_traces = mif_result.traces()
     params_to_plot = ['rho', 'psi', 'sigma_env', 'logLik']
-    variables = traces_da.coords['variable'].values
     
-    fig, axes = plt.subplots(2, 2, figsize=(6, 4))
-    for ax, param in zip(axes.flatten(), params_to_plot):
-        if param in variables:
-            for rep in range(traces_da.sizes['replicate']):
-                trace = traces_da.isel(replicate=rep).sel(variable=param).values
-                ax.plot(trace, alpha=0.5)
-            ax.set_xlabel('Iteration')
-            ax.set_ylabel(param)
-    plt.tight_layout()
-    plt.show()
+    df_long = df_traces.melt(
+        id_vars=['theta_idx', 'iteration'],
+        value_vars=[col for col in params_to_plot if col in df_traces.columns],
+        var_name='parameter',
+        value_name='value'
+    )
+    
+    p = (
+        pn.ggplot(df_long, pn.aes(x='iteration', y='value', group='theta_idx'))
+        + pn.geom_line(alpha=0.5, size=0.5)
+        + pn.facet_wrap('~parameter', scales='free_y', ncol=2)
+        + pn.labs(
+            x='Iteration',
+            y='Value',
+            title='Parameter Convergence'
+        )
+        + pn.theme_minimal()
+        + pn.theme(figure_size=(6, 4))
+    )
+    print(p)
 else:
     print("Traces not available")
 ```
@@ -795,7 +818,7 @@ print(f"  Goal: Refine top results from Stage 1")
 **Exercise 4 (Diagnostics):**
 
 - Monitor ESS and conditional log-likelihoods for problems
-- Check parameter traces for convergence using `traces_da`
+- Check parameter traces for convergence using `traces()`
 - Adjust cooling fraction if traces freeze too early/late
 
 **Exercise 5 (Algorithmic Parameters):**
@@ -816,7 +839,7 @@ print(f"  Goal: Refine top results from Stage 1")
 
 5. Use `polio.prune(n=k)` to keep top k parameter sets
 
-6. Access traces via `mif_result.traces_da` (xarray DataArray with dimensions `('replicate', 'iteration', 'variable')`)
+6. Access traces via `mif_result.traces()` (tidy DataFrame with columns `theta_idx`, `iteration`, `method`, `logLik` and parameters)
 
 
 # Acknowledgments and License

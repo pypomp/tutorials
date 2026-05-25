@@ -180,9 +180,9 @@ def rproc(X_, theta_, key, covars, t, dt):
     p_SI = 1.0 - jnp.exp(-Beta * I / N * dt)
     p_IR = 1.0 - jnp.exp(-mu_IR * dt)
 
-    key_SI, key_IR = jax.random.split(key)
-    dN_SI = pp.random.fast_binomial(key_SI, n=S, p=p_SI)
-    dN_IR = pp.random.fast_binomial(key_IR, n=I, p=p_IR)
+    dN_stacked = pp.random.fast_binomial(key, n=jnp.array([S, I]), p=jnp.array([p_SI, p_IR]))
+    dN_SI = dN_stacked[0]
+    dN_IR = dN_stacked[1]
 
     S_new = S - dN_SI
     I_new = I + dN_SI - dN_IR
@@ -211,7 +211,7 @@ def rmeas(X_, theta_, key, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    reports = pp.random.fast_nbinomial(key, k, mu=mu)
+    reports = pp.random.fast_nbinomial(key, n=k, mu=mu)
     return jnp.array([reports])
 ```
 
@@ -438,11 +438,11 @@ def seir_rproc(X_, theta_, key, covars, t, dt):
     p_EI = 1.0 - jnp.exp(-mu_EI * dt)         # E -> I
     p_IR = 1.0 - jnp.exp(-mu_IR * dt)         # I -> R
 
-    # Draw transitions
-    key_SE, key_EI, key_IR = jax.random.split(key, 3)
-    dN_SE = pp.random.fast_binomial(key_SE, n=S, p=p_SE)
-    dN_EI = pp.random.fast_binomial(key_EI, n=E, p=p_EI)
-    dN_IR = pp.random.fast_binomial(key_IR, n=I, p=p_IR)
+    # Draw transitions using manual vectorization
+    dN_trans = pp.random.fast_binomial(key, n=jnp.array([S, E, I]), p=jnp.array([p_SE, p_EI, p_IR]))
+    dN_SE = dN_trans[0]
+    dN_EI = dN_trans[1]
+    dN_IR = dN_trans[2]
 
     # Update state
     S_new = S - dN_SE
@@ -475,7 +475,7 @@ def seir_rmeas(X_, theta_, key, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    reports = pp.random.fast_nbinomial(key, k, mu=mu)
+    reports = pp.random.fast_nbinomial(key, n=k, mu=mu)
     return jnp.array([reports])
 ```
 
@@ -502,7 +502,7 @@ def run_seir_simulation_and_plot(theta, title="SEIR simulation", n_sims=20):
         covars=None
     )
     
-    key = jax.random.key(42)
+    key = jax.random.key(1)
     X_sims, Y_sims = seir_obj.simulate(key=key, nsim=n_sims)
     
     sim_df = Y_sims.pivot_table(

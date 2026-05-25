@@ -23,6 +23,7 @@ format:
     toc: true  
     slide-level: 3
     highlight-style: tango  
+    output-file: slides.pdf
   
   pdf:
     documentclass: article          
@@ -31,6 +32,7 @@ format:
     biblio-style: apalike
     toc: true
     geometry: margin=1in
+    output-file: notes.pdf
     
 jupyter: python3 
 
@@ -400,7 +402,7 @@ def rproc(X_, theta_, key, covars, t, dt):
     epsilon = jax.lax.cond(
         var_epsilon < 1e-6,
         lambda _: 1.0,
-        lambda _: jax.random.gamma(subkey, 1.0/var_epsilon) * var_epsilon,
+        lambda _: pp.random.fast_gamma(subkey, 1.0/var_epsilon) * var_epsilon,
         operand=None
     )
     
@@ -509,7 +511,7 @@ def rinit(theta_, key, covars, t0):
 ### Constructing the Pomp Object {.allowframebreaks}
 ```{python}
 #| echo: true
-from pypomp import Pomp
+import pypomp as pp
 
 # Filter data to the analysis period
 data_filtered = data[(data['time'] > t0 + 0.01) & (data['time'] < 1953 + 1/12 + 0.01)].copy()
@@ -522,7 +524,7 @@ ys.index = data_filtered['time']
 ys = ys.loc[ys.index.intersection(covars.index)]
 
 # Create pomp object
-polio = Pomp(
+polio = pp.Pomp(
     ys=ys,
     theta=params_guess,
     rinit=rinit,
@@ -532,8 +534,7 @@ polio = Pomp(
     covars=covars,
     statenames=statenames,
     t0=t0,
-    nstep=1,
-    ydim=1
+    nstep=1
 )
 
 print(f"Pomp object created")
@@ -580,16 +581,14 @@ params_rpomp = {
 
 polio.theta = params_rpomp
 
-from pypomp.util import logmeanexp, logmeanexp_se
-
 key = jax.random.key(3899882)
 polio.pfilter(J=Np, key=key, reps=20, thresh=0)
 
 pf_result = polio.results_history[-1]
 logliks = pf_result.logLiks.values.flatten()
 
-L1 = logmeanexp(logliks)
-L1_se = logmeanexp_se(logliks)
+L1 = pp.maths.logmeanexp(logliks)
+L1_se = pp.maths.logmeanexp_se(logliks)
 
 print(f"pypomp Log-likelihood: {L1:.2f} (SE: {L1_se:.2f})")
 ```
@@ -635,9 +634,7 @@ plt.show()
 ### IF2 Random Walk Standard Deviations {.allowframebreaks}
 ```{python}
 #| echo: true
-from pypomp import RWSigma
-
-rw_sd = RWSigma(
+rw_sd = pp.RWSigma(
     sigmas={
         'b1': 0.02, 'b2': 0.02, 'b3': 0.02, 
         'b4': 0.02, 'b5': 0.02, 'b6': 0.02,
@@ -683,8 +680,8 @@ logliks = pf_result.logLiks.values
 mean_logliks = logliks.mean(axis=1)
 best_idx = np.argmax(mean_logliks)
 
-ll_mif = logmeanexp(logliks[best_idx, :])
-ll_mif_se = logmeanexp_se(logliks[best_idx, :])
+ll_mif = pp.maths.logmeanexp(logliks[best_idx, :])
+ll_mif_se = pp.maths.logmeanexp_se(logliks[best_idx, :])
 
 print(f"Log-likelihood after local search: {ll_mif:.2f} (SE: {ll_mif_se:.2f})")
 print(f"Best parameter set index: {best_idx}")
@@ -821,7 +818,7 @@ profile_pts = [3, 5, 30][run_level - 1]
 rho_values = np.linspace(0.01, 0.025, profile_pts)
 print(f"Profiling over {profile_pts} values of rho")
 
-rw_sd_profile = RWSigma(
+rw_sd_profile = pp.RWSigma(
     sigmas={
         'b1': 0.02, 'b2': 0.02, 'b3': 0.02, 
         'b4': 0.02, 'b5': 0.02, 'b6': 0.02,

@@ -412,7 +412,7 @@ Four example constructor functions returning `Pomp` objects.
 
 **`pp.models.LG`**: A linear Gaussian example for validating Monte Carlo methods against exact Kalman filter calculations
 
-**`pp.models.UKMeasles`**: Pre-vaccination meases in England and Wales with the model of @He2010
+**`pp.models.UKMeasles`**: Pre-vaccination measles in England and Wales with the model of @He2010
 
 **`pp.models.spx`**:  A stochastic volatility model for the S&P 500 stock market index.
 

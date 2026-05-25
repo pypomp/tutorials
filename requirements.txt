@@ -3,4 +3,4 @@ numpy
 jupyter
 tqdm
 pandas
-pypomp>=0.4.5.1
+pypomp>=0.4.6.0

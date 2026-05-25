@@ -294,6 +294,7 @@ In practice, we can test this claim on examples.
 ```{python}
 #| label: set up packages and cache
 #| echo: true
+import sys
 import jax.numpy as jnp
 import jax
 import pandas as pd
@@ -304,6 +305,14 @@ import pickle
 import os
 import time
 from scipy.stats import chi2
+
+# backward compatibility with older pypomp results location
+import pypomp.core.results
+import pypomp.core.rw_sigma
+sys.modules['pypomp.results'] = pypomp.core.results
+sys.modules['pypomp.RWSigma_class'] = pypomp.core.rw_sigma
+
+
 
 cache_dir = "cache"
 os.makedirs(cache_dir, exist_ok=True)
@@ -367,11 +376,9 @@ def rproc(X_, theta_, key, covars, t, dt):
     p_SI = 1.0 - jnp.exp(-Beta * I / N * dt)
     p_IR = 1.0 - jnp.exp(-mu_IR * dt)
 
-    key_SI, key_IR = jax.random.split(key)
-    dN_SI = pp.random.fast_binomial(
-        key_SI, n=S, p=p_SI)
-    dN_IR = pp.random.fast_binomial(
-        key_IR, n=I, p=p_IR)
+    dN_stacked = pp.random.fast_binomial(key, n=jnp.array([S, I]), p=jnp.array([p_SI, p_IR]))
+    dN_SI = dN_stacked[0]
+    dN_IR = dN_stacked[1]
 
     return {"S": S - dN_SI,
             "I": I + dN_SI - dN_IR,
@@ -397,7 +404,7 @@ def rmeas(X_, theta_, key, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    reports = pp.random.fast_nbinomial(key, k, mu=mu)
+    reports = pp.random.fast_nbinomial(key, n=k, mu=mu)
     return jnp.array([reports])
 ```
 
@@ -589,7 +596,8 @@ traces_da = mif_result.traces_da
 ```{python}
 #| label: plot mif traces
 #| echo: false
-n_reps = traces_da.sizes['theta_idx']
+rep_dim = 'theta_idx' if 'theta_idx' in traces_da.sizes else 'replicate'
+n_reps = traces_da.sizes[rep_dim]
 iterations = traces_da.coords['iteration'].values
 
 fig, axes = plt.subplots(2, 2, figsize=(7, 5))
@@ -603,7 +611,7 @@ for ax, var, lab in zip(
     if var in traces_da.coords['variable'].values:
         for r in range(n_reps):
             ax.plot(iterations,
-                traces_da.isel(theta_idx=r).sel(
+                traces_da.isel(**{rep_dim: r}).sel(
                     variable=var).values,
                 alpha=0.4, lw=0.7)
     ax.set(xlabel='Iteration', ylabel=lab)
@@ -639,14 +647,15 @@ if os.path.exists(cache_file):
         local_results = pickle.load(f)
 else:
     # Rebuild mod_local from mif endpoints
-    n_local = mif_result.traces_da.sizes['theta_idx']
+    rep_dim = 'theta_idx' if 'theta_idx' in mif_result.traces_da.sizes else 'replicate'
+    n_local = mif_result.traces_da.sizes[rep_dim]
     traces = mif_result.traces_da
     theta_endpoints = []
     for r in range(n_local):
         th = theta.copy()
         for var in ['Beta', 'rho', 'eta']:
             th[var] = float(
-                traces.isel(theta_idx=r).sel(
+                traces.isel(**{rep_dim: r}).sel(
                     variable=var).values[-1])
         theta_endpoints.append(th)
 

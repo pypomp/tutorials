@@ -99,13 +99,7 @@ import matplotlib.pyplot as plt
 from copy import deepcopy
 import time
 
-# Import pypomp components
-from pypomp import Pomp, RWSigma, ParTrans, mcap
-from pypomp.maths import logmeanexp, logmeanexp_se
-
-# Import the built-in UK Measles module
-from pypomp.models import UKMeasles
-import pypomp.models.measles.model_001b as m001b
+import pypomp as pp
 
 np.random.seed(594709947)
 ```
@@ -115,7 +109,7 @@ np.random.seed(594709947)
 ```{python}
 #| label: load-mles
 # Load MLEs from He et al. (2010) for London
-mles = UKMeasles.AK_mles()
+mles = pp.models.UKMeasles.AK_mles()
 theta_mle = mles["London"].to_dict()
 
 print("MLE parameters for London:")
@@ -128,7 +122,7 @@ for param, value in theta_mle.items():
 ```{python}
 #| label: create-pomp
 # Create base POMP object
-measles_pomp = UKMeasles.Pomp(
+measles_pomp = pp.models.UKMeasles.Pomp(
     unit=["London"],
     theta=theta_mle,
     model="001b",
@@ -248,7 +242,7 @@ def compute_profile_point(sigmaSE_value, theta_mle, n_starts,
     rw_sigmas["rho"] = 0.0      # Fix rho
     rw_sigmas["iota"] = 0.0     # Fix iota
     
-    rw_sd = RWSigma(
+    rw_sd = pp.RWSigma(
         sigmas=rw_sigmas,
         init_names=["S_0", "E_0", "I_0", "R_0"]
     )
@@ -262,7 +256,7 @@ def compute_profile_point(sigmaSE_value, theta_mle, n_starts,
         theta_start["iota"] = theta_mle["iota"]
         
         # Create POMP object
-        pomp_obj = UKMeasles.Pomp(
+        pomp_obj = pp.models.UKMeasles.Pomp(
             unit=["London"],
             theta=theta_start,
             model="001b",
@@ -281,13 +275,13 @@ def compute_profile_point(sigmaSE_value, theta_mle, n_starts,
         
         pf_result = pomp_obj.results_history[-1]
         logliks = pf_result.logLiks.values.flatten()
-        ll = logmeanexp(logliks)
+        ll = pp.maths.logmeanexp(logliks)
         
         if ll > best_result["loglik"]:
             best_result = {
                 "sigmaSE": sigmaSE_value,
                 "loglik": ll,
-                "se": logmeanexp_se(logliks),
+                "se": pp.maths.logmeanexp_se(logliks),
                 "theta": deepcopy(pomp_obj.theta)
             }
     
@@ -313,7 +307,7 @@ for sigmaSE_val in quick_sigmaSE:
     theta_test = deepcopy(theta_mle)
     theta_test['sigmaSE'] = sigmaSE_val
     
-    pomp_test = UKMeasles.Pomp(
+    pomp_test = pp.models.UKMeasles.Pomp(
         unit=["London"],
         theta=theta_test,
         model="001b",
@@ -331,8 +325,8 @@ for sigmaSE_val in quick_sigmaSE:
     
     result = {
         'sigmaSE': sigmaSE_val,
-        'loglik': logmeanexp(logliks),
-        'se': logmeanexp_se(logliks)
+        'loglik': pp.maths.logmeanexp(logliks),
+        'se': pp.maths.logmeanexp_se(logliks)
     }
     quick_results.append(result)
     print(f"  sigmaSE={sigmaSE_val:.4f}: loglik={result['loglik']:.1f} (SE: {result['se']:.2f})")
@@ -525,7 +519,6 @@ The `mcap` function in pypomp helps compute confidence intervals that account fo
 ```{python}
 #| label: mcap-example
 # Example usage with quick profile results
-from pypomp import mcap
 
 # Use quick profile results
 param_vals = np.array([r['sigmaSE'] for r in quick_results])
@@ -533,7 +526,7 @@ ll_vals = np.array([r['loglik'] for r in quick_results])
 
 # Run mcap
 try:
-    mcap_result = mcap(
+    mcap_result = pp.mcap(
         parameter=param_vals,
         loglik=ll_vals,
         level=0.95,
@@ -619,8 +612,7 @@ sigmaSE_grid = np.linspace(0.02, 0.20, 20)
 results = compute_full_profile(sigmaSE_grid, theta_mle, n_starts)
 
 # 3. Extract confidence intervals
-from pypomp import mcap
-mcap_result = mcap(
+mcap_result = pp.mcap(
     parameter=[r['sigmaSE'] for r in results],
     loglik=[r['loglik'] for r in results],
     level=0.95
