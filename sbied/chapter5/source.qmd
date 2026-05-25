@@ -66,8 +66,8 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
 import pypomp as pp
-from pypomp.measles.measlesPomp import UKMeasles
-import pypomp.measles.model_001b as m001b
+from pypomp.models import UKMeasles
+import pypomp.models.measles.model_001b as m001b
 
 import os
 import pickle
@@ -358,7 +358,7 @@ Notable complexities include:
 
 ## Implementation of the process model {.allowframebreaks}
 
-The process model is implemented in `pypomp.measles.model_001b`.
+The process model is implemented in `pypomp.models.measles.model_001b`.
 Let's walk through it.
 
 **State variables and parameters:**
@@ -427,20 +427,20 @@ beta = R0 * seas * (1.0 - jnp.exp(-(gamma + mu)*dt)) / dt
 foi = beta * (I + iota) / pop
 
 # Gamma white noise
-dw = fast_approx_rgamma(keys[0], dt/sigmaSE**2) * sigmaSE**2
+dw = pp.random.fast_gamma(keys[0], dt/sigmaSE**2) * sigmaSE**2
 
 # Rates for Euler-multinomial transitions
 rate = jnp.array([foi*dw/dt, mu, sigma, mu, gamma, mu])
 
 # Poisson births
-births = fast_approx_rpoisson(keys[1], br * dt)
+births = pp.random.fast_poisson(keys[1], br * dt)
 
 # Euler-multinomial transitions
-transitions = fast_approx_rmultinom(keys[2], populations, rt_final)
+transitions = pp.random.fast_multinomial(keys[2], populations, rt_final)
 ```
 \normalsize
 
-- `fast_approx_rgamma`, `fast_approx_rpoisson`, and `fast_approx_rmultinom` are JAX-compatible random variate generators provided by `pypomp`.
+- `pp.random.fast_gamma`, `pp.random.fast_poisson`, and `pp.random.fast_multinomial` are JAX-compatible random variate generators provided by `pypomp`.
 
 \framebreak
 
@@ -592,7 +592,7 @@ A linear or nonlinear trend through time in any parameter or rate or latent stat
 
 * Seasonality can be modeled as a covariate which can enter the model in any scientifically plausible way.
 
-* Periodic B-splines provide a flexible way to incorporate seasonality; the source code for `pp.dacca` provides an example.
+* Periodic B-splines provide a flexible way to incorporate seasonality; the source code for `pp.models.dacca` provides an example.
 
 * The measles model describes seasonality directly via the `t` variable accessible in all the model components.
 
@@ -679,8 +679,8 @@ else:
         pickle.dump(london_pf,f)
 
 london_logliks = london_pf.logLiks.values.flatten()
-ll = pp.logmeanexp(london_logliks)
-ll_se = pp.logmeanexp_se(london_logliks)
+ll = pp.maths.logmeanexp(london_logliks)
+ll_se = pp.maths.logmeanexp_se(london_logliks)
 print(f"Log-likelihood: {ll:.1f} (SE {ll_se:.2f})")
 ```
 \normalsize

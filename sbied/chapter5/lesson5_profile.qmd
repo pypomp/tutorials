@@ -101,11 +101,11 @@ import time
 
 # Import pypomp components
 from pypomp import Pomp, RWSigma, ParTrans, mcap
-from pypomp.util import logmeanexp, logmeanexp_se
+from pypomp.maths import logmeanexp, logmeanexp_se
 
 # Import the built-in UK Measles module
-from pypomp.measles.measlesPomp import UKMeasles
-import pypomp.measles.model_001b as m001b
+from pypomp.models import UKMeasles
+import pypomp.models.measles.model_001b as m001b
 
 np.random.seed(594709947)
 ```

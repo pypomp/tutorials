@@ -87,32 +87,9 @@ ys = meas.copy()
 ys.columns = pd.Index(["reports"])
 ```
 
-## Helper Functions
-
-```{python}
-#| echo: true
-def nbinom_logpmf(x, k, mu):
-    """Log PMF of NegBin(k, mu) that is robust when mu == 0."""
-    x = jnp.asarray(x)
-    k = jnp.asarray(k)
-    mu = jnp.asarray(mu)
-    logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
-    safe_mu = jnp.where(mu == 0.0, 1.0, mu)
-    core = (jax.scipy.special.gammaln(k + x)
-            - jax.scipy.special.gammaln(k)
-            - jax.scipy.special.gammaln(x + 1)
-            + k * jnp.log(k / (k + safe_mu))
-            + x * jnp.log(safe_mu / (k + safe_mu)))
-    return jnp.where(mu == 0.0, logp_zero, core)
-
-def rnbinom(key, k, mu):
-    """Sample from NegBin(k, mu) via Gamma-Poisson mixture."""
-    key_g, key_p = jax.random.split(key)
-    lam = jax.random.gamma(key_g, k) * (mu / k)
-    return jax.random.poisson(key_p, lam)
-```
-
 ## SIR Model Components
+
+We use `jax.scipy.stats.nbinom.logpmf` for the measurement log-density and `pp.random.fast_nbinomial` from `pypomp` for the corresponding simulator.
 
 ```{python}
 #| echo: true
@@ -140,8 +117,8 @@ def rproc(X_, theta_, key, covars, t, dt):
     p_IR = 1.0 - jnp.exp(-mu_IR * dt)
 
     key_SI, key_IR = jax.random.split(key)
-    dN_SI = jax.random.binomial(key_SI, n=jnp.int32(S), p=p_SI)
-    dN_IR = jax.random.binomial(key_IR, n=jnp.int32(I), p=p_IR)
+    dN_SI = pp.random.fast_binomial(key_SI, n=S, p=p_SI)
+    dN_IR = pp.random.fast_binomial(key_IR, n=I, p=p_IR)
 
     return {"S": S - dN_SI, "I": I + dN_SI - dN_IR,
             "R": R + dN_IR, "H": H + dN_IR}
@@ -152,7 +129,8 @@ def dmeas(Y_, X_, theta_, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    return nbinom_logpmf(Y_["reports"], k, mu)
+    p = k / (k + mu)
+    return jax.scipy.stats.nbinom.logpmf(Y_["reports"], k, p)
 
 def rmeas(X_, theta_, key, covars, t):
     """Measurement simulator."""
@@ -160,7 +138,7 @@ def rmeas(X_, theta_, key, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    reports = rnbinom(key, k, mu)
+    reports = pp.random.fast_nbinomial(key, k, mu=mu)
     return jnp.array([reports])
 ```
 
@@ -190,7 +168,6 @@ measSIR = pp.Pomp(
     t0=0.0,
     nstep=7,
     accumvars=("H",),
-    ydim=1,
     covars=None
 )
 ```
@@ -418,8 +395,8 @@ mean_ll = np.mean(ll_array)
 se_ll = np.std(ll_array, ddof=1) / np.sqrt(n_reps)
 
 # logmeanexp estimate (less biased for likelihood)
-lme_ll = pp.logmeanexp(ll_array)
-lme_se = pp.logmeanexp_se(ll_array)
+lme_ll = pp.maths.logmeanexp(ll_array)
+lme_se = pp.maths.logmeanexp_se(ll_array)
 
 print(f"\nResults:")
 print(f"  Number of particles: {J}")
@@ -509,7 +486,7 @@ def compute_likelihood_slice(param_name, param_values, base_theta,
         pomp_test = pp.Pomp(
             rinit=rinit, rproc=rproc, dmeas=dmeas, rmeas=rmeas,
             ys=ys, theta=theta_test, statenames=statenames,
-            t0=0.0, nstep=7, accumvars=("H",), ydim=1, covars=None
+            t0=0.0, nstep=7, accumvars=("H",), covars=None
         )
 
         key = jax.random.key(int(val * 10000))
@@ -520,8 +497,8 @@ def compute_likelihood_slice(param_name, param_values, base_theta,
 
         results.append({
             param_name: val,
-            'loglik': pp.logmeanexp(logliks_arr),
-            'loglik_se': pp.logmeanexp_se(logliks_arr)
+            'loglik': pp.maths.logmeanexp(logliks_arr),
+            'loglik_se': pp.maths.logmeanexp_se(logliks_arr)
         })
 
     return pd.DataFrame(results)
@@ -610,7 +587,7 @@ def compute_2d_surface(param1_name, param1_vals, param2_name, param2_vals,
             pomp_test = pp.Pomp(
                 rinit=rinit, rproc=rproc, dmeas=dmeas, rmeas=rmeas,
                 ys=ys, theta=theta_test, statenames=statenames,
-                t0=0.0, nstep=7, accumvars=("H",), ydim=1, covars=None
+                t0=0.0, nstep=7, accumvars=("H",), covars=None
             )
 
             key = jax.random.key(int(v1 * 1000) + int(v2 * 10000))
@@ -622,7 +599,7 @@ def compute_2d_surface(param1_name, param1_vals, param2_name, param2_vals,
             results.append({
                 param1_name: v1,
                 param2_name: v2,
-                'loglik': pp.logmeanexp(logliks_arr)
+                'loglik': pp.maths.logmeanexp(logliks_arr)
             })
 
     return pd.DataFrame(results)

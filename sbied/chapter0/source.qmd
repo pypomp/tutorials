@@ -206,7 +206,7 @@ import pypomp as pp
 import jax
 import matplotlib.pyplot as plt
 
-d = pp.dacca() # constructs an example POMP model
+d = pp.models.dacca() # constructs an example POMP model
 key = jax.random.key(42)
 n_sims = 1
 X_sims, Y_sims = d.simulate(key,nsim=n_sims)

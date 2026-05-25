@@ -80,11 +80,11 @@ from scipy.stats import chi2
 from copy import deepcopy
 
 from pypomp import Pomp, RWSigma, ParTrans, mcap
-from pypomp.util import logmeanexp, logmeanexp_se
+from pypomp.maths import logmeanexp, logmeanexp_se
 
-from pypomp.measles.measlesPomp import UKMeasles
-import pypomp.measles.model_001b as m001b
-import pypomp.measles.model_001c as m001c
+from pypomp.models import UKMeasles
+import pypomp.models.measles.model_001b as m001b
+import pypomp.models.measles.model_001c as m001c
 
 np.random.seed(594709947)
 ```

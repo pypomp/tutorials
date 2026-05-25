@@ -614,35 +614,8 @@ def rproc(X_, theta_, key, covars, t, dt):
 
 - To include the observations in the model, we must write either a `dmeas` or an `rmeas` component, or both.
 
-First, we define helper functions for the negative binomial distribution:
-
-
-##
-
-\footnotesize
-```{python negativebinomial}
-#| echo: true
-def nbinom_logpmf(x, k, mu):
-    """Log PMF of NegBin(k, mu) that is robust when mu == 0."""
-    x = jnp.asarray(x)
-    k = jnp.asarray(k)
-    mu = jnp.asarray(mu)
-    logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
-    safe_mu = jnp.where(mu == 0.0, 1.0, mu)
-    core = (jax.scipy.special.gammaln(k + x) 
-            - jax.scipy.special.gammaln(k)
-            - jax.scipy.special.gammaln(x + 1)
-            + k * jnp.log(k / (k + safe_mu))
-            + x * jnp.log(safe_mu / (k + safe_mu)))
-    return jnp.where(mu == 0.0, logp_zero, core)
-
-def rnbinom(key, k, mu):
-    """Sample from NegBin(k, mu) via Gamma-Poisson mixture."""
-    key_g, key_p = jax.random.split(key)
-    lam = jax.random.gamma(key_g, k) * (mu / k)
-    return jax.random.poisson(key_p, lam)
-```
-\normalsize
+For the measurement log-density we use `jax.scipy.stats.nbinom.logpmf`, with the standard reparameterization $p = k / (k + \mu)$.
+For the corresponding simulator we use `pp.random.fast_nbinomial` from `pypomp`.
 
 
 ##
@@ -658,7 +631,8 @@ def dmeas(Y_, X_, theta_, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    return nbinom_logpmf(Y_["reports"], k, mu)
+    p = k / (k + mu)
+    return jax.scipy.stats.nbinom.logpmf(Y_["reports"], k, p)
 ```
 
 ```{python rmeas}
@@ -669,7 +643,7 @@ def rmeas(X_, theta_, key, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    reports = rnbinom(key, k, mu)
+    reports = pp.random.fast_nbinomial(key, k, mu=mu)
     return jnp.array([reports])
 ```
 \normalsize

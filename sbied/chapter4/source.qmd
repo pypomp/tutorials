@@ -304,11 +304,6 @@ import pickle
 import os
 import time
 from scipy.stats import chi2
-from pypomp.random import (
-    fast_approx_rbinom,
-    fast_approx_rgamma,
-    fast_approx_rpoisson,
-)
 
 cache_dir = "cache"
 os.makedirs(cache_dir, exist_ok=True)
@@ -333,29 +328,11 @@ ys = meas.copy()
 ys.columns = pd.Index(["reports"])
 ```
 
-## Negative binomial functions
+## Negative binomial measurement model
 
-* These allow for overdispersed measurement distributions
+* For the measurement log-density we use `jax.scipy.stats.nbinom.logpmf`, with the standard reparameterization $p = k / (k + \mu)$.
 
-```{python}
-#| label: nbinom functions
-#| echo: true
-def nbinom_logpmf(x, k, mu):
-    x, k, mu = (jnp.asarray(v) for v in (x, k, mu))
-    logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
-    safe_mu = jnp.where(mu == 0.0, 1.0, mu)
-    gammaln = jax.scipy.special.gammaln
-    core = (gammaln(k + x) - gammaln(k)
-            - gammaln(x + 1)
-            + k * jnp.log(k / (k + safe_mu))
-            + x * jnp.log(safe_mu / (k + safe_mu)))
-    return jnp.where(mu == 0.0, logp_zero, core)
-
-def rnbinom(key, k, mu):
-    key_g, key_p = jax.random.split(key)
-    lam = fast_approx_rgamma(key_g, k) * (mu / k)
-    return fast_approx_rpoisson(key_p, lam)
-```
+* For the corresponding simulator we use `pp.random.fast_nbinomial` from `pypomp`.
 
 
 ## SIR model components
@@ -391,10 +368,10 @@ def rproc(X_, theta_, key, covars, t, dt):
     p_IR = 1.0 - jnp.exp(-mu_IR * dt)
 
     key_SI, key_IR = jax.random.split(key)
-    dN_SI = fast_approx_rbinom(
-        key_SI, jnp.float32(S), p_SI)
-    dN_IR = fast_approx_rbinom(
-        key_IR, jnp.float32(I), p_IR)
+    dN_SI = pp.random.fast_binomial(
+        key_SI, n=S, p=p_SI)
+    dN_IR = pp.random.fast_binomial(
+        key_IR, n=I, p=p_IR)
 
     return {"S": S - dN_SI,
             "I": I + dN_SI - dN_IR,
@@ -412,14 +389,15 @@ def dmeas(Y_, X_, theta_, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    return nbinom_logpmf(Y_["reports"], k, mu)
+    p = k / (k + mu)
+    return jax.scipy.stats.nbinom.logpmf(Y_["reports"], k, p)
 
 def rmeas(X_, theta_, key, covars, t):
     rho = theta_["rho"]
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    reports = rnbinom(key, k, mu)
+    reports = pp.random.fast_nbinomial(key, k, mu=mu)
     return jnp.array([reports])
 ```
 
@@ -524,7 +502,7 @@ measSIR = pp.Pomp(
     par_trans=par_trans,
     t0=0.0, nstep=7,
     accumvars=("H",),
-    ydim=1, covars=None
+    covars=None
 )
 ```
 
@@ -588,7 +566,7 @@ else:
         par_trans=par_trans,
         t0=0.0, nstep=7,
         accumvars=("H",),
-        ydim=1, covars=None
+        covars=None
     )
     key = jax.random.key(482947940)
     mod_local.mif(
@@ -611,7 +589,7 @@ traces_da = mif_result.traces_da
 ```{python}
 #| label: plot mif traces
 #| echo: false
-n_reps = traces_da.sizes['replicate']
+n_reps = traces_da.sizes['theta_idx']
 iterations = traces_da.coords['iteration'].values
 
 fig, axes = plt.subplots(2, 2, figsize=(7, 5))
@@ -625,7 +603,7 @@ for ax, var, lab in zip(
     if var in traces_da.coords['variable'].values:
         for r in range(n_reps):
             ax.plot(iterations,
-                traces_da.isel(replicate=r).sel(
+                traces_da.isel(theta_idx=r).sel(
                     variable=var).values,
                 alpha=0.4, lw=0.7)
     ax.set(xlabel='Iteration', ylabel=lab)
@@ -661,14 +639,14 @@ if os.path.exists(cache_file):
         local_results = pickle.load(f)
 else:
     # Rebuild mod_local from mif endpoints
-    n_local = mif_result.traces_da.sizes['replicate']
+    n_local = mif_result.traces_da.sizes['theta_idx']
     traces = mif_result.traces_da
     theta_endpoints = []
     for r in range(n_local):
         th = theta.copy()
         for var in ['Beta', 'rho', 'eta']:
             th[var] = float(
-                traces.isel(replicate=r).sel(
+                traces.isel(theta_idx=r).sel(
                     variable=var).values[-1])
         theta_endpoints.append(th)
 
@@ -680,7 +658,7 @@ else:
         par_trans=par_trans,
         t0=0.0, nstep=7,
         accumvars=("H",),
-        ydim=1, covars=None
+        covars=None
     )
     key = jax.random.key(900242057)
     mod_eval.pfilter(key=key, J=5000, reps=10)
@@ -691,8 +669,8 @@ else:
         lls = pf.logLiks.values[i, :]
         rows.append({
             **theta_endpoints[i],
-            'loglik': pp.logmeanexp(lls),
-            'loglik_se': pp.logmeanexp_se(lls)
+            'loglik': pp.maths.logmeanexp(lls),
+            'loglik_se': pp.maths.logmeanexp_se(lls)
         })
     local_results = pd.DataFrame(rows)
     with open(cache_file, 'wb') as f:
@@ -759,7 +737,7 @@ else:
         par_trans=par_trans,
         t0=0.0, nstep=7,
         accumvars=("H",),
-        ydim=1, covars=None
+        covars=None
     )
     key = jax.random.key(1270401374)
     mod.mif(J=2000, M=50,
@@ -777,8 +755,8 @@ else:
         lls = pf.logLiks.values[i, :]
         rows.append({
             **mod.theta[i],
-            'loglik': pp.logmeanexp(lls),
-            'loglik_se': pp.logmeanexp_se(lls)
+            'loglik': pp.maths.logmeanexp(lls),
+            'loglik_se': pp.maths.logmeanexp_se(lls)
         })
     results_df = pd.DataFrame(rows)
     results_df = results_df[
@@ -897,7 +875,7 @@ else:
         par_trans=par_trans,
         t0=0.0, nstep=7,
         accumvars=("H",),
-        ydim=1, covars=None
+        covars=None
     )
     # All 600 runs in parallel on GPU
     key = jax.random.key(1196696958)
@@ -919,8 +897,8 @@ else:
             'eta': eta_index[idx],
             'Beta': fp['Beta'],
             'rho': fp['rho'],
-            'loglik': pp.logmeanexp(lls),
-            'loglik_se': pp.logmeanexp_se(lls)
+            'loglik': pp.maths.logmeanexp(lls),
+            'loglik_se': pp.maths.logmeanexp_se(lls)
         })
 
     profile_eta_df = pd.DataFrame(profile_eta)
@@ -1115,7 +1093,7 @@ else:
         par_trans=par_trans,
         t0=0.0, nstep=7,
         accumvars=("H",),
-        ydim=1, covars=None
+        covars=None
     )
     # All 300 runs in parallel on GPU
     key = jax.random.key(2105684752)
@@ -1140,8 +1118,8 @@ else:
             'rho': rho_index[idx],
             'Beta': fp['Beta'],
             'eta': fp['eta'],
-            'loglik': pp.logmeanexp(lls),
-            'loglik_se': pp.logmeanexp_se(lls)
+            'loglik': pp.maths.logmeanexp(lls),
+            'loglik_se': pp.maths.logmeanexp_se(lls)
         })
 
     profile_rho_df = pd.DataFrame(profile_rho)
@@ -1282,7 +1260,7 @@ else:
         par_trans=par_trans_exp,
         t0=0.0, nstep=7,
         accumvars=("H",),
-        ydim=1, covars=None
+        covars=None
     )
     # Simulated tempering: 3 stages
     key = jax.random.key(610408798)
@@ -1304,8 +1282,8 @@ else:
         lls = pf.logLiks.values[i, :]
         rows.append({
             **mod.theta[i],
-            'loglik': pp.logmeanexp(lls),
-            'loglik_se': pp.logmeanexp_se(lls)
+            'loglik': pp.maths.logmeanexp(lls),
+            'loglik_se': pp.maths.logmeanexp_se(lls)
         })
     results_df2 = pd.DataFrame(rows)
     results_df2 = results_df2[
@@ -1399,7 +1377,7 @@ else:
             par_trans=par_trans,
             t0=0.0, nstep=7,
             accumvars=("H",),
-            ydim=1, covars=None
+            covars=None
         )
         # 4-stage tempering (100 parallel)
         key = jax.random.key(i * 5000)
@@ -1430,8 +1408,8 @@ else:
                 'mu_IR': muIR_val,
                 'Beta': fp['Beta'],
                 'eta': fp['eta'],
-                'loglik': pp.logmeanexp(lls),
-                'loglik_se': pp.logmeanexp_se(lls)
+                'loglik': pp.maths.logmeanexp(lls),
+                'loglik_se': pp.maths.logmeanexp_se(lls)
             })
 
     profile_muIR_df = pd.DataFrame(profile_muIR)

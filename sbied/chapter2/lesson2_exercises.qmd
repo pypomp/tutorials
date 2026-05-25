@@ -71,32 +71,6 @@ ys = meas.copy()
 ys.columns = pd.Index(["reports"])
 ```
 
-## Define Helper Functions
-
-```{python}
-#| echo: true
-def nbinom_logpmf(x, k, mu):
-    """Log PMF of NegBin(k, mu) that is robust when mu == 0."""
-    x = jnp.asarray(x)
-    k = jnp.asarray(k)
-    mu = jnp.asarray(mu)
-    # Handle mu == 0 separately
-    logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
-    safe_mu = jnp.where(mu == 0.0, 1.0, mu)  # Dummy value, ignored
-    core = (jax.scipy.special.gammaln(k + x) 
-            - jax.scipy.special.gammaln(k)
-            - jax.scipy.special.gammaln(x + 1)
-            + k * jnp.log(k / (k + safe_mu))
-            + x * jnp.log(safe_mu / (k + safe_mu)))
-    return jnp.where(mu == 0.0, logp_zero, core)
-
-def rnbinom(key, k, mu):
-    """Sample from NegBin(k, mu) via Gamma-Poisson mixture."""
-    key_g, key_p = jax.random.split(key)
-    lam = jax.random.gamma(key_g, k) * (mu / k)
-    return jax.random.poisson(key_p, lam)
-```
-
 ## Exercise 2.1: Little o Notation
 
 ## Problem Statement
@@ -228,7 +202,8 @@ def dmeas(Y_, X_, theta_, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    return nbinom_logpmf(Y_["reports"], k, mu)
+    p = k / (k + mu)
+    return jax.scipy.stats.nbinom.logpmf(Y_["reports"], k, p)
 
 def rmeas(X_, theta_, key, covars, t):
     """Measurement simulator: sample reports ~ NegBin(k, rho*H)."""
@@ -236,7 +211,7 @@ def rmeas(X_, theta_, key, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    reports = rnbinom(key, k, mu)
+    reports = pp.random.fast_nbinomial(key, k, mu=mu)
     return jnp.array([reports])
 ```
 
@@ -465,9 +440,9 @@ def seir_rproc(X_, theta_, key, covars, t, dt):
 
     # Draw transitions
     key_SE, key_EI, key_IR = jax.random.split(key, 3)
-    dN_SE = jax.random.binomial(key_SE, n=jnp.int32(S), p=p_SE)
-    dN_EI = jax.random.binomial(key_EI, n=jnp.int32(E), p=p_EI)
-    dN_IR = jax.random.binomial(key_IR, n=jnp.int32(I), p=p_IR)
+    dN_SE = pp.random.fast_binomial(key_SE, n=S, p=p_SE)
+    dN_EI = pp.random.fast_binomial(key_EI, n=E, p=p_EI)
+    dN_IR = pp.random.fast_binomial(key_IR, n=I, p=p_IR)
 
     # Update state
     S_new = S - dN_SE
@@ -491,7 +466,8 @@ def seir_dmeas(Y_, X_, theta_, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    return nbinom_logpmf(Y_["reports"], k, mu)
+    p = k / (k + mu)
+    return jax.scipy.stats.nbinom.logpmf(Y_["reports"], k, p)
 
 def seir_rmeas(X_, theta_, key, covars, t):
     """Measurement simulator: sample reports ~ NegBin(k, rho*H)."""
@@ -499,7 +475,7 @@ def seir_rmeas(X_, theta_, key, covars, t):
     k = theta_["k"]
     H = X_["H"]
     mu = rho * H
-    reports = rnbinom(key, k, mu)
+    reports = pp.random.fast_nbinomial(key, k, mu=mu)
     return jnp.array([reports])
 ```
 

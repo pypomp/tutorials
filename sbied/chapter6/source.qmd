@@ -62,11 +62,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import pypomp as pp
-from pypomp.random import (
-    fast_approx_rbinom,
-    fast_approx_rgamma,
-    fast_approx_rpoisson,
-)
 from scipy.stats import chi2
 import pickle
 import os
@@ -263,20 +258,20 @@ def rproc(X_, theta_, key, covars, t, dt):
 
     keys = jax.random.split(key, 2 + nstageE)
 
-    transS = fast_approx_rbinom(
-        keys[0], jnp.float32(S), pS)
+    transS = pp.random.fast_binomial(
+        keys[0], n=S, p=pS)
 
     transE = []
     for i in range(nstageE):
-        transEi = fast_approx_rbinom(
+        transEi = pp.random.fast_binomial(
             keys[1 + i],
-            jnp.float32(jnp.maximum(E[i], 0)),
-            pE)
+            n=jnp.maximum(E[i], 0),
+            p=pE)
         transE.append(transEi)
     transE = jnp.stack(transE)
 
-    transI = fast_approx_rbinom(
-        keys[-1], jnp.float32(I), pI)
+    transI = pp.random.fast_binomial(
+        keys[-1], n=I, p=pI)
 
     S_new = S - transS
     E_new = jnp.zeros(nstageE)
@@ -301,21 +296,6 @@ def rproc(X_, theta_, key, covars, t, dt):
 ##
 
 ```{python}
-#| label: nbinom
-#| echo: false
-def nbinom_logpmf(x, k, mu):
-    x, k, mu = (jnp.asarray(v) for v in (x, k, mu))
-    logp_zero = jnp.where(x == 0, 0.0, -jnp.inf)
-    safe_mu = jnp.where(mu == 0.0, 1.0, mu)
-    gammaln = jax.scipy.special.gammaln
-    core = (gammaln(k + x) - gammaln(k)
-            - gammaln(x + 1)
-            + k * jnp.log(k / (k + safe_mu))
-            + x * jnp.log(safe_mu / (k + safe_mu)))
-    return jnp.where(mu == 0.0, logp_zero, core)
-```
-
-```{python}
 #| label: dmeas
 #| echo: true
 def dmeas(Y_, X_, theta_, covars, t):
@@ -324,9 +304,11 @@ def dmeas(Y_, X_, theta_, covars, t):
     N_EI = jnp.maximum(X_["N_EI"], 0.0)
     mu = rho * N_EI
     cases = jnp.rint(Y_["cases"])
+    size = 1.0 / jnp.maximum(k, 1e-10)
+    p = size / (size + mu)
     return jnp.where(
         k > 0,
-        nbinom_logpmf(cases, 1.0 / k, mu),
+        jax.scipy.stats.nbinom.logpmf(cases, size, p),
         jnp.where(
             mu > 0,
             cases * jnp.log(mu) - mu
@@ -344,11 +326,8 @@ def rmeas(X_, theta_, key, covars, t):
     k = theta_["k"]
     N_EI = jnp.maximum(X_["N_EI"], 0.0)
     mu = rho * N_EI
-    k1, k2 = jax.random.split(key)
-    r = 1.0 / jnp.maximum(k, 1e-10)
-    lam = fast_approx_rgamma(k1, r) * (mu / r)
-    y = fast_approx_rpoisson(k2, lam)
-    return jnp.array([y])
+    n = 1.0 / jnp.maximum(k, 1e-10)
+    return jnp.array([pp.random.fast_nbinomial(key, n, mu=mu)])
 ```
 
 
@@ -399,7 +378,7 @@ def build_ebola_model(country="Guinea"):
         rinit=rinit, rproc=rproc,
         dmeas=dmeas, rmeas=rmeas,
         ys=ys, theta=theta, t0=t0,
-        dt=timestep, ydim=1, covars=None,
+        dt=timestep, covars=None,
         statenames=statenames,
         accumvars=("N_EI", "N_IR"))
 
@@ -736,7 +715,7 @@ sle_forecast = pp.Pomp(
     rinit=rinit, rproc=rproc,
     dmeas=dmeas, rmeas=rmeas,
     ys=sle.ys, theta=param_samples,
-    t0=sle.t0, dt=timestep, ydim=1,
+    t0=sle.t0, dt=timestep,
     covars=None,
     statenames=sle.statenames,
     accumvars=("N_EI", "N_IR"))
@@ -763,7 +742,7 @@ else:
     pf = sle_forecast.results_history.last()
 
     logliks = np.array([
-        float(pp.logmeanexp(
+        float(pp.maths.logmeanexp(
             pf.logLiks.values[j, :]))
         for j in range(n_forecast)])
     fm_values = np.array(pf.filter_mean.values)
@@ -850,7 +829,7 @@ else:
         rinit=rinit_forecast, rproc=rproc,
         dmeas=dmeas, rmeas=rmeas,
         ys=forecast_ys, theta=forecast_thetas,
-        t0=last_week, dt=timestep, ydim=1,
+        t0=last_week, dt=timestep,
         covars=None,
         statenames=statenames_list,
         accumvars=("N_EI", "N_IR"))

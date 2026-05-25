@@ -408,13 +408,13 @@ These are methods for `Pomp` models that call the elementary algorithms and are 
 
 Four example constructor functions returning `Pomp` objects.
 
-**`pp.dacca`**: The historical Dacca cholera data with the model of @King2008
+**`pp.models.dacca`**: The historical Dacca cholera data with the model of @King2008
 
-**`pp.LG`**: A linear Gaussian example for validating Monte Carlo methods against exact Kalman filter calculations
+**`pp.models.LG`**: A linear Gaussian example for validating Monte Carlo methods against exact Kalman filter calculations
 
-**`pp.measles.measlesPomp.UKMeasles`**: Pre-vaccination meases in England and Wales with the model of @He2010
+**`pp.models.UKMeasles`**: Pre-vaccination meases in England and Wales with the model of @He2010
 
-**`pp.spx`**:  A stochastic volatility model for the S&P 500 stock market index.
+**`pp.models.spx`**:  A stochastic volatility model for the S&P 500 stock market index.
 
 
 <!---
