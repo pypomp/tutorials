@@ -1,0 +1,23 @@
+#!/bin/bash
+
+#SBATCH --job-name="tutorials-pypomp-big-measles"
+#SBATCH --output=results/logs/slurm_%j.out
+#SBATCH --array=1
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-type=END
+#SBATCH --mail-user=aaronabk@umich.edu
+#SBATCH --partition=gpu-rtx6000
+#SBATCH --gpus=rtx_pro_6000_blackwell:1
+#SBATCH --cpus-per-gpu=1
+#SBATCH --mem=20GB
+#SBATCH --account="ionides0"
+
+echo "Running on $SLURM_JOB_NODELIST"
+echo "Running in $(pwd)"
+echo "SLURM_ARRAY_TASK_ID: $SLURM_ARRAY_TASK_ID"
+
+source ../../../.venv/bin/activate
+
+# export XLA_PYTHON_CLIENT_MEM_FRACTION=1.0
+python -u panel_fit.py --job-index $SLURM_ARRAY_TASK_ID
+
