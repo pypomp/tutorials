@@ -7,11 +7,10 @@ This repository contains tutorials designed to help you build models and perform
 ---
 
 ### 🚀 Quick Links
-| | |
-| :--- | :--- |
-| 📖 **[Read the Documentation](https://pypomp.readthedocs.io/)** | Core library API reference and user guide. |
-| 💻 **[Core Repository](https://github.com/pypomp/pypomp)** | Source code and issue tracker for the `pypomp` package. |
-| 🎓 **[Tutorials Repository](https://github.com/pypomp/tutorials)** | Quarto notebooks and materials for learning `pypomp`. |
+* 📖 **[Read the Documentation](https://pypomp.readthedocs.io/)** — Core library API reference and user guide.
+* 💻 **[Core Repository](https://github.com/pypomp/pypomp)** — Source code and issue tracker for the `pypomp` package.
+* 🎓 **[Tutorials Repository](https://github.com/pypomp/tutorials)** — Quarto notebooks and materials for learning `pypomp`.
+
 
 ---
 
