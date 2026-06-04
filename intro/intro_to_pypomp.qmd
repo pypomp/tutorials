@@ -11,6 +11,8 @@ jupyter: python3
 This document showcases basic functions in `pypomp`. 
 We demonstrate by building the linear Gaussian model (available as `pypomp.models.LG()`) from scratch.
 
+## Setup and Imports
+
 First, we import the necessary packages.
 
 ```{python Import package}
@@ -31,16 +33,27 @@ For the linear Gaussian model, it is helpful to define a utility function to unp
 
 ```{python Define the linear Gaussian model}
 def get_matrices(theta: dict[str, float]):
-    """
-    Unpack the theta dictionary into A, C, Q, and R matrices.
-    """
-    A = jnp.array([[theta["A11"], theta["A12"]], [theta["A21"], theta["A22"]]])
-    C = jnp.array([[theta["C11"], theta["C12"]], [theta["C21"], theta["C22"]]])
-    Q = jnp.array([[theta["Q11"], theta["Q12"]], [theta["Q21"], theta["Q22"]]])
-    R = jnp.array([[theta["R11"], theta["R12"]], [theta["R21"], theta["R22"]]])
+    A = jnp.array([theta["A11"], theta["A12"], theta["A21"], theta["A22"]]).reshape(
+        2, 2
+    )
+    C = jnp.array([theta["C11"], theta["C12"], theta["C21"], theta["C22"]]).reshape(
+        2, 2
+    )
 
+    # Ensure positive-definiteness for covariance matrices
+    def make_pd(m11_val, m12_val, m22_val):
+        m11 = jnp.maximum(m11_val, 1e-12)
+        m22 = jnp.maximum(m22_val, 1e-12)
+        limit = 0.999 * jnp.sqrt(m11 * m22)
+        m_off_clipped = jnp.clip(m12_val, -limit, limit)
+        return jnp.array([[m11, m_off_clipped], [m_off_clipped, m22]])
+
+    Q = make_pd(theta["Q11"], theta["Q12"], theta["Q22"])
+    R = make_pd(theta["R11"], theta["R12"], theta["R22"])
     return A, C, Q, R
 ```
+
+## Defining Model Mechanics
 
 Next, we define the model mechanics, which need to have a specific set of arguments and a specific output format. 
 This is required so the functions can properly slot in to the internal `pypomp` code.
@@ -110,6 +123,8 @@ def rmeas(
     return jax.random.multivariate_normal(key=key, mean=C @ X_arr, cov=R)
 ```
 
+## Parameter Transformations
+
 The algorithms implemented in `pypomp` for searching the parameter space assume that the parameters exist on the real line. 
 To handle parameters that are constrained, such as the diagonal elements of $Q$ and $R$ which must be positive, we write functions describing how to transform the parameters to the real line and back and store them in a `ParTrans` object. 
 
@@ -133,6 +148,8 @@ def from_est(theta):
 ptrans = pp.ParTrans(to_est=to_est, from_est=from_est)
 ```
 
+## Parameter Sampling & Initialization
+
 The `Pomp` constructor also requires model parameters.
 These can be provided either as a dictionary or as a list of dictionaries.
 Each item in a dictionary should include the parameter name as the key and the parameter value as the dictionary value. 
@@ -154,11 +171,9 @@ theta = {
     "C22": 1.0,
     "Q11": 0.01,
     "Q12": 1e-6,
-    "Q21": 1e-6,
     "Q22": 0.01,
     "R11": 0.1,
     "R12": 0.01,
-    "R21": 0.01,
     "R22": 0.1,
 }
 param_bounds = {k: (v * 0.9, v * 1.1) for k, v in theta.items()}
@@ -167,6 +182,8 @@ key = jax.random.key(1)
 key, subkey = jax.random.split(key)
 theta_list = pp.Pomp.sample_params(param_bounds, n, subkey)
 ```
+
+## Model Construction & Simulation
 
 We finally construct the POMP model object. 
 Observation times are provided to the `Pomp` constructor via the `pandas.DataFrame` row index.
@@ -201,6 +218,8 @@ LG_obj = LG_obj_empty.simulate(key=subkey, as_pomp=True)
 LG_obj.theta = theta_list
 ```
 
+## Inference and Estimation
+
 Unlike the R family of POMP packages, some `Pomp` methods including `pfilter()`, `mif()`, and `train()` yield results by modifying the object in place instead of returning new objects.
 Results are stored in a list under `LG_obj.results_history`, where each element corresponds to one method call. 
 Each element includes results such as the log-likelihood and parameter estimates when applicable as well as the inputs used for the function call, so it is easy to keep track of how the results were calculated. 
@@ -225,9 +244,15 @@ Consequently, the following sequence of method calls is valid.
 
 ```{python}
 key, subkey = jax.random.split(key)
-LG_obj.mif(J=200, M=100, rw_sd=rw_sd, a=0.5, key=subkey)
-LG_obj.pfilter(J=200, reps=20)
+LG_obj.mif(J=200, M=200, rw_sd=rw_sd, a=0.5, key=subkey)
+LG_obj.pfilter(J=200, reps=10)
 ```
+
+::: {.callout-note}
+JAX's GPU acceleration enables `pypomp` to easily handle particle counts ($J$) in the tens of thousands, much larger numbers of IF2 iterations ($M$), more filter replicates (`reps`), and many more parallel parameter searches simultaneously. However, this introductory example uses small values so that it can be quickly run on a standard laptop CPU.
+:::
+
+## Analyzing Results & Diagnostics
 
 One way to access the results of a method call is by using the method `results()`.
 This returns a tidy data frame of results stored in `LG_obj.results_history` at a given index passed to `results()` (defaults to -1, the last method call).
@@ -239,16 +264,17 @@ LG_obj.results()
 
 We can also use `LG_obj.traces()` to access the traces of the parameters and log-likelihood as a data frame.
 This includes log-likelihood estimates from `pfilter()` as well. 
-We can easily plot these traces to visualize the convergence of the algorithm.
+Since the log-likelihood is not calculated before the first iteration of the estimation algorithm, the starting values (iteration 0) contain an NA for the log-likelihood.
+We can remove these NA values using `.dropna()` and display or plot the traces to visualize the convergence of the algorithm.
 
 ```{python}
-LG_obj.traces()
+LG_obj.traces().dropna()
 ```
 
 ```{python}
 (
     p9.ggplot(
-        LG_obj.traces().reset_index(),
+        LG_obj.traces().dropna().reset_index(),
         p9.aes(x="iteration", y="logLik", color="factor(theta_idx)"),
     )
     + p9.geom_line()
