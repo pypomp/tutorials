@@ -19,7 +19,10 @@ This repository contains tutorials designed to help you build models and perform
 ### 1. [Introduction to Pypomp](https://pypomp.github.io/tutorials/intro/intro_to_pypomp.html)
 A step-by-step introduction demonstrating how to construct a POMP model (specifically, a linear Gaussian state-space model) from scratch. It guides you through state simulation, calculating log-likelihoods, and running iterated filtering (IF2) for parameter estimation.
 
-### 2. [Simulation-based Inference for Epidemiological Dynamics (SBIED)](https://pypomp.github.io/tutorials/sbied)
+### 2. [Inference for Cholera Dynamics in Dhaka using DMOP](https://pypomp.github.io/tutorials/dhaka)
+A tutorial demonstrating how to construct a POMP model for cholera dynamics in Dhaka from scratch and how to perform parameter estimation using the Differentiated Measurement Off-Parameter (DMOP) filter with the Adam optimizer.
+
+### 3. [Simulation-based Inference for Epidemiological Dynamics (SBIED)](https://pypomp.github.io/tutorials/sbied)
 A short course designed for readers interested in POMP modeling, using epidemiological dynamics as an example. The course transfers concepts from the [R-pomp short course](https://kingaa.github.io/sbied/) to `pypomp`.
 
 **Course Lessons:**

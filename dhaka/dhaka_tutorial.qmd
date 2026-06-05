@@ -1,0 +1,624 @@
+---
+title: "Inference for Cholera Dynamics in Dhaka using DMOP"
+date: today
+format:
+  html:
+    toc: true
+    embed-resources: true
+jupyter: python3
+execute:
+  daemon: false
+bibliography: ../bib.bib
+---
+
+[← Back to Tutorials README](../README.html)
+
+This tutorial demonstrates how to construct a Partially Observed Markov Process (POMP) model for cholera dynamics in Dhaka from scratch using the Differentiated Measurement Off-Parameter (DMOP) filter with the Adam optimizer in `pypomp`.
+This model is available in `pypomp` as `pp.models.dhaka()`. 
+We will prepare the data, build the model components, and perform parameter estimation using Iterated Filtering 2 (IF2) for a warm start followed by DMOP with Adam.
+The approach to fitting the model here mimics the approach taken in the DMOP GitHub repository [@dmop_repo].
+
+## 1. Setup and Imports
+
+First, we load the required libraries, configure the environment, and check the available JAX devices.
+
+```{python}
+#| label: setup
+import os
+import csv
+import glob
+import pickle
+import numpy as np
+import pandas as pd
+from datetime import datetime
+import plotnine as p9
+from plotnine import *
+
+import jax
+import jax.numpy as jnp
+import jax.scipy.special as jspecial
+import pypomp as pp
+from pypomp.types import *
+
+print("JAX version:", jax.__version__)
+print("pypomp version:", pp.__version__)
+```
+
+## 2. Data Loading and Visualisation
+
+We load the Dhaka cholera deaths data alongside the covariates (population size, secular trend, and B-spline seasonal terms).
+Both the observations and the covariates are expected by the `Pomp` constructor to be dataframes with the time variable as the index.
+
+```{python}
+#| label: load-data
+# Load observation data (cholera deaths)
+df_dacca = pd.read_csv("data/dacca.csv")
+ys = pd.DataFrame(
+    df_dacca["cholera.deaths"].values, index=df_dacca["time"].values, columns=["deaths"]
+)
+
+# Load covariates
+covart_df = pd.read_csv("data/covart.csv")
+covars_df = pd.read_csv("data/covars.csv")
+covars = pd.DataFrame(
+    covars_df.iloc[:, 1:].values,
+    index=covart_df.iloc[:, 1].values,
+    columns=[
+        "trend",
+        "dpopdt",
+        "pop",
+        "seas1",
+        "seas2",
+        "seas3",
+        "seas4",
+        "seas5",
+        "seas6",
+    ],
+)
+
+print("Observations data points:", len(ys))
+print("Covariates data points:", len(covars))
+```
+
+We can plot the observed cholera deaths over time:
+
+```{python}
+#| label: plot-data
+#| fig-width: 8
+#| fig-height: 4
+#| code-fold: true
+(
+    ggplot(df_dacca, aes(x="time", y="cholera.deaths"))
+    + geom_line(color="#2b5c8f", size=0.8)
+    + theme_minimal()
+    + labs(
+        x="Year",
+        y="Monthly Deaths",
+        title="Cholera Deaths in Dhaka (1891-1940)"
+    )
+)
+```
+
+## 3. Constructing the Dhaka Model from Scratch
+
+We will build the cholera transmission model from scratch. The model includes:
+
+- An SIR-type compartmental structure with waning immunity and seasonal transmission rate.
+- Euler-multinomial-like step discretization.
+- Process noise modeled via a standard Gaussian random walk in the transmission rate.
+- Measurement noise modeled via a normal distribution of observed deaths.
+
+We define the default parameter values and state variables first:
+
+```{python}
+#| label: model-parameters
+# Model parameters
+theta_default = {
+    "gamma": 20.8,  # recovery rate
+    "epsilon": 19.1,  # waning immunity rate for severe infections
+    "rho": 0.0,  # waning immunity rate for inapparent infections
+    "m": 0.06,  # cholera-specific mortality rate
+    "c": 1.0,  # fraction of infections leading to severe disease
+    "beta_trend": -0.00498,  # transmission secular trend slope
+    **{
+        f"bs{i + 1}": float(b)
+        for i, b in enumerate([0.747, 6.38, -3.44, 4.23, 3.33, 4.55])
+    },
+    "sigma": 3.13,  # environmental noise intensity
+    "tau": 0.23,  # measurement error standard deviation
+    "alpha": 1.0,  # non-linear transmission exponent
+    "delta": 0.02,  # natural mortality rate
+    "S_0": 0.621,
+    "I_0": 0.378,
+    "Y_0": 0.0,
+    "R1_0": 0.000843,
+    "R2_0": 0.000972,
+    "R3_0": 1.16e-07,
+    **{
+        f"omegas{i + 1}": float(omega)
+        for i, omega in enumerate(
+            jnp.log(jnp.array([0.184, 0.0786, 0.0584, 0.00917, 0.000208, 0.0124]))
+        )
+    },
+}
+
+statenames = ["S", "I", "Y", "Mn", "R1", "R2", "R3", "count"]
+```
+
+This will be a continuous-time model, but we can only simulate in discrete steps. 
+As a result, we will approximate the continuous-time dynamics by simulating in discrete steps of 20 per observation period (1 month), each step adjusted for the step size.
+To accumulate the total number of deaths over each month for use by the measurement distribution, we will designate the deaths `"Mn"` as an accumulative state variable.
+
+```{python}
+accumvars = ["Mn"]
+```
+
+### Initial State Simulator (`rinit`)
+
+Sets up the compartment proportions at $t_0$, scaling by the population size:
+
+```{python}
+#| label: rinit-definition
+def rinit(theta_: ParamDict, key: RNGKey, covars: CovarDict, t0: InitialTimeFloat):
+    S_0 = theta_["S_0"]
+    I_0 = theta_["I_0"]
+    Y_0 = theta_["Y_0"]
+    R0 = jnp.array([theta_[f"R{i}_0"] for i in range(1, 4)])
+
+    total_sum = S_0 + I_0 + Y_0 + jnp.sum(R0)
+    pop = covars["pop"]
+
+    S = pop * S_0 / total_sum
+    I = pop * I_0 / total_sum
+    Y = pop * Y_0 / total_sum
+    R = pop * R0 / total_sum
+
+    Mn = 0.0
+    count = 0.0
+    return {
+        "S": S,
+        "I": I,
+        "Y": Y,
+        "Mn": Mn,
+        "R1": R[0],
+        "R2": R[1],
+        "R3": R[2],
+        "count": count,
+    }
+```
+
+### Process Model Simulator (`rproc`)
+
+Simulates one Euler step ($dt$) of the model dynamics using a Gaussian random walk to perturb transmission rates:
+
+```{python}
+#| label: rproc-definition
+def rproc(
+    X_: StateDict,
+    theta_: ParamDict,
+    key: RNGKey,
+    covars: CovarDict,
+    t: TimeFloat,
+    dt: StepSizeFloat,
+):
+    S, I, Y, deaths, count = X_["S"], X_["I"], X_["Y"], X_["Mn"], X_["count"]
+    pts = jnp.array([X_["R1"], X_["R2"], X_["R3"]])
+    trend, dpopdt, pop = covars["trend"], covars["dpopdt"], covars["pop"]
+    seas = jnp.array([covars[f"seas{i}"] for i in range(1, 7)])
+    gamma, deltaI, rho = theta_["gamma"], theta_["m"], theta_["rho"]
+    beta_trend, sd_beta, alpha = theta_["beta_trend"], theta_["sigma"], theta_["alpha"]
+    delta, clin, eps = theta_["delta"], theta_["c"], theta_["epsilon"]
+    omegas = jnp.array([theta_[f"omegas{i}"] for i in range(1, 7)])
+    bs = jnp.array([theta_[f"bs{i}"] for i in range(1, 7)])
+
+    nrstage = 3
+    std = jnp.sqrt(dt)
+
+    neps = eps * nrstage  # rate of waning stages
+    passages = jnp.zeros(nrstage + 1)
+
+    # Calculate seasonal B-spline terms
+    beta = jnp.exp(beta_trend * trend + jnp.dot(bs, seas))
+    omega = jnp.exp(jnp.dot(omegas, seas))
+
+    subkey, key = jax.random.split(key)
+    dw = jax.random.normal(subkey) * std
+
+    effI = (I / pop) ** alpha
+    births = dpopdt + delta * pop
+    passages = passages.at[0].set(gamma * I)
+    ideaths = delta * I
+    disease = deltaI * I
+    ydeaths = delta * Y
+    wanings = rho * Y
+
+    rdeaths = pts * delta
+    passages = passages.at[1:].set(pts * neps)
+
+    # Multiplicative Gaussian white noise perturbation to transmission
+    infections = (omega + (beta + sd_beta * dw / dt) * effI) * S
+    sdeaths = delta * S
+
+    S += (births - infections - sdeaths + passages[nrstage] + wanings) * dt
+    I += (clin * infections - disease - ideaths - passages[0]) * dt
+    Y += ((1 - clin) * infections - ydeaths - wanings) * dt
+
+    pts = pts + (passages[:-1] - passages[1:] - rdeaths) * dt
+    deaths = deaths + disease * dt
+
+    # Flag negative state occurrences
+    count = count + jnp.any(jnp.hstack([jnp.array([S, I, Y, deaths]), pts]) < 0)
+
+    # Clip values to zero to ensure stability
+    S = jnp.clip(S, 0)
+    I = jnp.clip(I, 0)
+    Y = jnp.clip(Y, 0)
+    pts = jnp.clip(pts, 0)
+    deaths = jnp.clip(deaths, 0)
+
+    return {
+        "S": S,
+        "I": I,
+        "Y": Y,
+        "Mn": deaths,
+        "R1": pts[0],
+        "R2": pts[1],
+        "R3": pts[2],
+        "count": count,
+    }
+```
+
+### Measurement Model (`dmeas` and `rmeas`)
+
+Evaluates the likelihood of observed deaths and simulates new observations:
+
+```{python}
+#| label: dmeas-rmeas-definition
+def dmeas_helper(y, deaths, v, tol, ltol):
+    return jnp.logaddexp(
+        jax.scipy.stats.norm.logpdf(y, loc=deaths, scale=v + tol), ltol
+    ).reshape(-1)
+
+
+def dmeas_helper_tol(y, deaths, v, tol, ltol):
+    return jnp.array([ltol])
+
+
+def dmeas(
+    Y_: ObservationDict,
+    X_: StateDict,
+    theta_: ParamDict,
+    covars: CovarDict,
+    t: TimeFloat,
+):
+    deaths = X_["Mn"]
+    count = X_["count"]
+    tol = 1.0e-18
+    ltol = jnp.log(tol)
+    tau = theta_["tau"]
+    v = tau * deaths
+    y = Y_["deaths"]
+    result = jax.lax.cond(
+        jnp.logical_or((1 - jnp.isfinite(v)).astype(bool), count > 0),
+        dmeas_helper_tol,
+        dmeas_helper,
+        *(y, deaths, v, tol, ltol),
+    )
+    return jnp.reshape(result, ())
+
+
+def rmeas(
+    X_: StateDict,
+    theta_: ParamDict,
+    key: RNGKey,
+    covars: CovarDict,
+    t: TimeFloat,
+):
+    deaths = X_["Mn"]
+    tau = theta_["tau"]
+    v = tau * deaths
+    return jax.random.normal(key) * v + deaths
+```
+
+### Parameter Transformations (`to_est` and `from_est`)
+
+Transforms positive constraints to the real line and back:
+
+```{python}
+#| label: par-trans-definition
+def to_est(theta: ParamDict) -> ParamDict:
+    IVP_list = ["S_0", "I_0", "Y_0", "R1_0", "R2_0", "R3_0"]
+    IVPs = jnp.array([theta[k] for k in IVP_list])
+    IVP_ests = jnp.log(IVPs / jnp.sum(IVPs))
+    return {
+        "gamma": jnp.log(theta["gamma"]),
+        "m": jnp.log(theta["m"]),
+        "rho": jnp.log(theta["rho"]),
+        "epsilon": jnp.log(theta["epsilon"]),
+        "c": jspecial.logit(theta["c"]),
+        "beta_trend": theta["beta_trend"] * 100,
+        "sigma": jnp.log(theta["sigma"]),
+        "tau": jnp.log(theta["tau"]),
+        "alpha": jnp.log(theta["alpha"]),
+        "delta": jnp.log(theta["delta"]),
+        **{k: IVP_ests[i] for i, k in enumerate(IVP_list)},
+        **{f"bs{i}": theta[f"bs{i}"] for i in range(1, 7)},
+        **{f"omegas{i}": theta[f"omegas{i}"] for i in range(1, 7)},
+    }
+
+
+def from_est(theta: ParamDict) -> ParamDict:
+    IVP_list = ["S_0", "I_0", "Y_0", "R1_0", "R2_0", "R3_0"]
+    IVP_ests = jnp.exp(jnp.array([theta[k] for k in IVP_list]))
+    IVPs = IVP_ests / jnp.sum(IVP_ests)
+    return {
+        "gamma": jnp.exp(theta["gamma"]),
+        "m": jnp.exp(theta["m"]),
+        "rho": jnp.exp(theta["rho"]),
+        "epsilon": jnp.exp(theta["epsilon"]),
+        "c": jspecial.expit(theta["c"]),
+        "beta_trend": theta["beta_trend"] / 100,
+        "sigma": jnp.exp(theta["sigma"]),
+        "tau": jnp.exp(theta["tau"]),
+        "alpha": jnp.exp(theta["alpha"]),
+        "delta": jnp.exp(theta["delta"]),
+        **{k: IVPs[i] for i, k in enumerate(IVP_list)},
+        **{f"bs{i}": theta[f"bs{i}"] for i in range(1, 7)},
+        **{f"omegas{i}": theta[f"omegas{i}"] for i in range(1, 7)},
+    }
+
+
+ptrans = pp.ParTrans(to_est=to_est, from_est=from_est)
+```
+
+### Model Initialization
+
+We instantiate our custom model with `pp.Pomp`. 
+
+`nstep` sets the number of `rproc` steps to happen between observations.
+The user may instead define a `dt` parameter to set the step size, in which case `nstep` will be set per observation interval.
+
+```{python}
+#| label: instantiate-model
+dacca_obj = pp.Pomp(
+    rinit=rinit,
+    rproc=rproc,
+    dmeas=dmeas,
+    rmeas=rmeas,
+    ys=ys,
+    t0=1891.0,
+    nstep=20,
+    accumvars=accumvars,
+    theta=theta_default,
+    covars=covars,
+    statenames=statenames,
+    par_trans=ptrans,
+)
+```
+
+## 4. Setup for Parameter Estimation
+
+We define the box for sampling starting parameter values and the random walk standard deviations for iterated searches.
+
+```{python}
+#| label: prep-search
+MAIN_SEED = 631409
+key = jax.random.key(MAIN_SEED)
+np.random.seed(MAIN_SEED)
+
+# Adjust RUN_LEVEL (1: debug, 2: test, 3: standard, 4: full paper replicate)
+RUN_LEVEL = int(os.environ.get("RUN_LEVEL", "1"))
+NREPS_FITR = (2, 3, 20, 100)[RUN_LEVEL - 1]
+
+print(f"Running at Level {RUN_LEVEL} with {NREPS_FITR} replicates.")
+
+# Random walk standard deviations
+DEFAULT_SD = 0.02
+DEFAULT_IVP_SD = DEFAULT_SD * 8
+RW_SD = pp.RWSigma(
+    sigmas={
+        **{
+            k: DEFAULT_SD
+            for k in ["gamma", "m", "epsilon", "beta_trend", "sigma", "tau"]
+        },
+        **{f"bs{i}": DEFAULT_SD for i in range(1, 7)},
+        **{f"omegas{i}": DEFAULT_SD for i in range(1, 7)},
+        **{k: DEFAULT_IVP_SD for k in ["S_0", "I_0", "R1_0", "R2_0", "R3_0"]},
+        **{k: 0.0 for k in ["rho", "c", "alpha", "delta", "Y_0"]},
+    },
+    init_names=["S_0", "I_0", "Y_0", "R1_0", "R2_0", "R3_0"],
+)
+
+# Parameters boundaries for search initialization
+params_box = {
+    "gamma": (10.0, 40.0),
+    "m": (0.03, 0.60),
+    "rho": (0.0, 0.0),
+    "epsilon": (0.20, 30.0),
+    "c": (1.0, 1.0),
+    "alpha": (1.0, 1.0),
+    "delta": (0.02, 0.02),
+    "beta_trend": (-0.01, 0.00),
+    "sigma": (1.0, 5.0),
+    "tau": (0.10, 0.50),
+    "bs1": (-4.0, 4.0),
+    "bs2": (0.0, 8.0),
+    "bs3": (-4.0, 4.0),
+    "bs4": (0.0, 8.0),
+    "bs5": (0.0, 8.0),
+    "bs6": (0.0, 8.0),
+    "omegas1": (-10.0, 0.0),
+    "omegas2": (-10.0, 0.0),
+    "omegas3": (-10.0, 0.0),
+    "omegas4": (-10.0, 0.0),
+    "omegas5": (-10.0, 0.0),
+    "omegas6": (-10.0, 0.0),
+    "S_0": (0.0, 1.0),
+    "I_0": (0.0, 1.0),
+    "Y_0": (0.0, 0.0),
+    "R1_0": (0.0, 1.0),
+    "R2_0": (0.0, 1.0),
+    "R3_0": (0.0, 1.0),
+}
+
+key, subkey = jax.random.split(key)
+initial_params_list = pp.Pomp.sample_params(params_box, NREPS_FITR, key=subkey)
+```
+
+## 5. Optimizing Parameters using DMOP and Adam
+
+We optimize parameters using trajectory training via DMOP with the Adam optimizer.
+
+```{python}
+#| label: run-dmop
+
+NP_FITR = (2, 5, 100, 5000)[RUN_LEVEL - 1]
+NFITR_97 = (2, 5, 100, 175)[RUN_LEVEL - 1]
+NTRAIN_97 = (2, 20, 40, 175)[RUN_LEVEL - 1]
+NP_EVAL = (2, 5, 100, 5000)[RUN_LEVEL - 1]
+NREPS_EVAL = (2, 5, 20, 36)[RUN_LEVEL - 1]
+warmup = (1, 5, 10, 10)[RUN_LEVEL - 1]
+
+M_mif = NFITR_97
+M_train = NTRAIN_97
+beta1 = 0.9
+
+
+def w(v):
+    if v == 0.0:
+        return 0.0
+    return np.concatenate(
+        [np.linspace(v * 0.1, v, warmup), np.full(M_train - warmup, v)]
+    )
+
+
+DEFAULT_ETA = 0.1
+DEFAULT_IVP_ETA = DEFAULT_ETA / 2
+eta = {
+    "gamma": w(DEFAULT_ETA * 0.5),
+    "epsilon": w(DEFAULT_ETA),
+    "rho": 0.0,
+    "m": w(DEFAULT_ETA),
+    "c": 0.0,
+    "alpha": 0.0,
+    "delta": 0.0,
+    "beta_trend": w(DEFAULT_ETA * 0.5),
+    **{f"bs{i + 1}": w(DEFAULT_ETA) for i in range(6)},
+    "sigma": w(DEFAULT_ETA * 0.5),
+    "tau": w(DEFAULT_ETA * 0.5),
+    **{f"omegas{i + 1}": w(DEFAULT_ETA) for i in range(6)},
+    "S_0": w(DEFAULT_IVP_ETA),
+    "I_0": w(DEFAULT_IVP_ETA),
+    "Y_0": 0.0,
+    "R1_0": w(DEFAULT_IVP_ETA),
+    "R2_0": w(DEFAULT_IVP_ETA),
+    "R3_0": w(DEFAULT_IVP_ETA),
+}
+
+dmop_dacca = pp.Pomp(
+    rinit=rinit,
+    rproc=rproc,
+    dmeas=dmeas,
+    rmeas=rmeas,
+    ys=ys,
+    t0=1891.0,
+    nstep=20,
+    accumvars=accumvars,
+    theta=initial_params_list,
+    covars=covars,
+    statenames=statenames,
+    par_trans=ptrans,
+)
+
+key, subkey = jax.random.split(key)
+# Warm up with a short IF2 search
+dmop_dacca.mif(
+    theta=initial_params_list,
+    rw_sd=RW_SD,
+    M=M_mif,
+    a=0.5,
+    J=NP_FITR,
+    key=subkey,
+    n_monitors=1,
+)
+
+# Run Trajectory Training
+dmop_dacca.train(
+    J=NP_FITR,
+    M=M_train,
+    eta=pp.LearningRate(eta).cosine_decay(final_factor=0.05, M=M_train),
+    alpha=0.97,
+    optimizer=pp.Adam(beta1=beta1),
+    n_monitors=1,
+)
+
+# Evaluate results
+dmop_dacca.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
+
+dmop_dacca.prune(n=1, refill=False)
+dmop_dacca.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
+```
+
+## 6. Comparing IF2 vs. DMOP
+
+This section displays results computed in @dmop_repo, showing a comparison between Iterated Filtering 2 (IF2) and Differentiated Measurement Off-Parameter (DMOP) with the Adam optimizer across replicates.
+
+::: {.panel-tabset}
+
+## Comparable Computational Effort
+
+The figures below show the results obtained under comparable computational effort.
+
+### Raincloud Plot of Final Log-Likelihoods
+
+Plots the log-likelihood distribution across replicates.
+
+![Raincloud Plot of Final Log-Likelihoods (Comparable Effort)](imgs/precise_raincloud.png){width=85%}
+
+### Convergence Traces Comparison (Time-Scaled)
+
+This section shows the log-likelihood search traces for the $N\_MONITORS=1$ models.
+
+![Convergence Traces Comparison (Comparable Effort)](imgs/precise_traces.png){width=85%}
+
+## Extended Computational Effort
+
+The figures below show the results obtained under extended computational effort.
+
+### Raincloud Plot of Final Log-Likelihoods
+
+Plots the log-likelihood distribution across replicates.
+
+![Raincloud Plot of Final Log-Likelihoods (Extended Effort)](imgs/precise_raincloud_long.png){width=85%}
+
+### Convergence Traces Comparison (Time-Scaled)
+
+This section shows the log-likelihood search traces for the $N\_MONITORS=1$ models.
+
+![Convergence Traces Comparison (Extended Effort)](imgs/precise_traces_long.png){width=85%}
+
+### Parameter Density Plots
+
+This section shows density plots of final parameter estimates across the replicates for each model with $N\_MONITORS=1$.
+
+![Parameter Density Plots (Extended Effort)](imgs/precise_density_long.png){width=100%}
+
+:::
+
+### Best Log-Likelihoods and Computational Times
+
+This table displays the log-likelihood statistics and elapsed times obtained from the final pfilter evaluations across the replicates for the models.
+
+| Optimization Method | Best Log-Likelihood | Median Log-Likelihood | IF2 time (s) | DMOP time (s) |
+|:---|:---:|:---:|:---:|:---:|
+| **Comparable Computational Effort** | | | | |
+| IFAD-0.97 | -3744.17 | -3745.77 | 244 | 615 |
+| IFAD-1 | -3745.12 | -3749.12 | 89 | 788 |
+| IF2 | -3747.82 | -3755.41 | 889 | — |
+| IFAD-0 | -3748.69 | -3753.88 | 90 | 788 |
+| **Extended Computational Effort** | | | | |
+| IFAD-0.97 | -3744.19 | -3744.22 | 246 | 2435 |
+| IFAD-1 | -3744.19 | -3745.46 | 89 | 3145 |
+| IF2 | -3747.02 | -3750.14 | 3534 | — |
+| IFAD-0 | -3747.97 | -3752.41 | 93 | 3198 |
+
