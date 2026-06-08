@@ -22,7 +22,10 @@ A step-by-step introduction demonstrating how to construct a POMP model (specifi
 ### 2. [Inference for Cholera Dynamics in Dhaka using DMOP](https://pypomp.github.io/tutorials/dhaka/dhaka_tutorial.html)
 A tutorial demonstrating how to construct a POMP model for cholera dynamics in Dhaka from scratch and how to perform parameter estimation using the Differentiated Measurement Off-Parameter (DMOP) filter with the Adam optimizer.
 
-### 3. [Simulation-based Inference for Epidemiological Dynamics (SBIED)](https://pypomp.github.io/tutorials/sbied)
+### 3. [Fitting a Large Panel Model for UK Measles](https://pypomp.github.io/tutorials/big_measles/big_measles_tutorial.html)
+A tutorial demonstrating how to construct and fit a large spatial panel model (with weekly case reports from 1,422 cities/towns in England and Wales) using Marginalized Panel Iterated Filtering (MPIF).
+
+### 4. [Simulation-based Inference for Epidemiological Dynamics (SBIED)](https://pypomp.github.io/tutorials/sbied)
 A short course designed for readers interested in POMP modeling, using epidemiological dynamics as an example. The course transfers concepts from the [R-pomp short course](https://kingaa.github.io/sbied/) to `pypomp`.
 
 **Course Lessons:**

@@ -1,0 +1,241 @@
+---
+title: "Fitting a Large Panel Model for UK Measles using pypomp"
+date: today
+format:
+  html:
+    toc: true
+    embed-resources: true
+jupyter: python3
+execute:
+  daemon: false
+  eval: false # Change to true + reduce number of panel units to make sure the code runs
+bibliography: ../bib.bib
+---
+
+[← Back to Tutorials README](../README.html)
+
+This tutorial demonstrates how to construct and fit a large spatial panel model to measles surveillance data from England and Wales using the `pypomp` package. 
+
+Partially Observed Markov Process (POMP) models are powerful tools for studying infectious disease transmission dynamics. 
+When data are available for multiple distinct units (e.g., cities, districts, patients), we can model them jointly as a **panel model**. 
+In a panel model, some parameters values might be shared across all units (e.g., the recovery rate from a disease), while others are unit-specific (e.g., district-specific reporting rates). 
+
+In this tutorial, we will use the UK Measles model (`001b` in `pypomp`), which is fit to weekly case data from all 1,422 cities and towns. 
+We will go through the setup and code to construct and fit the full 1,422-city panel model. 
+
+## 1. Setup and Imports
+
+First, we import the required libraries.
+
+```{python}
+#| label: setup
+#| eval: true
+import os
+import time
+import jax
+import numpy as np
+import pandas as pd
+import pypomp as pp
+from datetime import datetime
+
+# Load the list of 1,422 units (districts)
+from units import UNITS
+
+print("JAX version:", jax.__version__)
+print("pypomp version:", pp.__version__)
+print("Total available units:", len(UNITS))
+```
+
+## 2. Setting Up the Panel Model
+
+In `pypomp`, a panel model is managed using the `PanelPomp` class. A `PanelPomp` object wraps a collection of individual `Pomp` objects (one for each unit/district). 
+
+We will fit Model `001b` of the UK Measles model family built into `pypomp`. 
+
+Here, we initialize our random seed:
+
+```{python}
+#| label: prep-units
+# Set random seed
+MAIN_SEED = 631409
+key = jax.random.key(MAIN_SEED)
+np.random.seed(MAIN_SEED)
+```
+
+Next, we define the search box for sampling initial parameter values. 
+This bounding box defines the minimum and maximum constraints for each parameter during initial random searches, and it will be the same for each unit.
+
+```{python}
+#| label: parameter-box
+measles_box = {
+    "R0": (10.0, 60.0),        # Basic reproduction number
+    "sigma": (25.0, 100.0),    # Incubation rate
+    "gamma": (25.0, 320.0),    # Recovery rate
+    "iota": (0.004, 3.0),      # Importation rate
+    "rho": (0.1, 0.9),         # Reporting rate
+    "sigmaSE": (0.04, 0.1),    # Environmental noise
+    "psi": (0.05, 3.0),        # Overdispersion parameter
+    "cohort": (0.1, 0.7),      # Cohort effect
+    "amplitude": (0.1, 0.6),   # Seasonal amplitude
+    "S_0": (0.01, 0.07),       # Initial susceptible fraction
+    "E_0": (0.000004, 0.0001), # Initial exposed fraction
+    "I_0": (0.000003, 0.001),  # Initial infectious fraction
+    "R_0": (0.9, 0.99),        # Initial recovered fraction
+}
+```
+
+We now sample initial parameter replicates for each of our units. 
+
+The division of parameters into shared (the value is common to all units) and unit-specific (the value varies independently across units) is not fixed by the model itself. 
+In `pypomp`, you have complete control over which parameters are shared and which are unit-specific when initializing a `PanelParameters` object. 
+
+We will configure the model such that `R0`, `sigma`, `gamma`, `sigmaSE`, `cohort`, and `amplitude` have shared values across units. 
+The `shared_names` parameter in `pp.PanelPomp.sample_params()` allows us to specify which parameters should be shared globally across all units in the resulting `PanelParameters` object. 
+
+```{python}
+#| label: sample-params
+NREPS_FITR = 3  # Number of parallel parameter searches (chains)
+
+key, subkey = jax.random.split(key)
+dummy_initial_params_list = pp.Pomp.sample_params(measles_box, NREPS_FITR, key=subkey)
+
+# Sample parameters for the panel with specified shared names
+initial_params = pp.PanelPomp.sample_params(
+    measles_box,
+    n=NREPS_FITR,
+    units=UNITS,
+    key=subkey,
+    shared_names=["R0", "sigma", "gamma", "sigmaSE", "cohort", "amplitude"],
+)
+```
+
+Instead of constructing the `Pomp` objects from scratch, we will use the premade model available in `pypomp.models.UKMeasles`. 
+We instantiate this `Pomp` class for each unit and bundle them together into a single `PanelPomp` object:
+
+```{python}
+#| label: instantiate-panel-model
+pomp_dict = {
+    unit: pp.models.UKMeasles.Pomp(
+        unit=[unit],
+        theta=dummy_initial_params_list,
+        model="001b",
+        clean=True,
+    )
+    for unit in UNITS
+}
+
+# Create the PanelPomp object
+panel_measles_obj = pp.PanelPomp(
+    Pomp_dict=pomp_dict,
+    theta=initial_params,
+)
+```
+
+## 3. Configuring the Estimation Algorithm (MPIF)
+
+We perform parameter estimation using the Marginalized Panel Iterated Filtering (MPIF) algorithm on the panel model [@wheeler2025].
+
+### Random Walk Perturbations
+
+First, we set the random walk standard deviations for the parameters.
+The same set will be used for each unit. 
+
+```{python}
+#| label: configure-mif
+DEFAULT_SD = 0.02
+DEFAULT_IVP_SD = DEFAULT_SD * 12
+
+RW_SD = pp.RWSigma(
+    sigmas={
+        "R0": DEFAULT_SD * 0.25,
+        "sigma": DEFAULT_SD * 0.25,
+        "gamma": DEFAULT_SD * 0.5,
+        "iota": DEFAULT_SD,
+        "rho": DEFAULT_SD * 0.5,
+        "sigmaSE": DEFAULT_SD,
+        "psi": DEFAULT_SD * 0.25,
+        "cohort": DEFAULT_SD * 0.5,
+        "amplitude": DEFAULT_SD * 0.5,
+        "S_0": DEFAULT_IVP_SD,
+        "E_0": DEFAULT_IVP_SD,
+        "I_0": DEFAULT_IVP_SD,
+        "R_0": DEFAULT_IVP_SD,
+    },
+    init_names=["S_0", "E_0", "I_0", "R_0"],
+)
+
+COOLING_RATE = 0.5
+```
+
+### Run Levels
+
+As usual, we define run levels to control the computational cost of the estimation.
+
+```{python}
+#| label: run-levels
+RUN_LEVEL = 1
+
+NP_FITR = (2, 500, 1000, 10000)[RUN_LEVEL - 1]     # Number of particles for IF2
+NFITR = (2, 10, 100, 200)[RUN_LEVEL - 1]           # Number of IF2 iterations
+NP_EVAL = (2, 1000, 1000, 5000)[RUN_LEVEL - 1]     # Number of particles for evaluation
+NREPS_EVAL = (2, 5, 24, 36)[RUN_LEVEL - 1]         # Replicates for evaluation
+```
+
+## 4. Fitting the Panel Model
+
+We are now ready to fit the panel model. We run the IF2 estimation algorithm first:
+
+```{python}
+#| label: fit-mif
+key, subkey = jax.random.split(key)
+
+panel_measles_obj.mif(
+    rw_sd=RW_SD,
+    M=NFITR,
+    a=COOLING_RATE,
+    J=NP_FITR,
+    key=subkey,
+)
+```
+
+### Evaluating Log-Likelihoods
+
+After running the estimation, we run a particle filter on our parameter sets to evaluate their log-likelihoods:
+
+```{python}
+#| label: evaluate-pfilter
+panel_measles_obj.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
+panel_measles_obj.prune(n=1, refill=False)
+panel_measles_obj.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
+```
+
+<!-- todo: add mix-and-match and prune results here? -->
+
+## 5. Scaling to All 1,422 Cities (GPU Cluster Results)
+
+Fitting a panel model of this scale (1,422 units with large numbers of particles and iterations) requires significant computing resources. 
+Because `pypomp` is written in Python using JAX, it compiles down to highly parallelized operations that can execute concurrently across hundreds of thousands of particles and method replicates on modern GPUs.
+
+Below, we detail the execution performance and results of a full **Level 4** panel model search run on an NVIDIA RTX6000 Pro Blackwell GPU.
+
+### Computation Details
+
+- **Number of Units**: 1,422 (all towns and cities in the England and Wales weekly measles dataset)
+- **Time steps per unit**: 5,110 steps (daily steps over weekly case reports for 13 years)
+- **Total simulation steps**: $1422 \times 5110 = 7.26 \text{ million}$ steps per particle evaluation.
+
+### Execution Time Breakdown
+
+The recorded execution times are as follows:
+
+| Stage | Algorithm | Config Details | Time (seconds) | Time (hours) |
+|---|---|---|---|---|
+| **Estimation** | MPIF | $J=10000, M=200, 12 \text{ chains}$ | $113,321.28 \text{ s}$ | **$31.48 \text{ hours}$** |
+| **Initial Eval** | PFilter | $J=5000, 36 \text{ replicates, } 12 \text{ chains}$ | $9,692.40 \text{ s}$ | **$2.69 \text{ hours}$** |
+| **Post-Pruning Eval** | PFilter | $J=5000, 36 \text{ replicates, } 1 \text{ chain (pruned)}$ | $742.95 \text{ s}$ | **$12.38 \text{ minutes}$** |
+| **Total** | | | $123,756.63 \text{ s}$ | **$34.38 \text{ hours}$** |
+
+This computation would have taken about 4.7 months in the R package `pomp` using CPU cores! 
+By using a capable GPU, we compeleted the same computation about 98 times faster. 
+
+<!-- todo: explore the results here -->
