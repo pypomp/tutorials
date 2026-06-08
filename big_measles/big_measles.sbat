@@ -16,8 +16,8 @@ echo "Running on $SLURM_JOB_NODELIST"
 echo "Running in $(pwd)"
 echo "SLURM_ARRAY_TASK_ID: $SLURM_ARRAY_TASK_ID"
 
-source ../../../.venv/bin/activate
+source ../.venv/bin/activate
 
 # export XLA_PYTHON_CLIENT_MEM_FRACTION=1.0
-python -u panel_fit.py --job-index $SLURM_ARRAY_TASK_ID
+python -u big_measles.py --job-index $SLURM_ARRAY_TASK_ID
 
