@@ -8,6 +8,8 @@ format:
 jupyter: python3
 ---
 
+[← Back to Tutorials README](../README.html)
+
 This document showcases basic functions in `pypomp`. 
 We demonstrate by building the linear Gaussian model (available as `pypomp.models.LG()`) from scratch.
 

@@ -15,23 +15,24 @@ bibliography: ../bib.bib
 
 This tutorial demonstrates how to construct a Partially Observed Markov Process (POMP) model for cholera dynamics in Dhaka from scratch using the Differentiated Measurement Off-Parameter (DMOP) filter with the Adam optimizer in `pypomp`.
 This model is available in `pypomp` as `pp.models.dhaka()`. 
-We will prepare the data, build the model components, and perform parameter estimation using Iterated Filtering 2 (IF2) for a warm start followed by DMOP with Adam.
+
+We will prepare the data, build the model components, and perform parameter estimation using a hybrid approach called Iterated Filtering with Automatic Differentiation (IFAD). 
+IFAD combines Iterated Filtering 2 (IF2) for a warm start with DMOP for gradient-based optimization. 
+While IF2 excels at rapidly approaching the neighborhood of the maximum likelihood estimate (MLE), a gradient-based optimizer is better suited for localizing the exact MLE once nearby. 
+By combining these two techniques, IFAD can estimate the MLE more accurately than either method alone.
+
 The approach to fitting the model here mimics the approach taken in the DMOP GitHub repository [@dmop_repo].
 
 ## 1. Setup and Imports
 
-First, we load the required libraries, configure the environment, and check the available JAX devices.
+First, we load the required libraries.
 
 ```{python}
 #| label: setup
 import os
 import csv
-import glob
-import pickle
 import numpy as np
 import pandas as pd
-from datetime import datetime
-import plotnine as p9
 from plotnine import *
 
 import jax
@@ -80,7 +81,7 @@ print("Observations data points:", len(ys))
 print("Covariates data points:", len(covars))
 ```
 
-We can plot the observed cholera deaths over time:
+It is good practice to plot the observed data beforehand to get a feel for its structure and look for any issues (e.g., is a particular value unnaturally high or low, perhaps due to misrecording of the data?).
 
 ```{python}
 #| label: plot-data
@@ -101,12 +102,28 @@ We can plot the observed cholera deaths over time:
 
 ## 3. Constructing the Dhaka Model from Scratch
 
-We will build the cholera transmission model from scratch. The model includes:
+We will build the cholera Susceptible-Infected-Recovered-Susceptible (SIRS) transmission model from scratch. 
+This model was introduced in @king08 and used in @dmop_repo to demonstrate DMOP's strengths.
+For this model, the $R$ compartment is divided into three compartments $R^1$, $R^2$, and $R^3$, each with different degrees of cholera immunity.
+We write $P(t)$ for the total population, and $M_n$ for the cholera deaths in each month.
+As in @king08, the transition dynamics follow a stochastic differential equation (SDE):
+\begin{align*}
+    dS&=\big(k \epsilon R^k+\delta(P-S)-\lambda(t) S\big)\, dt+d P-({\sigma S I}/{P})\, dB, \\
+    dI&=\big(\lambda(t) S-(m+\delta+\gamma) I\big)\, dt+({\sigma S I}/{P})\, dB, \\
+    dR^1&=\big(\gamma I-(k \epsilon+\delta) R^1\big)\, dt, \hspace{3ex} \dots \\
+    dR^k&=\big(k \epsilon R^{k-1} -(k \epsilon+\delta) R^k\big)\, dt,
+\end{align*}
+with Brownian motion $B(t)$, cholera death rate $m$, recovery rate $\gamma$, mean immunity duration $1/\epsilon$, standard deviation of the force of infection $\sigma$, and population death rate $\delta=0.02$. The force of infection, $\lambda_t$, is modeled by splines $(s_j)_{j=1}^6$
+\begin{equation*}
+    \lambda_t=\exp\hspace{-1mm}\left(\hspace{-.5mm}\beta_{\text{trend}}(t-t_0)+\hspace{-1mm}\sum_{j=1}^{6} \beta_j s_j(t)\hspace{-1mm}\right)\hspace{-1mm}\frac{I}{P} + \exp\hspace{-1mm} \left(\sum_{j=1}^{6} \omega_j s_j(t)\hspace{-1mm}\right)\hspace{-1mm},
+\end{equation*}
+where the coefficients $(\beta_j)_{j=1}^6$ model seasonality in the force of infection, $\beta_{\text{trend}}$ models the trend in the force of infection, and the $\omega_j$ represent seasonality of a non-human environmental reservoir of disease.
+The measurement model for observed monthly cholera deaths is
+    $Y_n \sim \mathcal{N}(M_n, \tau^2M_n^2)$,
+where $M_n=\gamma\int_{t_{n-1}}^{t_n}I(s)\, ds$ is the modeled cholera deaths in that month.
 
-- An SIR-type compartmental structure with waning immunity and seasonal transmission rate.
-- Euler-multinomial-like step discretization.
-- Process noise modeled via a standard Gaussian random walk in the transmission rate.
-- Measurement noise modeled via a normal distribution of observed deaths.
+This is a continuous-time model, but we can only simulate in discrete steps. 
+We numerically solve this SDE using Euler's method with a time step of $1/20$ months, or 20 steps per observation period, matching @king08.
 
 We define the default parameter values and state variables first:
 
@@ -128,10 +145,10 @@ theta_default = {
     "tau": 0.23,  # measurement error standard deviation
     "alpha": 1.0,  # non-linear transmission exponent
     "delta": 0.02,  # natural mortality rate
-    "S_0": 0.621,
-    "I_0": 0.378,
-    "Y_0": 0.0,
-    "R1_0": 0.000843,
+    "S_0": 0.621,  # Proportion of initial susceptible individuals
+    "I_0": 0.378,  # Proportion of initial infectious individuals
+    "Y_0": 0.0,  # Proportion of initial inapparent infections
+    "R1_0": 0.000843,  # Proportions of initial recovered individuals
     "R2_0": 0.000972,
     "R3_0": 1.16e-07,
     **{
@@ -145,8 +162,9 @@ theta_default = {
 statenames = ["S", "I", "Y", "Mn", "R1", "R2", "R3", "count"]
 ```
 
-This will be a continuous-time model, but we can only simulate in discrete steps. 
-As a result, we will approximate the continuous-time dynamics by simulating in discrete steps of 20 per observation period (1 month), each step adjusted for the step size.
+Note that the Dhaka model code, carried over from the R package `pomp`, includes parameters not used in the present model, such as the initial proportion of inapparent infections, $Y_0$. 
+We set them to values that effectively remove them from the model.
+
 To accumulate the total number of deaths over each month for use by the measurement distribution, we will designate the deaths `"Mn"` as an accumulative state variable.
 
 ```{python}
@@ -155,7 +173,7 @@ accumvars = ["Mn"]
 
 ### Initial State Simulator (`rinit`)
 
-Sets up the compartment proportions at $t_0$, scaling by the population size:
+This simulator sets up the states at $t_0$.
 
 ```{python}
 #| label: rinit-definition
@@ -189,7 +207,7 @@ def rinit(theta_: ParamDict, key: RNGKey, covars: CovarDict, t0: InitialTimeFloa
 
 ### Process Model Simulator (`rproc`)
 
-Simulates one Euler step ($dt$) of the model dynamics using a Gaussian random walk to perturb transmission rates:
+This simulates one Euler step of the model dynamics described above. 
 
 ```{python}
 #| label: rproc-definition
@@ -270,7 +288,7 @@ def rproc(
 
 ### Measurement Model (`dmeas` and `rmeas`)
 
-Evaluates the likelihood of observed deaths and simulates new observations:
+Evaluates the likelihood of observed deaths and simulates new observations according to the measurement model described above:
 
 ```{python}
 #| label: dmeas-rmeas-definition
@@ -322,7 +340,8 @@ def rmeas(
 
 ### Parameter Transformations (`to_est` and `from_est`)
 
-Transforms positive constraints to the real line and back:
+Here, we define functions to transform positive constraints to the real line and back.
+Notably, we use a barycentric transformation for the initial proportions to ensure that they sum to 1. 
 
 ```{python}
 #| label: par-trans-definition
@@ -398,7 +417,8 @@ dacca_obj = pp.Pomp(
 
 ## 4. Setup for Parameter Estimation
 
-We define the box for sampling starting parameter values and the random walk standard deviations for iterated searches.
+When fitting POMP models, it can be helpful to use a "run level" variable to control how much effort is put into the computation (e.g., number of particles, number of iterations). 
+This allows one to quickly test code with few iterations and few particles, then increase the effort as confidence in the code grows.
 
 ```{python}
 #| label: prep-search
@@ -406,12 +426,25 @@ MAIN_SEED = 631409
 key = jax.random.key(MAIN_SEED)
 np.random.seed(MAIN_SEED)
 
-# Adjust RUN_LEVEL (1: debug, 2: test, 3: standard, 4: full paper replicate)
 RUN_LEVEL = int(os.environ.get("RUN_LEVEL", "1"))
 NREPS_FITR = (2, 3, 20, 100)[RUN_LEVEL - 1]
+NP_FITR = (2, 5, 100, 5000)[RUN_LEVEL - 1]
+M_MIF = (2, 5, 100, 175)[RUN_LEVEL - 1]
+M_TRAIN = (2, 20, 40, 175)[RUN_LEVEL - 1]
+NP_EVAL = (2, 5, 1000, 5000)[RUN_LEVEL - 1]
+NREPS_EVAL = (2, 5, 20, 36)[RUN_LEVEL - 1]
+WARMUP = (1, 5, 10, 10)[RUN_LEVEL - 1]
+```
 
-print(f"Running at Level {RUN_LEVEL} with {NREPS_FITR} replicates.")
+We define the box for sampling starting parameter values and the random walk standard deviations for IF2.
 
+Some parameters are designated as initial value parameters (IVPs), which are parameters that only have a direct effect on the system at $t_0$. 
+In our case, these are the initial proportions of the population in each compartment.
+Because perturbing their value has no effect on the evolution of the system past $t_0$, perturbations only add noise to the parameter estimate. 
+Therefore, we set `init_names` in `pp.RWSigma` to the names of the IVPs to tell `Pomp.mif` to only perturb these values just before $t_0$.
+
+```{python}
+#| label: prep-search-code
 # Random walk standard deviations
 DEFAULT_SD = 0.02
 DEFAULT_IVP_SD = DEFAULT_SD * 8
@@ -427,6 +460,42 @@ RW_SD = pp.RWSigma(
         **{k: 0.0 for k in ["rho", "c", "alpha", "delta", "Y_0"]},
     },
     init_names=["S_0", "I_0", "Y_0", "R1_0", "R2_0", "R3_0"],
+)
+
+
+# Learning rate linear warmup function.
+# This helps the Adam momentum build up gradually.
+def w(v):
+    if v == 0.0:
+        return 0.0
+    return np.concatenate(
+        [np.linspace(v * 0.1, v, WARMUP), np.full(M_TRAIN - WARMUP, v)]
+    )
+
+
+DEFAULT_ETA = 0.1
+DEFAULT_IVP_ETA = DEFAULT_ETA / 2
+eta = pp.LearningRate(
+    {
+        "gamma": w(DEFAULT_ETA * 0.5),
+        "epsilon": w(DEFAULT_ETA),
+        "rho": 0.0,
+        "m": w(DEFAULT_ETA),
+        "c": 0.0,
+        "alpha": 0.0,
+        "delta": 0.0,
+        "beta_trend": w(DEFAULT_ETA * 0.5),
+        **{f"bs{i + 1}": w(DEFAULT_ETA) for i in range(6)},
+        "sigma": w(DEFAULT_ETA * 0.5),
+        "tau": w(DEFAULT_ETA * 0.5),
+        **{f"omegas{i + 1}": w(DEFAULT_ETA) for i in range(6)},
+        "S_0": w(DEFAULT_IVP_ETA),
+        "I_0": w(DEFAULT_IVP_ETA),
+        "Y_0": 0.0,
+        "R1_0": w(DEFAULT_IVP_ETA),
+        "R2_0": w(DEFAULT_IVP_ETA),
+        "R3_0": w(DEFAULT_IVP_ETA),
+    }
 )
 
 # Parameters boundaries for search initialization
@@ -465,119 +534,85 @@ key, subkey = jax.random.split(key)
 initial_params_list = pp.Pomp.sample_params(params_box, NREPS_FITR, key=subkey)
 ```
 
-## 5. Optimizing Parameters using DMOP and Adam
+## 5. Optimizing Parameters using IFAD
 
-We optimize parameters using trajectory training via DMOP with the Adam optimizer.
+We now optimize the parameters using IFAD.
 
 ```{python}
 #| label: run-dmop
 
-NP_FITR = (2, 5, 100, 5000)[RUN_LEVEL - 1]
-NFITR_97 = (2, 5, 100, 175)[RUN_LEVEL - 1]
-NTRAIN_97 = (2, 20, 40, 175)[RUN_LEVEL - 1]
-NP_EVAL = (2, 5, 100, 5000)[RUN_LEVEL - 1]
-NREPS_EVAL = (2, 5, 20, 36)[RUN_LEVEL - 1]
-warmup = (1, 5, 10, 10)[RUN_LEVEL - 1]
-
-M_mif = NFITR_97
-M_train = NTRAIN_97
-beta1 = 0.9
-
-
-def w(v):
-    if v == 0.0:
-        return 0.0
-    return np.concatenate(
-        [np.linspace(v * 0.1, v, warmup), np.full(M_train - warmup, v)]
-    )
-
-
-DEFAULT_ETA = 0.1
-DEFAULT_IVP_ETA = DEFAULT_ETA / 2
-eta = {
-    "gamma": w(DEFAULT_ETA * 0.5),
-    "epsilon": w(DEFAULT_ETA),
-    "rho": 0.0,
-    "m": w(DEFAULT_ETA),
-    "c": 0.0,
-    "alpha": 0.0,
-    "delta": 0.0,
-    "beta_trend": w(DEFAULT_ETA * 0.5),
-    **{f"bs{i + 1}": w(DEFAULT_ETA) for i in range(6)},
-    "sigma": w(DEFAULT_ETA * 0.5),
-    "tau": w(DEFAULT_ETA * 0.5),
-    **{f"omegas{i + 1}": w(DEFAULT_ETA) for i in range(6)},
-    "S_0": w(DEFAULT_IVP_ETA),
-    "I_0": w(DEFAULT_IVP_ETA),
-    "Y_0": 0.0,
-    "R1_0": w(DEFAULT_IVP_ETA),
-    "R2_0": w(DEFAULT_IVP_ETA),
-    "R3_0": w(DEFAULT_IVP_ETA),
-}
-
-dmop_dacca = pp.Pomp(
-    rinit=rinit,
-    rproc=rproc,
-    dmeas=dmeas,
-    rmeas=rmeas,
-    ys=ys,
-    t0=1891.0,
-    nstep=20,
-    accumvars=accumvars,
-    theta=initial_params_list,
-    covars=covars,
-    statenames=statenames,
-    par_trans=ptrans,
-)
-
 key, subkey = jax.random.split(key)
-# Warm up with a short IF2 search
-dmop_dacca.mif(
+# Warm up with an IF2 search
+dacca_obj.mif(
     theta=initial_params_list,
     rw_sd=RW_SD,
-    M=M_mif,
+    M=M_MIF,
     a=0.5,
     J=NP_FITR,
     key=subkey,
-    n_monitors=1,
 )
-
-# Run Trajectory Training
-dmop_dacca.train(
-    J=NP_FITR,
-    M=M_train,
-    eta=pp.LearningRate(eta).cosine_decay(final_factor=0.05, M=M_train),
-    alpha=0.97,
-    optimizer=pp.Adam(beta1=beta1),
-    n_monitors=1,
-)
-
-# Evaluate results
-dmop_dacca.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
-
-dmop_dacca.prune(n=1, refill=False)
-dmop_dacca.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
 ```
 
-## 6. Comparing IF2 vs. DMOP
+We use `cosine_decay()` to apply a cosine decay schedule to the learning rate. 
+This gradually reduces the learning rate down to 5% of its baseline value over $M_{\text{train}}$ iterations, which helps fine-tune the parameter estimates toward the end of the search.
 
-This section displays results computed in @dmop_repo, showing a comparison between Iterated Filtering 2 (IF2) and Differentiated Measurement Off-Parameter (DMOP) with the Adam optimizer across replicates.
+`alpha` is an important algorithmic parameter controlling the extent to which the particle weights in DMOP are discounted at each time step. 
+If $\alpha = 1$, the weights are not discounted at all, whereas $\alpha = 0$ fully discounts the weights, setting each equal to 1 after each step.
+The intervening values interpolate between these extremes, introducing a bias-variance tradeoff wherein values close to 1 have higher variance but lower bias, while values close to 0 have lower variance but higher bias.
+For the Dhaka model, $\alpha = 0.97$ yields the lowest mean squared error for the score estimates for the trend in transmission at the MLE found in @king08, so we proceed with this value.
+
+```{python}
+#| label: run-dmop-2
+
+# Run DMOP with Adam
+dacca_obj.train(
+    J=NP_FITR,
+    M=M_TRAIN,
+    eta=eta.cosine_decay(final_factor=0.05, M=M_TRAIN),
+    alpha=0.97,
+    optimizer=pp.Adam(),
+)
+```
+
+Because estimating the log-likelihood at the MLE using the maximum of independent estimates is biased upward, we run the particle filter twice: once to get a log-likelihood estimate for each parameter set, and once to re-estimate the best log-likelihood from the first round, accounting for this bias.  
+Running `prune(n=1, refill=False)` sets `dacca_obj.theta` to contain just the best parameter set from the first round of particle filtering, so running `pfilter()` once more gives the re-estimated log-likelihoods for just this set. 
+
+```{python}
+#| label: eval-results
+# Evaluate results
+dacca_obj.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
+
+# Re-estimate the log-likelihood of the best model
+dacca_obj.prune(n=1, refill=False)
+dacca_obj.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
+```
+
+## 6. Comparing Optimization Methods
+
+This section displays the IF2 and IFAD results for the Dhaka model computed in @dmop_repo, which follows the approach above for IFAD-0.97 in addition to fitting models with IF2 alone, IFAD-0, and IFAD-1.
+For more details and analysis, see @dmop_repo.
 
 ::: {.panel-tabset}
 
 ## Comparable Computational Effort
 
-The figures below show the results obtained under comparable computational effort.
+The figures below show the results obtained under comparable computational effort, where each model was given about as much time as IFAD-0.97 required to reach its MLE. 
 
 ### Raincloud Plot of Final Log-Likelihoods
 
 Plots the log-likelihood distribution across replicates.
+IFAD-0.97 yields the best results overall.
+The dotted red line shows the maximized log-likelihood.
 
 ![Raincloud Plot of Final Log-Likelihoods (Comparable Effort)](imgs/precise_raincloud.png){width=85%}
 
 ### Convergence Traces Comparison (Time-Scaled)
 
-This section shows the log-likelihood search traces for the $N\_MONITORS=1$ models.
+This section shows the log-likelihood search traces.
+The shaded regions cover the area between the 10th and 100th percentiles of log-likelihood estimates at each iteration.
+We use a dotted red line to display the MLE.
+The vertical dotted lines indicate where the IFAD runs switch from IF2 to Adam optimization.
+Some log-likelihood estimates appear to be above the MLE; this is because the estimates prior to the final iteration use just 1 replicate instead of 36 replicates to estimate the log-likelihood, which leads to larger Monte Carlo variance.
 
 ![Convergence Traces Comparison (Comparable Effort)](imgs/precise_traces.png){width=85%}
 
@@ -588,18 +623,23 @@ The figures below show the results obtained under extended computational effort.
 ### Raincloud Plot of Final Log-Likelihoods
 
 Plots the log-likelihood distribution across replicates.
+Note how IFAD-0.97 exhibits very low Monte Carlo variance, with each search converging to similar values. 
 
 ![Raincloud Plot of Final Log-Likelihoods (Extended Effort)](imgs/precise_raincloud_long.png){width=85%}
 
 ### Convergence Traces Comparison (Time-Scaled)
 
-This section shows the log-likelihood search traces for the $N\_MONITORS=1$ models.
+This section shows the log-likelihood search traces.
+Aside from IFAD-1, each method appears to heavily plateau by the end. 
+IFAD-1 shows potential for continued improvement, likely because it is unbiased, but it is slow to converge due to its high variance. 
 
 ![Convergence Traces Comparison (Extended Effort)](imgs/precise_traces_long.png){width=85%}
 
 ### Parameter Density Plots
 
-This section shows density plots of final parameter estimates across the replicates for each model with $N\_MONITORS=1$.
+This section shows density plots of final parameter estimates across the replicates. 
+Again, the estimates for IFAD-0.97 typically exhibit very low Monte Carlo variance, although IFAD-0 shows lower variance for $S_0$ and $R_{1,0}$. 
+IF2 generally has the highest Monte Carlo variance amongst the methods. 
 
 ![Parameter Density Plots (Extended Effort)](imgs/precise_density_long.png){width=100%}
 
@@ -607,7 +647,9 @@ This section shows density plots of final parameter estimates across the replica
 
 ### Best Log-Likelihoods and Computational Times
 
-This table displays the log-likelihood statistics and elapsed times obtained from the final pfilter evaluations across the replicates for the models.
+This table displays the log-likelihood statistics and elapsed times obtained from the final particle filter evaluations across the replicates for the models.
+The best log-likelihood found by IFAD-0.97 does not increase much from optimizing for longer, suggesting that the associated parameter estimates are very close to the true MLE. 
+The other methods fall short of this, but they do improve at least somewhat from running for longer, with IFAD-1 catching up to IFAD-0.97 in terms of the best log-likelihood. 
 
 | Optimization Method | Best Log-Likelihood | Median Log-Likelihood | IF2 time (s) | DMOP time (s) |
 |:---|:---:|:---:|:---:|:---:|
