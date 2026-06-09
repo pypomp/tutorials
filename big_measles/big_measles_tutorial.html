@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="dcterms.date" content="2026-06-08">
+<meta name="dcterms.date" content="2026-06-09">
 
 <title>Fitting a Large Panel Model for UK Measles using pypomp</title>
 <style>
@@ -3281,7 +3281,7 @@ window.Quarto = {
     <div>
     <div class="quarto-title-meta-heading">Published</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">June 8, 2026</p>
+      <p class="date">June 9, 2026</p>
     </div>
   </div>
   
@@ -3294,9 +3294,9 @@ window.Quarto = {
 
 
 <p><a href="../README.html">← Back to Tutorials README</a></p>
-<p>This tutorial demonstrates how to construct and fit a large spatial panel model to measles surveillance data from England and Wales using the <code>pypomp</code> package.</p>
+<p>This tutorial demonstrates how to construct and fit a large panel model to weekly measles case data from 1,422 cities and towns in England and Wales <span class="citation" data-cites="korevaar2020">(<a href="#ref-korevaar2020" role="doc-biblioref">Korevaar, Metcalf, and Grenfell 2020</a>)</span> using the <code>pypomp</code> package.</p>
 <p>Partially Observed Markov Process (POMP) models are powerful tools for studying infectious disease transmission dynamics. When data are available for multiple distinct units (e.g., cities, districts, patients), we can model them jointly as a <strong>panel model</strong>. In a panel model, some parameters values might be shared across all units (e.g., the recovery rate from a disease), while others are unit-specific (e.g., district-specific reporting rates).</p>
-<p>In this tutorial, we will use the UK Measles model (<code>001b</code> in <code>pypomp</code>), which is fit to weekly case data from all 1,422 cities and towns. We will go through the setup and code to construct and fit the full 1,422-city panel model.</p>
+<p>In this tutorial, we will use the UK Measles model (<code>001b</code> in <code>pypomp</code>) <span class="citation" data-cites="he2010">(<a href="#ref-he2010" role="doc-biblioref">He, Ionides, and King 2010</a>)</span>, which is fit to weekly case data from all 1,422 cities and towns. We will go through the setup and code to construct and fit the full 1,422-city panel model.</p>
 <section id="setup-and-imports" class="level2">
 <h2 class="anchored" data-anchor-id="setup-and-imports">1. Setup and Imports</h2>
 <p>First, we import the required libraries.</p>
@@ -3387,6 +3387,133 @@ Total available units: 1422</code></pre>
 <span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>    theta<span class="op">=</span>initial_params,</span>
 <span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
+<p>We would like to call attention to the transition process function for this model:</p>
+<div id="rproc" class="cell" data-execution_count="6">
+<div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> rproc(</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    X_: StateDict,</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    theta_: ParamDict,</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    key: RNGKey,</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    covars: CovarDict,</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>    t: TimeFloat,</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>    dt: StepSizeFloat,</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>):</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>    S, E, I, R, W, C <span class="op">=</span> X_[<span class="st">&quot;S&quot;</span>], X_[<span class="st">&quot;E&quot;</span>], X_[<span class="st">&quot;I&quot;</span>], X_[<span class="st">&quot;R&quot;</span>], X_[<span class="st">&quot;W&quot;</span>], X_[<span class="st">&quot;C&quot;</span>]</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>    R0 <span class="op">=</span> theta_[<span class="st">&quot;R0&quot;</span>]</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>    sigma <span class="op">=</span> theta_[<span class="st">&quot;sigma&quot;</span>]</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>    gamma <span class="op">=</span> theta_[<span class="st">&quot;gamma&quot;</span>]</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>    iota <span class="op">=</span> theta_[<span class="st">&quot;iota&quot;</span>]</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>    sigmaSE <span class="op">=</span> theta_[<span class="st">&quot;sigmaSE&quot;</span>]</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>    cohort <span class="op">=</span> theta_[<span class="st">&quot;cohort&quot;</span>]</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>    amplitude <span class="op">=</span> theta_[<span class="st">&quot;amplitude&quot;</span>]</span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>    pop <span class="op">=</span> covars[<span class="st">&quot;pop&quot;</span>]</span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>    birthrate <span class="op">=</span> covars[<span class="st">&quot;birthrate&quot;</span>]</span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>    mu <span class="op">=</span> <span class="fl">0.02</span></span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>    t_mod <span class="op">=</span> t <span class="op">-</span> jnp.floor(t)</span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>    is_cohort_time <span class="op">=</span> jnp.<span class="bu">abs</span>(t_mod <span class="op">-</span> <span class="fl">251.0</span> <span class="op">/</span> <span class="fl">365.0</span>) <span class="op">&lt;</span> <span class="fl">0.5</span> <span class="op">*</span> dt</span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>    br <span class="op">=</span> jnp.where(</span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a>        is_cohort_time,</span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a>        cohort <span class="op">*</span> birthrate <span class="op">/</span> dt <span class="op">+</span> (<span class="dv">1</span> <span class="op">-</span> cohort) <span class="op">*</span> birthrate,</span>
+<span id="cb7-26"><a href="#cb7-26" aria-hidden="true" tabindex="-1"></a>        (<span class="dv">1</span> <span class="op">-</span> cohort) <span class="op">*</span> birthrate,</span>
+<span id="cb7-27"><a href="#cb7-27" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb7-28"><a href="#cb7-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-29"><a href="#cb7-29" aria-hidden="true" tabindex="-1"></a>    <span class="co"># term-time seasonality</span></span>
+<span id="cb7-30"><a href="#cb7-30" aria-hidden="true" tabindex="-1"></a>    t_days <span class="op">=</span> t_mod <span class="op">*</span> <span class="fl">365.25</span></span>
+<span id="cb7-31"><a href="#cb7-31" aria-hidden="true" tabindex="-1"></a>    in_term_time <span class="op">=</span> (</span>
+<span id="cb7-32"><a href="#cb7-32" aria-hidden="true" tabindex="-1"></a>        ((t_days <span class="op">&gt;=</span> <span class="dv">7</span>) <span class="op">&amp;</span> (t_days <span class="op">&lt;=</span> <span class="dv">100</span>))</span>
+<span id="cb7-33"><a href="#cb7-33" aria-hidden="true" tabindex="-1"></a>        <span class="op">|</span> ((t_days <span class="op">&gt;=</span> <span class="dv">115</span>) <span class="op">&amp;</span> (t_days <span class="op">&lt;=</span> <span class="dv">199</span>))</span>
+<span id="cb7-34"><a href="#cb7-34" aria-hidden="true" tabindex="-1"></a>        <span class="op">|</span> ((t_days <span class="op">&gt;=</span> <span class="dv">252</span>) <span class="op">&amp;</span> (t_days <span class="op">&lt;=</span> <span class="dv">300</span>))</span>
+<span id="cb7-35"><a href="#cb7-35" aria-hidden="true" tabindex="-1"></a>        <span class="op">|</span> ((t_days <span class="op">&gt;=</span> <span class="dv">308</span>) <span class="op">&amp;</span> (t_days <span class="op">&lt;=</span> <span class="dv">356</span>))</span>
+<span id="cb7-36"><a href="#cb7-36" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb7-37"><a href="#cb7-37" aria-hidden="true" tabindex="-1"></a>    seas <span class="op">=</span> jnp.where(in_term_time, <span class="fl">1.0</span> <span class="op">+</span> amplitude <span class="op">*</span> <span class="fl">0.2411</span> <span class="op">/</span> <span class="fl">0.7589</span>, <span class="dv">1</span> <span class="op">-</span> amplitude)</span>
+<span id="cb7-38"><a href="#cb7-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-39"><a href="#cb7-39" aria-hidden="true" tabindex="-1"></a>    <span class="co"># transmission rate</span></span>
+<span id="cb7-40"><a href="#cb7-40" aria-hidden="true" tabindex="-1"></a>    beta <span class="op">=</span> R0 <span class="op">*</span> seas <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> jnp.exp(<span class="op">-</span>(gamma <span class="op">+</span> mu) <span class="op">*</span> dt)) <span class="op">/</span> dt</span>
+<span id="cb7-41"><a href="#cb7-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-42"><a href="#cb7-42" aria-hidden="true" tabindex="-1"></a>    <span class="co"># expected force of infection</span></span>
+<span id="cb7-43"><a href="#cb7-43" aria-hidden="true" tabindex="-1"></a>    foi <span class="op">=</span> beta <span class="op">*</span> (I <span class="op">+</span> iota) <span class="op">/</span> pop</span>
+<span id="cb7-44"><a href="#cb7-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-45"><a href="#cb7-45" aria-hidden="true" tabindex="-1"></a>    <span class="co"># white noise (extrademographic stochasticity)</span></span>
+<span id="cb7-46"><a href="#cb7-46" aria-hidden="true" tabindex="-1"></a>    keys <span class="op">=</span> jax.random.split(key, <span class="dv">3</span>)</span>
+<span id="cb7-47"><a href="#cb7-47" aria-hidden="true" tabindex="-1"></a>    dw <span class="op">=</span> pp.random.fast_gamma(keys[<span class="dv">0</span>], dt <span class="op">/</span> sigmaSE<span class="op">**</span><span class="dv">2</span>) <span class="op">*</span> sigmaSE<span class="op">**</span><span class="dv">2</span></span>
+<span id="cb7-48"><a href="#cb7-48" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-49"><a href="#cb7-49" aria-hidden="true" tabindex="-1"></a>    rate <span class="op">=</span> jnp.array([foi <span class="op">*</span> dw <span class="op">/</span> dt, mu, sigma, mu, gamma, mu])</span>
+<span id="cb7-50"><a href="#cb7-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-51"><a href="#cb7-51" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Poisson births</span></span>
+<span id="cb7-52"><a href="#cb7-52" aria-hidden="true" tabindex="-1"></a>    births <span class="op">=</span> pp.random.fast_poisson(keys[<span class="dv">1</span>], br <span class="op">*</span> dt)</span>
+<span id="cb7-53"><a href="#cb7-53" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-54"><a href="#cb7-54" aria-hidden="true" tabindex="-1"></a>    <span class="co"># transitions between classes</span></span>
+<span id="cb7-55"><a href="#cb7-55" aria-hidden="true" tabindex="-1"></a>    rt_final <span class="op">=</span> jnp.zeros((<span class="dv">3</span>, <span class="dv">3</span>))</span>
+<span id="cb7-56"><a href="#cb7-56" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-57"><a href="#cb7-57" aria-hidden="true" tabindex="-1"></a>    rate_pairs <span class="op">=</span> jnp.array([[rate[<span class="dv">0</span>], rate[<span class="dv">1</span>]], [rate[<span class="dv">2</span>], rate[<span class="dv">3</span>]], [rate[<span class="dv">4</span>], rate[<span class="dv">5</span>]]])</span>
+<span id="cb7-58"><a href="#cb7-58" aria-hidden="true" tabindex="-1"></a>    populations <span class="op">=</span> jnp.array([S, E, I])</span>
+<span id="cb7-59"><a href="#cb7-59" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-60"><a href="#cb7-60" aria-hidden="true" tabindex="-1"></a>    rate_sums <span class="op">=</span> jnp.<span class="bu">sum</span>(rate_pairs, axis<span class="op">=</span><span class="dv">1</span>)</span>
+<span id="cb7-61"><a href="#cb7-61" aria-hidden="true" tabindex="-1"></a>    p0_values <span class="op">=</span> jnp.exp(<span class="op">-</span>rate_sums <span class="op">*</span> dt)</span>
+<span id="cb7-62"><a href="#cb7-62" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-63"><a href="#cb7-63" aria-hidden="true" tabindex="-1"></a>    rt_final <span class="op">=</span> (</span>
+<span id="cb7-64"><a href="#cb7-64" aria-hidden="true" tabindex="-1"></a>        rt_final.at[:, <span class="dv">0</span>:<span class="dv">2</span>]</span>
+<span id="cb7-65"><a href="#cb7-65" aria-hidden="true" tabindex="-1"></a>        .<span class="bu">set</span>(jnp.einsum(<span class="st">&quot;ij,i,i-&gt;ij&quot;</span>, rate_pairs, <span class="dv">1</span> <span class="op">/</span> rate_sums, <span class="dv">1</span> <span class="op">-</span> p0_values))</span>
+<span id="cb7-66"><a href="#cb7-66" aria-hidden="true" tabindex="-1"></a>        .at[:, <span class="dv">2</span>]</span>
+<span id="cb7-67"><a href="#cb7-67" aria-hidden="true" tabindex="-1"></a>        .<span class="bu">set</span>(p0_values)</span>
+<span id="cb7-68"><a href="#cb7-68" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb7-69"><a href="#cb7-69" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-70"><a href="#cb7-70" aria-hidden="true" tabindex="-1"></a>    transitions <span class="op">=</span> pp.random.fast_multinomial(keys[<span class="dv">2</span>], populations, rt_final)</span>
+<span id="cb7-71"><a href="#cb7-71" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-72"><a href="#cb7-72" aria-hidden="true" tabindex="-1"></a>    trans_S <span class="op">=</span> transitions[<span class="dv">0</span>]</span>
+<span id="cb7-73"><a href="#cb7-73" aria-hidden="true" tabindex="-1"></a>    trans_E <span class="op">=</span> transitions[<span class="dv">1</span>]</span>
+<span id="cb7-74"><a href="#cb7-74" aria-hidden="true" tabindex="-1"></a>    trans_I <span class="op">=</span> transitions[<span class="dv">2</span>]</span>
+<span id="cb7-75"><a href="#cb7-75" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-76"><a href="#cb7-76" aria-hidden="true" tabindex="-1"></a>    S <span class="op">=</span> S <span class="op">+</span> births <span class="op">-</span> trans_S[<span class="dv">0</span>] <span class="op">-</span> trans_S[<span class="dv">1</span>]</span>
+<span id="cb7-77"><a href="#cb7-77" aria-hidden="true" tabindex="-1"></a>    E <span class="op">=</span> E <span class="op">+</span> trans_S[<span class="dv">0</span>] <span class="op">-</span> trans_E[<span class="dv">0</span>] <span class="op">-</span> trans_E[<span class="dv">1</span>]</span>
+<span id="cb7-78"><a href="#cb7-78" aria-hidden="true" tabindex="-1"></a>    I <span class="op">=</span> I <span class="op">+</span> trans_E[<span class="dv">0</span>] <span class="op">-</span> trans_I[<span class="dv">0</span>] <span class="op">-</span> trans_I[<span class="dv">1</span>]</span>
+<span id="cb7-79"><a href="#cb7-79" aria-hidden="true" tabindex="-1"></a>    R <span class="op">=</span> pop <span class="op">-</span> S <span class="op">-</span> E <span class="op">-</span> I</span>
+<span id="cb7-80"><a href="#cb7-80" aria-hidden="true" tabindex="-1"></a>    W <span class="op">=</span> W <span class="op">+</span> (dw <span class="op">-</span> dt) <span class="op">/</span> sigmaSE</span>
+<span id="cb7-81"><a href="#cb7-81" aria-hidden="true" tabindex="-1"></a>    C <span class="op">=</span> C <span class="op">+</span> trans_I[<span class="dv">0</span>]</span>
+<span id="cb7-82"><a href="#cb7-82" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> {<span class="st">&quot;S&quot;</span>: S, <span class="st">&quot;E&quot;</span>: E, <span class="st">&quot;I&quot;</span>: I, <span class="st">&quot;R&quot;</span>: R, <span class="st">&quot;W&quot;</span>: W, <span class="st">&quot;C&quot;</span>: C}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+<p>Note that this function draws from the gamma, Poisson, and multinomial distributions, and that it does not use the corresponding <code>jax.random</code> functions. This is because these <code>jax.random</code> functions, among others, use sampling algorithms with extensive branching logic, which must be executed sequentially on GPUs, severely impacting performance. In contrast, the samplers in <code>pypomp.random</code> utilize approximate inverse cumulative distribution functions (CDFs) that avoid most of this branching logic <span class="citation" data-cites="giles2016 giles2024 temme1992">(<a href="#ref-giles2016" role="doc-biblioref">Giles 2016</a>; <a href="#ref-giles2024" role="doc-biblioref">Giles and Beentjes 2024</a>; <a href="#ref-temme1992" role="doc-biblioref">Temme 1992</a>)</span>. Using the standard JAX samplers can result in execution speeds up to 25 times slower, potentially making the code slower than its R <code>pomp</code> counterpart. The functions <code>jax.random.normal</code> and <code>jax.random.uniform</code> are among the exceptions that are highly optimized; they are perfectly fine to use.</p>
+<p>The following table includes execution times for a given POMP task that involved fitting a model to the London time series with IF2 and then evaluating it with the particle filter. Without using the inverse polynomial approximations, <code>pypomp</code> takes even longer on the task than <code>pomp</code> does despite using a GPU.</p>
+<div id="tbl-speed-comparison" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-tbl figure">
+<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-speed-comparison-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Table 1: Speed comparison using the <span class="citation" data-cites="he2010">He, Ionides, and King (<a href="#ref-he2010" role="doc-biblioref">2010</a>)</span> London measles model
+</figcaption>
+<div aria-describedby="tbl-speed-comparison-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;">Package</th>
+<th style="text-align: center;">Method</th>
+<th style="text-align: center;">Device</th>
+<th style="text-align: right;">Task Time (minutes)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><code>pomp</code></td>
+<td style="text-align: center;">Standard</td>
+<td style="text-align: center;">CPU</td>
+<td style="text-align: right;">44</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>pypomp</code></td>
+<td style="text-align: center;">Standard</td>
+<td style="text-align: center;">V100 GPU</td>
+<td style="text-align: right;">180</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>pypomp</code></td>
+<td style="text-align: center;">Poly approximation</td>
+<td style="text-align: center;">V100 GPU</td>
+<td style="text-align: right;">7</td>
+</tr>
+</tbody>
+</table>
+</div>
+</figure>
+</div>
+<p>Despite using approximations, these samplers are quite accurate, as indicated by our <a href="https://pypomp.github.io/quant/tests/samplers/test.html">quant tests</a>.</p>
 </section>
 <section id="configuring-the-estimation-algorithm-mpif" class="level2">
 <h2 class="anchored" data-anchor-id="configuring-the-estimation-algorithm-mpif">3. Configuring the Estimation Algorithm (MPIF)</h2>
@@ -3394,66 +3521,66 @@ Total available units: 1422</code></pre>
 <section id="random-walk-perturbations" class="level3">
 <h3 class="anchored" data-anchor-id="random-walk-perturbations">Random Walk Perturbations</h3>
 <p>First, we set the random walk standard deviations for the parameters. The same set will be used for each unit.</p>
-<div id="configure-mif" class="cell" data-execution_count="6">
-<div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>DEFAULT_SD <span class="op">=</span> <span class="fl">0.02</span></span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>DEFAULT_IVP_SD <span class="op">=</span> DEFAULT_SD <span class="op">*</span> <span class="dv">12</span></span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>RW_SD <span class="op">=</span> pp.RWSigma(</span>
-<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    sigmas<span class="op">=</span>{</span>
-<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;R0&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.25</span>,</span>
-<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;sigma&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.25</span>,</span>
-<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;gamma&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.5</span>,</span>
-<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;iota&quot;</span>: DEFAULT_SD,</span>
-<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;rho&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.5</span>,</span>
-<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;sigmaSE&quot;</span>: DEFAULT_SD,</span>
-<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;psi&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.25</span>,</span>
-<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;cohort&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.5</span>,</span>
-<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;amplitude&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.5</span>,</span>
-<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;S_0&quot;</span>: DEFAULT_IVP_SD,</span>
-<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;E_0&quot;</span>: DEFAULT_IVP_SD,</span>
-<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;I_0&quot;</span>: DEFAULT_IVP_SD,</span>
-<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;R_0&quot;</span>: DEFAULT_IVP_SD,</span>
-<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>    },</span>
-<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>    init_names<span class="op">=</span>[<span class="st">&quot;S_0&quot;</span>, <span class="st">&quot;E_0&quot;</span>, <span class="st">&quot;I_0&quot;</span>, <span class="st">&quot;R_0&quot;</span>],</span>
-<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>COOLING_RATE <span class="op">=</span> <span class="fl">0.5</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div id="configure-mif" class="cell" data-execution_count="7">
+<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>DEFAULT_SD <span class="op">=</span> <span class="fl">0.02</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>DEFAULT_IVP_SD <span class="op">=</span> DEFAULT_SD <span class="op">*</span> <span class="dv">12</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>RW_SD <span class="op">=</span> pp.RWSigma(</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>    sigmas<span class="op">=</span>{</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;R0&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.25</span>,</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;sigma&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.25</span>,</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;gamma&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.5</span>,</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;iota&quot;</span>: DEFAULT_SD,</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;rho&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.5</span>,</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;sigmaSE&quot;</span>: DEFAULT_SD,</span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;psi&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.25</span>,</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;cohort&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.5</span>,</span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;amplitude&quot;</span>: DEFAULT_SD <span class="op">*</span> <span class="fl">0.5</span>,</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;S_0&quot;</span>: DEFAULT_IVP_SD,</span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;E_0&quot;</span>: DEFAULT_IVP_SD,</span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;I_0&quot;</span>: DEFAULT_IVP_SD,</span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>        <span class="st">&quot;R_0&quot;</span>: DEFAULT_IVP_SD,</span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a>    },</span>
+<span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a>    init_names<span class="op">=</span>[<span class="st">&quot;S_0&quot;</span>, <span class="st">&quot;E_0&quot;</span>, <span class="st">&quot;I_0&quot;</span>, <span class="st">&quot;R_0&quot;</span>],</span>
+<span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-23"><a href="#cb8-23" aria-hidden="true" tabindex="-1"></a>COOLING_RATE <span class="op">=</span> <span class="fl">0.5</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 </section>
 <section id="run-levels" class="level3">
 <h3 class="anchored" data-anchor-id="run-levels">Run Levels</h3>
 <p>As usual, we define run levels to control the computational cost of the estimation.</p>
-<div id="run-levels" class="cell" data-execution_count="7">
-<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>RUN_LEVEL <span class="op">=</span> <span class="dv">1</span></span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>NP_FITR <span class="op">=</span> (<span class="dv">2</span>, <span class="dv">500</span>, <span class="dv">1000</span>, <span class="dv">10000</span>)[RUN_LEVEL <span class="op">-</span> <span class="dv">1</span>]     <span class="co"># Number of particles for IF2</span></span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>NFITR <span class="op">=</span> (<span class="dv">2</span>, <span class="dv">10</span>, <span class="dv">100</span>, <span class="dv">200</span>)[RUN_LEVEL <span class="op">-</span> <span class="dv">1</span>]           <span class="co"># Number of IF2 iterations</span></span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>NP_EVAL <span class="op">=</span> (<span class="dv">2</span>, <span class="dv">1000</span>, <span class="dv">1000</span>, <span class="dv">5000</span>)[RUN_LEVEL <span class="op">-</span> <span class="dv">1</span>]     <span class="co"># Number of particles for evaluation</span></span>
-<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>NREPS_EVAL <span class="op">=</span> (<span class="dv">2</span>, <span class="dv">5</span>, <span class="dv">24</span>, <span class="dv">36</span>)[RUN_LEVEL <span class="op">-</span> <span class="dv">1</span>]         <span class="co"># Replicates for evaluation</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div id="run-levels" class="cell" data-execution_count="8">
+<div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>RUN_LEVEL <span class="op">=</span> <span class="dv">1</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>NP_FITR <span class="op">=</span> (<span class="dv">2</span>, <span class="dv">500</span>, <span class="dv">1000</span>, <span class="dv">10000</span>)[RUN_LEVEL <span class="op">-</span> <span class="dv">1</span>]     <span class="co"># Number of particles for IF2</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>NFITR <span class="op">=</span> (<span class="dv">2</span>, <span class="dv">10</span>, <span class="dv">100</span>, <span class="dv">200</span>)[RUN_LEVEL <span class="op">-</span> <span class="dv">1</span>]           <span class="co"># Number of IF2 iterations</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>NP_EVAL <span class="op">=</span> (<span class="dv">2</span>, <span class="dv">1000</span>, <span class="dv">1000</span>, <span class="dv">5000</span>)[RUN_LEVEL <span class="op">-</span> <span class="dv">1</span>]     <span class="co"># Number of particles for evaluation</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>NREPS_EVAL <span class="op">=</span> (<span class="dv">2</span>, <span class="dv">5</span>, <span class="dv">24</span>, <span class="dv">36</span>)[RUN_LEVEL <span class="op">-</span> <span class="dv">1</span>]         <span class="co"># Replicates for evaluation</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 </section>
 </section>
 <section id="fitting-the-panel-model" class="level2">
 <h2 class="anchored" data-anchor-id="fitting-the-panel-model">4. Fitting the Panel Model</h2>
 <p>We are now ready to fit the panel model. We run the IF2 estimation algorithm first:</p>
-<div id="fit-mif" class="cell" data-execution_count="8">
-<div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>key, subkey <span class="op">=</span> jax.random.split(key)</span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>panel_measles_obj.mif(</span>
-<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>    rw_sd<span class="op">=</span>RW_SD,</span>
-<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>    M<span class="op">=</span>NFITR,</span>
-<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>    a<span class="op">=</span>COOLING_RATE,</span>
-<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>    J<span class="op">=</span>NP_FITR,</span>
-<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>    key<span class="op">=</span>subkey,</span>
-<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div id="fit-mif" class="cell" data-execution_count="9">
+<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>key, subkey <span class="op">=</span> jax.random.split(key)</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>panel_measles_obj.mif(</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>    rw_sd<span class="op">=</span>RW_SD,</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>    M<span class="op">=</span>NFITR,</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>    a<span class="op">=</span>COOLING_RATE,</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>    J<span class="op">=</span>NP_FITR,</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>    key<span class="op">=</span>subkey,</span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <section id="evaluating-log-likelihoods" class="level3">
 <h3 class="anchored" data-anchor-id="evaluating-log-likelihoods">Evaluating Log-Likelihoods</h3>
 <p>After running the estimation, we run a particle filter on our parameter sets to evaluate their log-likelihoods:</p>
-<div id="evaluate-pfilter" class="cell" data-execution_count="9">
-<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>panel_measles_obj.pfilter(J<span class="op">=</span>NP_EVAL, reps<span class="op">=</span>NREPS_EVAL)</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>panel_measles_obj.prune(n<span class="op">=</span><span class="dv">1</span>, refill<span class="op">=</span><span class="va">False</span>)</span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>panel_measles_obj.pfilter(J<span class="op">=</span>NP_EVAL, reps<span class="op">=</span>NREPS_EVAL)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div id="evaluate-pfilter" class="cell" data-execution_count="10">
+<div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>panel_measles_obj.pfilter(J<span class="op">=</span>NP_EVAL, reps<span class="op">=</span>NREPS_EVAL)</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>panel_measles_obj.prune(n<span class="op">=</span><span class="dv">1</span>, refill<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>panel_measles_obj.pfilter(J<span class="op">=</span>NP_EVAL, reps<span class="op">=</span>NREPS_EVAL)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 </div>
 <!-- todo: add mix-and-match and prune results here? -->
 </section>
@@ -3528,6 +3655,21 @@ Total available units: 1422</code></pre>
 </section>
 
 <div id="quarto-appendix" class="default"><section class="quarto-appendix-contents" role="doc-bibliography" id="quarto-bibliography"><h2 class="anchored quarto-appendix-heading">References</h2><div id="refs" class="references csl-bib-body hanging-indent" data-entry-spacing="0" role="list">
+<div id="ref-giles2016" class="csl-entry" role="listitem">
+Giles, Michael B. 2016. <span>“Algorithm 955: <span>Approximation</span> of the <span>Inverse</span> <span>Poisson</span> <span>Cumulative</span> <span>Distribution</span> <span>Function</span>.”</span> <em>ACM Transactions on Mathematical Software</em> 42 (1): 1–22. <a href="https://doi.org/10.1145/2699466">https://doi.org/10.1145/2699466</a>.
+</div>
+<div id="ref-giles2024" class="csl-entry" role="listitem">
+Giles, Michael B., and Casper Beentjes. 2024. <span>“Approximation of an <span>Inverse</span> of the <span>Incomplete</span> <span>Beta</span> <span>Function</span>.”</span> In <em>Mathematical <span>Software</span> – <span>ICMS</span> 2024</em>, edited by Kevin Buzzard, Alicia Dickenstein, Bettina Eick, Anton Leykin, and Yue Ren, 14749:207–14. Cham: Springer Nature Switzerland. <a href="https://doi.org/10.1007/978-3-031-64529-7_22">https://doi.org/10.1007/978-3-031-64529-7_22</a>.
+</div>
+<div id="ref-he2010" class="csl-entry" role="listitem">
+He, Daihai, Edward L. Ionides, and Aaron A. King. 2010. <span>“Plug-and-Play Inference for Disease Dynamics: Measles in Large and Small Populations as a Case Study.”</span> <em>Journal of The Royal Society Interface</em> 7 (43): 271–83. <a href="https://doi.org/10.1098/rsif.2009.0151">https://doi.org/10.1098/rsif.2009.0151</a>.
+</div>
+<div id="ref-korevaar2020" class="csl-entry" role="listitem">
+Korevaar, Hannah, C. Jessica Metcalf, and Bryan T. Grenfell. 2020. <span>“Structure, Space and Size: Competing Drivers of Variation in Urban and Rural Measles Transmission.”</span> <em>Journal of The Royal Society Interface</em> 17 (168): 20200010. <a href="https://doi.org/10.1098/rsif.2020.0010">https://doi.org/10.1098/rsif.2020.0010</a>.
+</div>
+<div id="ref-temme1992" class="csl-entry" role="listitem">
+Temme, N M. 1992. <span>“Asymptotic <span>Inversion</span> of <span>Incomplete</span> <span>Gamma</span> <span>Functions</span>,”</span> April.
+</div>
 <div id="ref-wheeler2025" class="csl-entry" role="listitem">
 Wheeler, Jesse, Aaron J. Abkemeier, and Edward L. Ionides. 2025. <span>“Iterating Marginalized Bayes Maps for Likelihood Maximization with Application to Nonlinear Panel Models.”</span> <a href="https://arxiv.org/abs/2511.17438">https://arxiv.org/abs/2511.17438</a>.
 </div>
