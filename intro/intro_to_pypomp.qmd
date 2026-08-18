@@ -11,7 +11,7 @@ jupyter: python3
 [← Back to Tutorials README](../README.html)
 
 This document showcases basic functions in `pypomp`. 
-We demonstrate by building the linear Gaussian model (available as `pypomp.models.LG()`) from scratch.
+We demonstrate by building the linear Gaussian model (available as `pypomp.models.LG()`) from scratch, using it to run iterated filtering 2 (IF2) and the particle filter, and visualizing the output.
 
 ## Setup and Imports
 
@@ -30,7 +30,9 @@ print(f"pypomp version: {pp.__version__}")
 print(f"JAX version: {jax.__version__}")
 ```
 
-In `pypomp`, model components receive parameters as a dictionary (or `ParamDict`). 
+## Defining Model Mechanics
+
+In `pypomp`, model mechanics receive parameters as a dictionary (or `ParamDict`). 
 For the linear Gaussian model, it is helpful to define a utility function to unpack these into the matrices used by the model equations. 
 
 ```{python Define the linear Gaussian model}
@@ -54,8 +56,6 @@ def get_matrices(theta: dict[str, float]):
     R = make_pd(theta["R11"], theta["R12"], theta["R22"])
     return A, C, Q, R
 ```
-
-## Defining Model Mechanics
 
 Next, we define the model mechanics, which need to have a specific set of arguments and a specific output format. 
 This is required so the functions can properly slot in to the internal `pypomp` code.
@@ -152,12 +152,9 @@ ptrans = pp.ParTrans(to_est=to_est, from_est=from_est)
 
 ## Parameter Sampling & Initialization
 
-The `Pomp` constructor also requires model parameters.
-These can be provided either as a dictionary or as a list of dictionaries.
-Each item in a dictionary should include the parameter name as the key and the parameter value as the dictionary value. 
-If the parameter sets are provided as a list of dictionaries, methods such as `pfilter()` run on each set of parameters. 
-Here, we use `Pomp.sample_params()` to sample sets of parameters from uniform distributions with bounds passed as a dictionary of length-2 tuples. 
-`Pomp.sample_params()` returns a ready-to-use list of dictionaries with the sampled parameters. 
+The `Pomp` constructor also requires model parameters, provided as a `PompParameters` object. 
+A `PompParameters` object can contain multiple parameter sets, in which case methods like `pfilter` will vectorize over each set.
+Here, we use `Pomp.sample_params()` to generate a `PompParameters` object containing sets of parameters sampled from uniform distributions with bounds passed as a dictionary of length-2 tuples. 
 
 We also generate a pseudorandom number generation (PRNG) key to be used with JAX.
 
@@ -182,7 +179,7 @@ param_bounds = {k: (v * 0.9, v * 1.1) for k, v in theta.items()}
 n = 5  # Number of parameter sets to sample
 key = jax.random.key(1)
 key, subkey = jax.random.split(key)
-theta_list = pp.Pomp.sample_params(param_bounds, n, subkey)
+theta = pp.Pomp.sample_params(param_bounds, n, subkey)
 ```
 
 ## Model Construction & Simulation
@@ -206,7 +203,7 @@ ys = pd.DataFrame(
 
 LG_obj_empty = pp.Pomp(
     ys=ys,
-    theta=theta_list[0],
+    theta=theta,
     statenames=["X1", "X2"],
     t0=0.0,
     rinit=rinit,
@@ -217,7 +214,7 @@ LG_obj_empty = pp.Pomp(
     par_trans=ptrans,
 )
 LG_obj = LG_obj_empty.simulate(key=subkey, as_pomp=True)
-LG_obj.theta = theta_list
+LG_obj.theta = theta
 ```
 
 ## Inference and Estimation
@@ -233,10 +230,13 @@ The random walk standard deviations are controlled via an `RWSigma` object.
 The `RWSigma` constructor takes a dictionary of standard deviations and an optional list of `init_names`. 
 Parameters in `init_names` are perturbed only at the initial time $t_0$, while others are perturbed at every time step.
 In this case, we perturb all parameters at every time step.
+We run the `geometric_cooling()` method to set the cooling schedule for the random walk.
 
 ```{python Define the random walk standard deviations}
 theta_names = LG_obj.canonical_param_names
-rw_sd = pp.RWSigma(sigmas={k: 0.01 for k in theta_names})
+rw_sd = pp.RWSigma(
+    sigmas={k: 0.01 for k in theta_names}
+).geometric_cooling(a=0.5)
 ```
 
 Notably, `Pomp` methods such as `mif()` can update attributes other than `results_history`.
@@ -246,7 +246,7 @@ Consequently, the following sequence of method calls is valid.
 
 ```{python}
 key, subkey = jax.random.split(key)
-LG_obj.mif(J=200, M=200, rw_sd=rw_sd, a=0.5, key=subkey)
+LG_obj.mif(J=200, M=200, rw_sd=rw_sd, key=subkey)
 LG_obj.pfilter(J=200, reps=10)
 ```
 
@@ -270,13 +270,13 @@ Since the log-likelihood is not calculated before the first iteration of the est
 We can remove these NA values using `.dropna()` and display or plot the traces to visualize the convergence of the algorithm.
 
 ```{python}
-LG_obj.traces().dropna()
+LG_obj.traces().dropna(subset="logLik")
 ```
 
 ```{python}
 (
     p9.ggplot(
-        LG_obj.traces().dropna().reset_index(),
+        LG_obj.traces().dropna(subset="logLik").reset_index(),
         p9.aes(x="iteration", y="logLik", color="factor(theta_idx)"),
     )
     + p9.geom_line()
