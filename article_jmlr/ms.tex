@@ -1,0 +1,392 @@
+\documentclass[twoside,11pt]{article}
+\usepackage{jmlr2e}
+
+% Any additional header includes from YAML
+\usepackage{algorithm}\usepackage{algpseudocode}\usepackage{xcolor}\input{custom_commands.tex}\newcommand{\note}[1]{\textcolor{blue}{\textsf{[#1]}}}\newcommand{\process}{{\mathrm{process}}}\newcommand{\eic}[1]{\textcolor{orange}([#1])}\newcommand{\giventh}{\, ; \,}\newcommand{\prob}{P}\ShortHeadings{Pypomp: Inference for POMP models in Python with JAX}{Abkemeier et al.}\firstpageno{1}\makeatletter\@ifpackageloaded{caption}{}{\usepackage{caption}}\AtBeginDocument{%
+\ifdefined\contentsname
+  \renewcommand*\contentsname{Table of contents}
+\else
+  \newcommand\contentsname{Table of contents}
+\fi
+\ifdefined\listfigurename
+  \renewcommand*\listfigurename{List of Figures}
+\else
+  \newcommand\listfigurename{List of Figures}
+\fi
+\ifdefined\listtablename
+  \renewcommand*\listtablename{List of Tables}
+\else
+  \newcommand\listtablename{List of Tables}
+\fi
+\ifdefined\figurename
+  \renewcommand*\figurename{Figure}
+\else
+  \newcommand\figurename{Figure}
+\fi
+\ifdefined\tablename
+  \renewcommand*\tablename{Table}
+\else
+  \newcommand\tablename{Table}
+\fi
+}\@ifpackageloaded{float}{}{\usepackage{float}}
+\floatstyle{ruled}
+\@ifundefined{c@chapter}{\newfloat{codelisting}{h}{lop}}{\newfloat{codelisting}{h}{lop}[chapter]}
+\floatname{codelisting}{Listing}\newcommand*\listoflistings{\listof{codelisting}{List of Listings}}\makeatother\makeatletter\makeatother\makeatletter\@ifpackageloaded{caption}{}{\usepackage{caption}}
+\@ifpackageloaded{subcaption}{}{\usepackage{subcaption}}\makeatother
+
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\usepackage{framed}
+\definecolor{shadecolor}{RGB}{241,243,245}
+\newenvironment{Shaded}{\begin{snugshade}}{\end{snugshade}}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{0.68,0.00,0.00}{#1}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.37,0.37,0.37}{#1}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.40,0.45,0.13}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.68,0.00,0.00}{#1}}
+\newcommand{\BuiltInTok}[1]{\textcolor[rgb]{0.00,0.23,0.31}{#1}}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.13,0.47,0.30}{#1}}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.37,0.37,0.37}{#1}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.37,0.37,0.37}{\textit{#1}}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.00,0.23,0.31}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.68,0.00,0.00}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.68,0.00,0.00}{#1}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.37,0.37,0.37}{\textit{#1}}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{0.68,0.00,0.00}{#1}}
+\newcommand{\ExtensionTok}[1]{\textcolor[rgb]{0.00,0.23,0.31}{#1}}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.68,0.00,0.00}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.28,0.35,0.67}{#1}}
+\newcommand{\ImportTok}[1]{\textcolor[rgb]{0.00,0.46,0.62}{#1}}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.37,0.37,0.37}{#1}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.00,0.23,0.31}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{\textcolor[rgb]{0.00,0.23,0.31}{#1}}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.37,0.37,0.37}{#1}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.00,0.23,0.31}{#1}}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.68,0.00,0.00}{#1}}
+\newcommand{\RegionMarkerTok}[1]{\textcolor[rgb]{0.00,0.23,0.31}{#1}}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.37,0.37,0.37}{#1}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.13,0.47,0.30}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.13,0.47,0.30}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.07,0.07,0.07}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.13,0.47,0.30}{#1}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.37,0.37,0.37}{\textit{#1}}}
+
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+\title{Pypomp: Inference for partially observed Markov process models in
+Python with JAX \newline DRAFT IN PROGRESS}
+
+\author{%
+      \name Aaron J. Abkemeier%
+          \textsuperscript{1}%
+         \email aaronabk@umich.edu \\
+        \name Jun Chen%
+          \textsuperscript{2}%
+         \email chenjunc@umich.edu \\
+        \name Kevin Tan%
+          \textsuperscript{3}%
+         \email kevtan@wharton.upenn.edu \\
+        \name Jesse Wheeler%
+          \textsuperscript{4}%
+         \email jessewheeler@isu.edu \\
+        \name Bo Yang%
+          \textsuperscript{5}%
+         \email ybb@umich.edu \\
+        \name Kunyang He%
+          \textsuperscript{1}%
+         \email kunyanghe@umich.edu \\
+        \name Jonathan Terhorst%
+          \textsuperscript{1}%
+         \email jonth@umich.edu \\
+        \name Aaron A. King%
+         \\
+        \name Edward L. Ionides%
+          \textsuperscript{1}%
+         \email ionides@umich.edu \\
+  \AND
+\addr \textsuperscript{1}University of Michigan, Department of
+Statistics; \textsuperscript{2}Duke University, Department of
+Statistics; \textsuperscript{3}University of Pennsylvania, Department of
+Statistics; \textsuperscript{4}Idaho State University, Department of
+Mathematics; \textsuperscript{5}Columbia University, Department of
+Marketing
+}
+
+\editor{} % Set editor here if needed
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Model development and parameter estimation for non-Gaussian partially
+observed Markov process (POMP) mechanistic models are fundamental
+challenges in a variety of fields including epidemiology, ecology, and
+finance. Particle filter methods can provide statistically efficient
+inference for highly nonlinear POMP models, but their practical
+application is limited by high computational demands. We introduce
+Pypomp, a high-performance Python library for statistical inference
+using POMP models. Pypomp includes state-of-the-art particle filtering
+algorithms to take advantage of GPU hardware, just-in-time computation,
+and automatic differentiation accessed using JAX. Basic inference
+algorithms run up to 1000 times faster than on a CPU core, and advanced
+algorithms provide further acceleration
+\EInote{THIS SEEMS LIKE A BIG CLAIM, BUT IF WE CAN MAKE AND ADEQUATELY SUPPORT A BIG CLAIM, WE SHOULD DO SO}.
+Pypomp provides a comprehensive interface that streamlines model
+construction, fitting, and analysis, allowing practitioners to develop
+and evaluate complex models with minimal implementation overhead.
+\end{abstract}
+
+\begin{keywords}
+pomp, JAX, GPU acceleration, likelihood-based inference
+\end{keywords}
+
+\section{Introduction}\label{sec-intro}
+
+Partially Observed Markov Process (POMP) models, also known as
+state-space models or hidden Markov models, provide a flexible
+mechanistic framework for modeling dynamic systems where the underlying
+state process is not directly observed. The particle filter
+\citep{arulampalam2002}, also known as sequential Monte Carlo, enables
+evaluation of the likelihood for POMP models. The extension of particle
+filtering to iterated filtering \citep{ionides2006, ionides2015} permits
+maximum likelihood estimation. A defining strength of these methods is
+that they are performed by simulating from the process model instead of
+evaluating exact transition probabilities (a property known as
+plug-and-play \citep{breto2009}), which makes them suitable for
+examining a wide range of models unconstrained by a need for
+mathematical convenience. Remarkably, algorithms based on particle
+filtering permit statistically efficient, likelihood-based inference in
+various practical situations even when the likelihood can be
+approximated only by Monte Carlo methods. Consequently,
+particle-filter-based methods for POMP models find application in
+epidemiology \citep{Mietchen2024, Fox2022, Wen2024}, ecology
+\citep{AugerMethe2021, Marino2019, Blackwood2013}, finance
+\citep{Breto2014}, and other domains where mechanistic dynamic modeling
+is desired.
+
+Pypomp is a Python library combining advances in hardware, software, and
+algorithms to provide novel capabilities for POMP models, with an
+emphasis on inference via particle filters. Pypomp is built using JAX
+\citep{bradbury2018}, which provides access to massively parallel
+hardware such as GPUs. Pypomp inherits software design principles from
+the successful R pomp package \citep{king2016}, providing interoperable
+frameworks for the development of new models and new statistical
+methods. Pypomp implements algorithmic advances that are required to
+take advantage of the GPU and automatic differentiation (AD)
+capabilities of JAX. AD for particle filters is a current research
+topic, and Pypomp implements a state-of-the-art approach that can
+simultaneously control the bias and variance \citep{tan2024}. The
+particle filter involves many simulated random variables, and
+traditional rejection sampling algorithms for commonly used
+distributions are not well suited to GPU architectures. Pypomp addresses
+this by incorporating alternative sampling algorithms.
+
+For systems taking values in a small discrete state space, or for
+systems well modeled by a linear Gaussian process, or sufficiently close
+to linear Gaussian that approximations can take advantage of the
+closed-form Gaussian filtering equations, it is not necessary to use the
+particle filter. In these cases, the Dynamax library
+\citep{linderman2025} provides a JAX-based solution. As dynamic models
+increase in complexity and nonlinearity, the particle filter methods in
+Pypomp become increasingly valuable. This makes Pypomp especially
+relevant to applications in ecology and epidemiology. The plug-and-play
+property of the particle filter makes Pypomp a convenient exploratory
+tool, enabling rapid model development even in situations where
+alternative methods are applicable. Pypomp incorporates advances in
+high-dimensional particle filter inference for panel data
+\citep{breto2020} to address a theoretical limitation of the particle
+filter, that it scales poorly with state space dimension.
+
+\AAnote{Need to change "90 times faster" to something more specific after we more rigorously compare pypomp with pomp. In addition, I think we should include the @korevaar2020 data set fit in this paper, as it provides perhaps the strongest motivation for developing pypomp.}
+\EInote{WITH SUITABLE DISCLAIMERS, WE HAVE OBTAINTED ERC VALUES OF AROUND 1000, RIGHT? THAT'S ANOTHER ORDER OF MAGNITUDE BIGGER. IT NEEDS EXTRA VMAPPING, SO THE STATEMENT WOULD HAVE TO BE CAREFUL, BUT PRESUMABLY ONE COULD DRAFT SOMETHING CORRECT THAT DISPLAYS THE BEST RATIO WE HAVE.}
+\AAnote{The ERC is above 1000, but I would like to translate this to wall clock time somehow, as an ERC of 1000 doesn't mean someone can replicate the GPU's faster wall clock time with 1000 CPU cores. The tricky part is that the wall clock time speedup depends on the number of particles and replications used, among other factors. For example, I get a wall clock speedup of around 90x when running one Blackwell GPU on the full measles data set with 10k particles and 12 replications (one CPU core would take 90x as long to finish 1 replication). I thought this would be a good example to highlight so readers have an immediate sense of the practical speedup.}
+
+By leveraging GPU acceleration, the package allows users to run methods
+up to 90 times faster than the CPU-based alternatives, enabling
+plug-and-play likelihood-based inference on datasets that would
+otherwise be intractably large. This is demonstrated in Section
+\AAnote{add this section}, where we fit a panel POMP model to the
+\citet{korevaar2020} England and Wales measles dataset, which contains
+over one million observations. While this would normally take over 5
+months in \texttt{pomp}, \texttt{pypomp} can finish the job in 41 hours
+\AAnote{revise these numbers as appropriate}.
+\EInote{WHAT IS THE COMPARISON HERE? 1 GPU TO HOW MANY CPU CORES?}
+\AAnote{12 CPU cores across 12 replicates vs. 1 Blackwell GPU.}
+
+\EInote{A BRAINSTORMING IDEA: IN THE SMC READING GROUP, I STARTED USING THE PHRASE ``MICHIGAN NOTATION'' TO EXPLAIN OUR COHERENT SET OF NAMES AND NOTATIONS THAT IS SOMEWHAT DIFFERENT TO THE DIVERSE TERMINOLOGIES FOUND ELSEWHERE. I'M NOT SURE IF THIS IS THE RIGHT PLACE, BUT MAYBE IT IS. ANYWAY, HERE'S A GO}
+
+\section{POMP Modeling: The Michigan notation}\label{sec-pomp}
+
+Diverse terminologies and notations have evolved for POMP models in
+different communities. Pypomp uses the Michigan notation that arose from
+the program to build a unifying software environment to represent a wide
+range of proposed statistical methodologies in the R pomp package.
+Dinstinguishing features are: (i) \(t\) is used to represent continuous
+time, allowing proper handling scientific units and situations where the
+latent variable is defined not just at times it is observed; (ii)
+\(\{t_n, n=1,\dots,N\}\) is a discrete sequence of \(N\) measurement
+times; (iii) ranges are upper-case Roman letters with the corresponding
+lower-case often used as an index; (iv) joint and conditional densities
+are defined using appropriate subscripts and avoiding overloading, for
+example, \(f_{Y_n|X_n}(y_n|x_n;\theta)\) denotes the conditional density
+of \(Y_n\) given \(X_n\); (v) sequences are denoted by colons, for
+example, \(\{t_n, n=1,\dots,N\}\) is written as \(t_{1:N}\).
+\EInote{TO BE CONTINUED, IF WE GO THIS ROUTE}.
+
+A POMP model includes a random vector of observed data \(Y_{1:N}\), and
+the observed values are denoted as \(y^*_{1:N}\). The data are generated
+based on the values of the unobserved process,
+\(\{X(t), t_0 \leq t \leq t_{N}\}\), where \(t_{1:N}\) are the times at
+which \(Y_{1:N}\) are observed, \(t_0\) is the time at which the initial
+state is defined, and \(X_n := X(t_n)\). We suppose the model has a
+joint distribution \(f_{Y_{1:N},X_{0:N}}(y_{1:N},x_{0:N}; \theta)\),
+where \(\theta\) is a set of parameters, and \(Y_n\) is independent of
+\(Y_m, X_m\), \(m \neq n\), conditional on \(X_n\).
+
+Although evaluating the joint distribution is potentially intractable,
+we can still implement plug-and-play POMP methodology. For example,
+particle filtering \citep{arulampalam2002} can be used to estimate the
+marginal likelihood \(f_{Y_{1:N}}(y_{1:N}; \theta)\), and Iterated
+Filtering 2 \citep{ionides2015} can be used to estimate the maximum
+likelihood estimate (MLE) of \(\theta\), both without an explicit joint
+distribution or the explicit transition density
+\(f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)\). For these methods, it
+is sufficient to specify a collection of functions associated with the
+model's conditional distribution densities:
+
+\begin{itemize}
+    \item $X_0 \sim f_{X_0}(x_0 ; \theta)$: The simulator for the initial state of the latent process.
+    \item $X_{n+1} \sim f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)$: The simulator for the transition of the latent process.
+    \item $f_{Y_n|X_n}(y_n| x_n; \theta)$: The measurement density function.
+\end{itemize}
+
+To implement POMP models and methods in \texttt{pypomp}, the user can
+provide data and programmatic descriptions of the above functions as
+arguments to a \texttt{Pomp} object. With these necessary components
+bundled together, the user can perform inference on the model using
+\texttt{pypomp}'s methods.
+
+\section{\texorpdfstring{POMP Inference Methods in
+\texttt{pypomp}}{POMP Inference Methods in pypomp}}\label{sec-pomp-methods}
+
+\texttt{pypomp} implements several likelihood-based inference methods,
+all of which leverage the plug-and-play property \citep{ionides2006} and
+JAX-enabled hardware acceleration.
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Particle Filter (\texttt{pfilter})}: The standard sequential
+  Monte Carlo (SMC) algorithm for likelihood evaluation and state
+  estimation.
+\item
+  \textbf{Iterated Filtering (\texttt{mif})}: An implementation of the
+  IF2 algorithm \citep{ionides2015} for maximum likelihood estimation.
+  It combines particle filtering with sequential random walk
+  perturbations and a cooling schedule to explore the parameter space.
+\item
+  \textbf{Automatic Differentiation (\texttt{mop} and \texttt{train})}:
+  \texttt{pypomp} includes a differentiable particle filter
+  (MOP-\(\alpha\), \citet{tan2024}) that enables the use of JAX's
+  automatic differentiation. The \texttt{train()} method uses these
+  gradients for local optimization.
+\end{enumerate}
+
+These algorithms can be run as methods of the \texttt{Pomp} class. Users
+can define their models by providing JAX-compatible functions for each
+component of the POMP model. For example, the S\&P500 model included in
+the package defines the state transition simulator as follows:
+
+\phantomsection\label{spx-rproc}
+\begin{Shaded}
+\begin{Highlighting}[]
+\ImportTok{import}\NormalTok{ jax}
+\ImportTok{import}\NormalTok{ jax.numpy }\ImportTok{as}\NormalTok{ jnp}
+\ImportTok{from}\NormalTok{ pypomp.types }\ImportTok{import}\NormalTok{ StateDict, ParamDict, CovarDict, TimeFloat, StepSizeFloat, RNGKey}
+
+\KeywordTok{def}\NormalTok{ rproc(}
+\NormalTok{    X\_: StateDict, theta\_: ParamDict, key: RNGKey, covars: CovarDict,}
+\NormalTok{    t: TimeFloat, dt: StepSizeFloat}
+\NormalTok{):}
+\NormalTok{    V, S }\OperatorTok{=}\NormalTok{ X\_[}\StringTok{"V"}\NormalTok{], X\_[}\StringTok{"S"}\NormalTok{]}
+\NormalTok{    mu, kappa, theta }\OperatorTok{=}\NormalTok{ theta\_[}\StringTok{"mu"}\NormalTok{], theta\_[}\StringTok{"kappa"}\NormalTok{], theta\_[}\StringTok{"theta"}\NormalTok{]}
+\NormalTok{    xi, rho, y\_prev }\OperatorTok{=}\NormalTok{ theta\_[}\StringTok{"xi"}\NormalTok{], theta\_[}\StringTok{"rho"}\NormalTok{], covars[}\StringTok{"y\_prev"}\NormalTok{]}
+\NormalTok{    dZ }\OperatorTok{=}\NormalTok{ jax.random.normal(key)}
+\NormalTok{    dWs }\OperatorTok{=}\NormalTok{ (y\_prev }\OperatorTok{{-}}\NormalTok{ mu }\OperatorTok{+} \FloatTok{0.5} \OperatorTok{*}\NormalTok{ V) }\OperatorTok{/}\NormalTok{ jnp.sqrt(V)}
+\NormalTok{    dWv }\OperatorTok{=}\NormalTok{ rho }\OperatorTok{*}\NormalTok{ dWs }\OperatorTok{+}\NormalTok{ jnp.sqrt(}\DecValTok{1} \OperatorTok{{-}}\NormalTok{ rho}\OperatorTok{**}\DecValTok{2}\NormalTok{) }\OperatorTok{*}\NormalTok{ dZ}
+\NormalTok{    S }\OperatorTok{=}\NormalTok{ S }\OperatorTok{+}\NormalTok{ S }\OperatorTok{*}\NormalTok{ (mu }\OperatorTok{+}\NormalTok{ jnp.sqrt(jnp.maximum(V, }\FloatTok{1e{-}32}\NormalTok{)) }\OperatorTok{*}\NormalTok{ dWs)}
+\NormalTok{    V }\OperatorTok{=}\NormalTok{ V }\OperatorTok{+}\NormalTok{ kappa }\OperatorTok{*}\NormalTok{ (theta }\OperatorTok{{-}}\NormalTok{ V) }\OperatorTok{+}\NormalTok{ xi }\OperatorTok{*}\NormalTok{ jnp.sqrt(V) }\OperatorTok{*}\NormalTok{ dWv}
+\NormalTok{    V }\OperatorTok{=}\NormalTok{ jnp.maximum(V, }\FloatTok{1e{-}32}\NormalTok{)}
+    \ControlFlowTok{return}\NormalTok{ \{}\StringTok{"V"}\NormalTok{: V, }\StringTok{"S"}\NormalTok{: S\}}
+\end{Highlighting}
+\end{Shaded}
+
+Internally, \texttt{pypomp} takes a user-defined function such as this,
+vectorizes it over the particles and replications of a method (it is
+prudent to run these methods from multiple values of \(\theta\)), and
+JIT compiles it using JAX, achieving high performance by parallelizing
+computation across GPU cores.
+
+The following example demonstrates a possible inference workflow,
+expressed in just a few lines: starting with global exploration via IF2,
+followed by gradient-based local refinement, and concluding with a final
+likelihood evaluation.
+
+\phantomsection\label{spx-inference-workflow}
+\begin{Shaded}
+\begin{Highlighting}[]
+\ImportTok{import}\NormalTok{ pypomp }\ImportTok{as}\NormalTok{ pp}
+\NormalTok{spx\_obj }\OperatorTok{=}\NormalTok{ pp.models.spx()}
+\NormalTok{key }\OperatorTok{=}\NormalTok{ jax.random.key(}\DecValTok{1}\NormalTok{)}
+\NormalTok{rw\_sd }\OperatorTok{=}\NormalTok{ pp.RWSigma( }\CommentTok{\# Random walk standard deviations for IF2}
+\NormalTok{    sigmas}\OperatorTok{=}\NormalTok{\{}\StringTok{"mu"}\NormalTok{: }\FloatTok{0.02}\NormalTok{, }\StringTok{"kappa"}\NormalTok{: }\FloatTok{0.02}\NormalTok{, }\StringTok{"theta"}\NormalTok{: }\FloatTok{0.02}\NormalTok{, }
+            \StringTok{"xi"}\NormalTok{: }\FloatTok{0.02}\NormalTok{, }\StringTok{"rho"}\NormalTok{: }\FloatTok{0.02}\NormalTok{, }\StringTok{"V\_0"}\NormalTok{: }\FloatTok{0.1}\NormalTok{\},}
+\NormalTok{    init\_names}\OperatorTok{=}\NormalTok{[}\StringTok{"V\_0"}\NormalTok{],}
+\NormalTok{).geometric\_cooling(a}\OperatorTok{=}\FloatTok{0.5}\NormalTok{)}
+\NormalTok{spx\_obj.mif(rw\_sd}\OperatorTok{=}\NormalTok{rw\_sd, J}\OperatorTok{=}\DecValTok{1000}\NormalTok{, M}\OperatorTok{=}\DecValTok{10}\NormalTok{, key}\OperatorTok{=}\NormalTok{key) }\CommentTok{\# IF2}
+\NormalTok{eta }\OperatorTok{=}\NormalTok{ pp.LearningRate(}
+\NormalTok{  \{name: }\FloatTok{0.001} \ControlFlowTok{for}\NormalTok{ name }\KeywordTok{in}\NormalTok{ spx\_obj.canonical\_param\_names\}}
+\NormalTok{).geometric\_decay(decay\_rate}\OperatorTok{=}\FloatTok{0.5}\NormalTok{, M}\OperatorTok{=}\DecValTok{10}\NormalTok{) }\CommentTok{\# Learning rates}
+\NormalTok{spx\_obj.train(J}\OperatorTok{=}\DecValTok{1000}\NormalTok{, M}\OperatorTok{=}\DecValTok{10}\NormalTok{, eta}\OperatorTok{=}\NormalTok{eta, optimizer}\OperatorTok{=}\NormalTok{pp.Adam()) }\CommentTok{\# Gradient descent}
+\NormalTok{spx\_obj.pfilter(J}\OperatorTok{=}\DecValTok{1000}\NormalTok{, reps}\OperatorTok{=}\DecValTok{10}\NormalTok{) }\CommentTok{\# Particle filter}
+\end{Highlighting}
+\end{Shaded}
+
+Each method call generates an object which contains details including
+log-likelihood estimates, parameter traces, execution time, and the
+arguments passed to the method. These objects are then appended to
+\texttt{spx\_obj.results\_history} and can be interfaced with through
+helper functions, such as the \texttt{traces} method, which returns a
+long-format data frame containing parameter and log-likelihood traces
+across all method calls.
+
+Methods like \texttt{mif} and \texttt{train} achieve high performance by
+internally running JIT-compiled JAX functions from the submodule
+\texttt{pypomp.functional}. The user may import these functions directly
+to build custom inference procedures.
+
+The open source repository is available at
+\url{https://github.com/pypomp/pypomp}, and full documentation is
+available at \url{https://pypomp.readthedocs.io}.
+
+\section{Discussion}\label{sec-discussion}
+
+\section*{References}\label{references}
+\addcontentsline{toc}{section}{References}
+
+\renewcommand{\bibsection}{}
+\bibliography{references.bib}
+
+\section{Appendix}\label{sec-appendix}
+
+\AAnote{Include imporant numerical results here? Or refer to the quant repo?}
+
+
+\end{document}
