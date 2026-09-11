@@ -1,9 +1,8 @@
 """
-Model 001b fit using all 1422 units. All parameters are unit-specific. 10k particles for 200 iterations of IF2. Intended to be run as an array job. This job requires the A100 GPU partitions due to them having more RAM.
+Model 001b fit using all 1422 units. All parameters are unit-specific. 10k particles for 200 iterations of IF2. Intended to be run as an array job.
 """
 
 import os
-import importlib.util
 import jax
 import pickle
 import time
@@ -20,15 +19,7 @@ print("jax version:", version("jax"))
 
 SLURM_ARRAY_TASK_ID = int(os.environ.get("SLURM_ARRAY_TASK_ID", -1))
 
-units_path = "units.py"
-spec = importlib.util.spec_from_file_location("units", units_path)
-if spec is None:
-    raise ImportError(f"Could not load module spec from {units_path}")
-units = importlib.util.module_from_spec(spec)
-if spec.loader is None:
-    raise ImportError(f"No loader found for module spec from {units_path}")
-spec.loader.exec_module(units)
-UNITS = units.UNITS
+UNITS = pp.models.UKMeasles.units()
 
 print(jax.devices())
 
@@ -49,6 +40,7 @@ print(f"Running at level {RUN_LEVEL}")
 
 UNITS = UNITS[:N_UNITS]
 
+COOLING_RATE = 0.5
 DEFAULT_SD = 0.02
 DEFAULT_IVP_SD = DEFAULT_SD * 12
 RW_SD = pp.RWSigma(
@@ -68,8 +60,7 @@ RW_SD = pp.RWSigma(
         "R_0": DEFAULT_IVP_SD,
     },
     init_names=["S_0", "E_0", "I_0", "R_0"],
-)
-COOLING_RATE = 0.5
+).geometric_cooling(a=COOLING_RATE)
 
 
 # --MAKE INITIAL PARAMETERS------------------------------------------------------
@@ -91,8 +82,6 @@ measles_box = {
 }
 
 key, subkey = jax.random.split(key)
-dummy_initial_params_list = pp.Pomp.sample_params(measles_box, NREPS_FITR, key=subkey)
-
 initial_params = pp.PanelPomp.sample_params(
     measles_box,
     n=NREPS_FITR,
@@ -104,19 +93,11 @@ initial_params = pp.PanelPomp.sample_params(
 # --MAKE POMPS------------------------------------------------------
 print("Starting pomp creation")
 
-pomp_dict = {
-    unit: pp.models.UKMeasles.Pomp(
-        unit=[unit],
-        theta=dummy_initial_params_list,
-        model="001b",
-        clean=True,
-    )
-    for unit in UNITS
-}
-
-panel_measles_obj = pp.PanelPomp(
-    Pomp_dict=pomp_dict,
+panel_measles_obj = pp.models.UKMeasles.panel_pomp(
+    units=UNITS,
     theta=initial_params,
+    model="001b",
+    clean=True,
 )
 
 # --MIF 1------------------------------------------------------
@@ -126,7 +107,6 @@ key, subkey = jax.random.split(key)
 panel_measles_obj.mif(
     rw_sd=RW_SD,
     M=NFITR,
-    a=COOLING_RATE,
     J=NP_FITR,
     key=subkey,
 )

@@ -38,3 +38,7 @@ article/ms.tex
 
 # VSCode
 .vscode
+# Large panel-fit outputs; the tutorial reads the small files in summary/
+big_measles/results/*/model.jbl
+big_measles/results/*/traces.parquet
+big_measles/results/*/cll*

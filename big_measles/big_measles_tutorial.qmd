@@ -17,7 +17,7 @@ bibliography: ../bib.bib
 This tutorial demonstrates how to construct and fit a large panel model to weekly measles case data from 1,422 cities and towns in England and Wales [@korevaar2020] using the `pypomp` package. 
 
 Partially Observed Markov Process (POMP) models are powerful tools for studying infectious disease transmission dynamics. 
-When data are available for multiple distinct units (e.g., cities, districts, patients), we can model them jointly as a **panel model**. 
+When data are available for multiple distinct units (e.g., cities, districts, patients), we can model them jointly as a *panel model*. 
 In a panel model, some parameters values might be shared across all units (e.g., the recovery rate from a disease), while others are unit-specific (e.g., district-specific reporting rates). 
 
 In this tutorial, we will use the UK Measles model (`001b` in `pypomp`) [@he2010], which is fit to weekly case data from all 1,422 cities and towns. 
@@ -30,16 +30,16 @@ First, we import the required libraries.
 ```{python}
 #| label: setup
 #| eval: true
-import os
-import time
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pandas as pd
+import plotnine as p9
 import pypomp as pp
-from datetime import datetime
+from pypomp.types import *
 
-# Load the list of 1,422 units (districts)
-from units import UNITS
+# The 1,422 units (cities and towns) in the dataset
+UNITS = pp.models.UKMeasles.units()
 
 print("JAX version:", jax.__version__)
 print("pypomp version:", pp.__version__)
@@ -96,10 +96,8 @@ The `shared_names` parameter in `pp.PanelPomp.sample_params()` allows us to spec
 #| label: sample-params
 NREPS_FITR = 3  # Number of parallel parameter searches (chains)
 
-key, subkey = jax.random.split(key)
-dummy_initial_params_list = pp.Pomp.sample_params(measles_box, NREPS_FITR, key=subkey)
-
 # Sample parameters for the panel with specified shared names
+key, subkey = jax.random.split(key)
 initial_params = pp.PanelPomp.sample_params(
     measles_box,
     n=NREPS_FITR,
@@ -110,24 +108,16 @@ initial_params = pp.PanelPomp.sample_params(
 ```
 
 Instead of constructing the `Pomp` objects from scratch, we will use the premade model available in `pypomp.models.UKMeasles`. 
-We instantiate this `Pomp` class for each unit and bundle them together into a single `PanelPomp` object:
+`UKMeasles.panel_pomp()` builds a `Pomp` object for each unit and bundles them together into a single `PanelPomp` object. 
+The same could be done by hand by passing a dictionary of `Pomp` objects, such as those made by `UKMeasles.pomp()`, to `pp.PanelPomp`.
 
 ```{python}
 #| label: instantiate-panel-model
-pomp_dict = {
-    unit: pp.models.UKMeasles.Pomp(
-        unit=[unit],
-        theta=dummy_initial_params_list,
-        model="001b",
-        clean=True,
-    )
-    for unit in UNITS
-}
-
-# Create the PanelPomp object
-panel_measles_obj = pp.PanelPomp(
-    Pomp_dict=pomp_dict,
+panel_measles_obj = pp.models.UKMeasles.panel_pomp(
+    units=UNITS,
     theta=initial_params,
+    model="001b",
+    clean=True,
 )
 ```
 
@@ -135,9 +125,6 @@ We would like to call attention to the transition process function for this mode
 
 ```{python}
 #| label: rproc
-#| #| 
-
-
 def rproc(
     X_: StateDict,
     theta_: ParamDict,
@@ -252,6 +239,7 @@ The same set will be used for each unit.
 
 ```{python}
 #| label: configure-mif
+COOLING_RATE = 0.5
 DEFAULT_SD = 0.02
 DEFAULT_IVP_SD = DEFAULT_SD * 12
 
@@ -272,9 +260,7 @@ RW_SD = pp.RWSigma(
         "R_0": DEFAULT_IVP_SD,
     },
     init_names=["S_0", "E_0", "I_0", "R_0"],
-)
-
-COOLING_RATE = 0.5
+).geometric_cooling(a=COOLING_RATE)
 ```
 
 ### Run Levels
@@ -302,7 +288,6 @@ key, subkey = jax.random.split(key)
 panel_measles_obj.mif(
     rw_sd=RW_SD,
     M=NFITR,
-    a=COOLING_RATE,
     J=NP_FITR,
     key=subkey,
 )
@@ -315,18 +300,36 @@ After running the estimation, we run a particle filter on our parameter sets to 
 ```{python}
 #| label: evaluate-pfilter
 panel_measles_obj.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
+```
+
+The panel log-likelihood is the sum of the unit log-likelihoods, and each unit's log-likelihood depends only on the shared parameters and that unit's own parameters. 
+We can therefore try to improve on the best search by combining the best components of different searches. 
+`mix_and_match()` takes the shared parameters from the search with the highest panel log-likelihood and, for each unit, the unit-specific parameters from the search with the highest log-likelihood for that unit. 
+If each search is fixed at the same shared parameter values, the sum of the best unit-specific log-likelihoods is an accurate estimate of the mix-and-matched panel model log-likelihood.
+
+Choosing the best of several noisy estimates biases the resulting log-likelihood upward, so we keep only this combined parameter set with `prune()` and evaluate it again with the particle filter:
+
+```{python}
+#| label: mix-and-match
+panel_measles_obj.mix_and_match()
 panel_measles_obj.prune(n=1, refill=False)
 panel_measles_obj.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
 ```
-
-<!-- todo: add mix-and-match and prune results here? -->
 
 ## 5. Scaling to All 1,422 Cities (GPU Cluster Results)
 
 Fitting a panel model of this scale (1,422 units with large numbers of particles and iterations) requires significant computing resources. 
 Because `pypomp` is written in Python using JAX, it compiles down to highly parallelized operations that can execute concurrently across hundreds of thousands of particles and method replicates on modern GPUs.
 
-Below, we detail the execution performance and results of a full **Level 4** panel model search run on an NVIDIA RTX6000 Pro Blackwell GPU.
+Below, we detail the execution performance and results of a full **Level 4** panel model search run on an NVIDIA RTX6000 Pro Blackwell GPU. 
+Pending a fit using shared parameters, we show the results of this run, which use only unit-specific parameters.
+
+The search followed the same steps as the script `big_measles.py` in this directory. 
+The run directory `results/2026-09-04_233751_u1422_L4/` contains a copy of the exact script (`script_snapshot.py`), the locked Python environment (`uv.lock.gz`), and a record of the settings and software versions (`metadata.json`). 
+
+::: {.callout-note}
+These timings and the results in the next section come from a run with `pypomp` 1.0.0. 
+:::
 
 ### Computation Details
 
@@ -340,12 +343,153 @@ The recorded execution times are as follows:
 
 | Stage | Algorithm | Config Details | Time (seconds) | Time (hours) |
 |---|---|---|---|---|
-| **Estimation** | MPIF | $J=10000, M=200, 12 \text{ chains}$ | $113,321.28 \text{ s}$ | **$31.48 \text{ hours}$** |
-| **Initial Eval** | PFilter | $J=5000, 36 \text{ replicates, } 12 \text{ chains}$ | $9,692.40 \text{ s}$ | **$2.69 \text{ hours}$** |
-| **Post-Pruning Eval** | PFilter | $J=5000, 36 \text{ replicates, } 1 \text{ chain (pruned)}$ | $742.95 \text{ s}$ | **$12.38 \text{ minutes}$** |
-| **Total** | | | $123,756.63 \text{ s}$ | **$34.38 \text{ hours}$** |
+| **Estimation** | MPIF | $J=10000, M=200, 12 \text{ chains}$ | $98,325.10 \text{ s}$ | **$27.31 \text{ hours}$** |
+| **Initial Eval** | PFilter | $J=5000, 36 \text{ replicates, } 12 \text{ chains}$ | $5,958.33 \text{ s}$ | **$1.66 \text{ hours}$** |
+| **Post-Pruning Eval** | PFilter | $J=5000, 36 \text{ replicates, } 1 \text{ chain (pruned)}$ | $598.38 \text{ s}$ | **$9.97 \text{ minutes}$** |
+| **Total** | | | $104,881.82 \text{ s}$ | **$29.13 \text{ hours}$** |
 
 This computation would have taken about 4.7 months in the R package `pomp` using CPU cores! 
-By using a capable GPU, we compeleted the same computation about 98 times faster. 
+By using a capable GPU, we completed the same computation about 116 times faster. 
 
-<!-- todo: explore the results here -->
+## 6. Exploring the Level 4 Results
+
+The level 4 run saved the output of `traces()` and `results()` as Parquet files. 
+We saved these rather than pickling the `PanelPomp` object, because pickled `pypomp` objects generally cannot be loaded by other versions of `pypomp`. 
+The script `summarize_results.py` condenses these files into the small CSV files read below. 
+Note that the level 4 run treated all parameters as unit-specific.
+
+```{python}
+#| label: load-results
+#| eval: true
+RESULTS_DIR = "results/2026-09-04_233751_u1422_L4/summary"
+panel_trace = pd.read_csv(f"{RESULTS_DIR}/panel_loglik_trace.csv")
+chain_evals = pd.read_csv(f"{RESULTS_DIR}/chain_evaluations.csv.gz")
+final_estimates = pd.read_csv(f"{RESULTS_DIR}/final_estimates.csv.gz")
+town_traces = pd.read_csv(f"{RESULTS_DIR}/he10_town_traces.csv.gz")
+```
+
+### Convergence
+
+The plot below shows the panel log-likelihood, summed over all 1,422 units, at each MPIF iteration for each of the 12 searches. 
+We omit the first nine iterations, whose log-likelihoods are far lower.
+The log-likelihood rises steeply at first and then keeps improving slowly. 
+The searches track each other closely, and they are still improving after 200 iterations, which suggests that more iterations would help.
+
+```{python}
+#| label: plot-panel-trace
+#| eval: true
+#| fig-width: 8
+#| fig-height: 4
+(
+    p9.ggplot(
+        panel_trace.query("iteration >= 10"),
+        p9.aes(x="iteration", y="logLik", color="factor(theta_idx)"),
+    )
+    + p9.geom_line()
+    + p9.theme_minimal()
+    + p9.labs(x="Iteration", y="Panel log-likelihood", color="Search")
+)
+```
+
+### Mixing and Matching
+
+The table below compares the panel log-likelihood of the best single search with two versions of the mixed-and-matched parameter set. 
+Adding up each unit's best log-likelihood from the first round of particle filtering overstates the log-likelihood of the combined parameters, because each unit's best estimate is partly the luck of the draw. 
+Evaluating the combined parameters again with the particle filter removes this selection bias. 
+Even so, mixing and matching improves the panel log-likelihood by more than 3,000 units over the best single search.
+
+```{python}
+#| label: mix-and-match-table
+#| eval: true
+search_evals = chain_evals.query("unit == 'shared'")
+unit_evals = chain_evals.query("unit != 'shared'")
+best_search = search_evals.loc[search_evals["logLik"].idxmax()]
+best_per_unit = unit_evals.loc[unit_evals.groupby("unit")["logLik"].idxmax()]
+pd.DataFrame(
+    {
+        "Panel log-likelihood": [
+            best_search["logLik"],
+            best_per_unit["logLik"].sum(),
+            final_estimates["shared logLik"].iloc[0],
+        ],
+        "SE": [best_search["se"], np.nan, final_estimates["shared logLik se"].iloc[0]],
+    },
+    index=[
+        "Best single search",
+        "Mix and match (sum of best unit log-likelihoods)",
+        "Mix and match (re-evaluated)",
+    ],
+).round(1)
+```
+
+Every search supplies the best parameters for some units, so no single search dominates:
+
+```{python}
+#| label: mix-and-match-counts
+#| eval: true
+best_per_unit["theta_idx"].value_counts().sort_index().rename("Units").to_frame().T
+```
+
+### Unit-Level Traces
+
+The exported traces include every parameter for the 20 cities and towns studied by @he2010. 
+Below, we show the traces of four parameters for London, the largest unit, and Halesworth, a town of about 2,000 people. 
+
+```{python}
+#| label: plot-unit-traces
+#| eval: true
+#| fig-width: 9
+#| fig-height: 8
+unit_traces_long = town_traces.query("unit in ['London', 'Halesworth']").melt(
+    id_vars=["unit", "theta_idx", "iteration"],
+    value_vars=["R0", "sigmaSE", "rho", "psi"],
+)
+(
+    p9.ggplot(
+        unit_traces_long,
+        p9.aes(x="iteration", y="value", color="factor(theta_idx)"),
+    )
+    + p9.geom_line()
+    + p9.facet_grid("variable ~ unit", scales="free_y")
+    + p9.theme_minimal()
+    + p9.labs(x="Iteration", y="Value", color="Search")
+)
+```
+
+In London, the searches agree closely on the reporting rate `rho` and the reporting overdispersion `psi`. 
+Most searches estimate `R0` between 27 and 47, but two settle near 15. 
+Those two searches also have the lowest London log-likelihoods, 8 to 10 units below the best search, so they appear to be stuck near an inferior local maximum. 
+This is one reason to run several searches from different starting points. 
+The searches for Halesworth disagree more on every parameter, because the data from a small town carry less information.
+
+### Estimates Across Units
+
+Finally, we plot the final estimates of some parameters for all 1,422 units against their 1950 populations.
+
+```{python}
+#| label: plot-estimates-vs-pop
+#| eval: true
+#| fig-width: 4.5
+#| fig-height: 3.5
+#| layout: [[1, 1], [1, 1]]
+demog = pp.models.UKMeasles.subset()["demog"]
+pop_1950 = demog.query("year == 1950").set_index("unit")["pop"]
+df_plot = final_estimates.assign(pop_1950=final_estimates["unit"].map(pop_1950))
+
+for param, log_y in [("R0", True), ("iota", True), ("psi", True), ("rho", False)]:
+    p = (
+        p9.ggplot(df_plot, p9.aes(x="pop_1950", y=param))
+        + p9.geom_point(alpha=0.3, size=1)
+        + p9.scale_x_log10()
+        + (p9.scale_y_log10() if log_y else p9.scale_y_continuous())
+        + p9.theme_minimal()
+        + p9.labs(x="1950 population", y="Estimate", title=param)
+    )
+    p.show()
+```
+
+Estimates for small towns vary widely, reflecting how little information each small town's data carry. 
+Even so, some parameters show clear trends with population size: larger towns have higher estimated importation rates (`iota`) and less overdispersed reporting (`psi`). 
+Estimates of `R0` and `rho` are more consistent among large towns than among small ones. 
+Patterns like these can guide which parameters to share across units or to model as functions of covariates. 
+For example, model `002` in `pypomp` makes `iota` a function of 1950 population size.

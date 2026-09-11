@@ -130,7 +130,7 @@ We define the default parameter values and state variables first:
 ```{python}
 #| label: model-parameters
 # Model parameters
-theta_default = {
+theta_default = pp.PompParameters({
     "gamma": 20.8,  # recovery rate
     "epsilon": 19.1,  # waning immunity rate for severe infections
     "rho": 0.0,  # waning immunity rate for inapparent infections
@@ -157,7 +157,7 @@ theta_default = {
             jnp.log(jnp.array([0.184, 0.0786, 0.0584, 0.00917, 0.000208, 0.0124]))
         )
     },
-}
+})
 
 statenames = ["S", "I", "Y", "Mn", "R1", "R2", "R3", "count"]
 ```
@@ -288,7 +288,8 @@ def rproc(
 
 ### Measurement Model (`dmeas` and `rmeas`)
 
-Evaluates the likelihood of observed deaths and simulates new observations according to the measurement model described above:
+`dmeas` evaluates the log-likelihood of the observed deaths, and `rmeas` simulates new observations according to the measurement model described above. 
+`rmeas` returns a dictionary keyed by the observation names, which here is just `"deaths"`.
 
 ```{python}
 #| label: dmeas-rmeas-definition
@@ -335,7 +336,7 @@ def rmeas(
     deaths = X_["Mn"]
     tau = theta_["tau"]
     v = tau * deaths
-    return jax.random.normal(key) * v + deaths
+    return {"deaths": jax.random.normal(key) * v + deaths}
 ```
 
 ### Parameter Transformations (`to_est` and `from_est`)
@@ -460,7 +461,7 @@ RW_SD = pp.RWSigma(
         **{k: 0.0 for k in ["rho", "c", "alpha", "delta", "Y_0"]},
     },
     init_names=["S_0", "I_0", "Y_0", "R1_0", "R2_0", "R3_0"],
-)
+).geometric_cooling(a=0.5)
 
 
 # Learning rate linear warmup function.
@@ -536,7 +537,7 @@ initial_params_list = pp.Pomp.sample_params(params_box, NREPS_FITR, key=subkey)
 
 ## 5. Optimizing Parameters using IFAD
 
-We now optimize the parameters using IFAD.
+We now optimize the parameters using IFAD. 
 
 ```{python}
 #| label: run-dmop
@@ -547,7 +548,6 @@ dacca_obj.mif(
     theta=initial_params_list,
     rw_sd=RW_SD,
     M=M_MIF,
-    a=0.5,
     J=NP_FITR,
     key=subkey,
 )

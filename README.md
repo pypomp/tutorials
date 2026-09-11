@@ -17,7 +17,7 @@ This repository contains tutorials designed to help you build models and perform
 ## 📚 Tutorial & Course Catalog
 
 ### 1. [Introduction to Pypomp](https://pypomp.github.io/tutorials/intro/intro_to_pypomp.html)
-A step-by-step introduction demonstrating how to construct a POMP model (specifically, a linear Gaussian state-space model) from scratch. It guides you through state simulation, calculating log-likelihoods, and running iterated filtering (IF2) for parameter estimation.
+A step-by-step introduction demonstrating how to construct a POMP model (specifically, an AR(1) process observed with noise) from scratch. It guides you through simulation, estimating log-likelihoods with the particle filter, and running iterated filtering (IF2) for parameter estimation, checking the results against the exact answers from the Kalman filter.
 
 ### 2. [Inference for Cholera Dynamics in Dhaka using DMOP](https://pypomp.github.io/tutorials/dhaka/dhaka_tutorial.html)
 A tutorial demonstrating how to construct a POMP model for cholera dynamics in Dhaka from scratch and how to perform parameter estimation using the Differentiated Measurement Off-Parameter (DMOP) filter with the Adam optimizer.

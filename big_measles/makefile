@@ -1,7 +1,19 @@
 # Makefile for measles jobs
 
 # Declare phony targets (targets that don't represent files)
-.PHONY: gpu clean
+.PHONY: default html-docs clean gpu
+
+default: html-docs
+
+html-docs: big_measles_tutorial.html
+
+%.html: %.qmd
+	quarto render "$*.qmd" --to html
+
+clean:
+	rm -f *.html
+	rm -rf *_files .quarto
+
 
 # Default run level if not specified
 RUN_LEVEL ?= 1
@@ -25,9 +37,3 @@ endif
 gpu:
 	mkdir -p results/logs
 	RUN_LEVEL=$(RUN_LEVEL) USE_CPU=false sbatch --time=$(WALL_TIME) big_measles.sbat
-
-report:
-	cd ../../../ && quarto render lab/model_001b/search_07/report.qmd
-
-report_sbat:
-	sbatch report.sbat

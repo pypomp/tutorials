@@ -10,8 +10,9 @@ jupyter: python3
 
 [← Back to Tutorials README](../README.html)
 
-This document showcases basic functions in `pypomp`. 
-We demonstrate by building the linear Gaussian model (available as `pypomp.models.LG()`) from scratch, using it to run iterated filtering 2 (IF2) and the particle filter, and visualizing the output.
+This document showcases basic functions in `pypomp`.
+We build a simple partially observed Markov process (POMP) model from scratch, simulate data from it, estimate its likelihood with the particle filter, and estimate its parameters with iterated filtering 2 (IF2).
+Because the model is linear and Gaussian, its exact likelihood is available from the Kalman filter, so we can check the Monte Carlo answers from `pypomp` against the truth.
 
 ## Setup and Imports
 
@@ -21,190 +22,141 @@ First, we import the necessary packages.
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pypomp as pp
-from pypomp.types import *
 import pandas as pd
 import plotnine as p9
+from scipy import optimize, stats
+
+import pypomp as pp
+from pypomp.types import *
 
 print(f"pypomp version: {pp.__version__}")
 print(f"JAX version: {jax.__version__}")
 ```
 
+## The Model
+
+We use a first-order autoregressive, or AR(1), process observed with noise.
+The latent state $X_n$ evolves according to
+$$
+X_n = \phi X_{n-1} + \sigma_X \varepsilon_n, \qquad \varepsilon_n \sim \mathcal{N}(0, 1),
+$$
+and at each time $n = 1, \dots, N$ we observe
+$$
+Y_n = X_n + \sigma_Y \eta_n, \qquad \eta_n \sim \mathcal{N}(0, 1),
+$$
+where all $\varepsilon_n$ and $\eta_n$ are independent.
+We require $|\phi| < 1$ so that the process is stationary, and we draw the initial state $X_0$ from the stationary distribution $\mathcal{N}\big(0, \sigma_X^2 / (1 - \phi^2)\big)$.
+The model has three parameters: the autoregressive coefficient $\phi$, the process noise standard deviation $\sigma_X$, and the measurement noise standard deviation $\sigma_Y$.
+
 ## Defining Model Mechanics
 
-In `pypomp`, model mechanics receive parameters as a dictionary (or `ParamDict`). 
-For the linear Gaussian model, it is helpful to define a utility function to unpack these into the matrices used by the model equations. 
+A POMP model in `pypomp` is specified by up to four functions, which we call the model mechanics:
 
-```{python Define the linear Gaussian model}
-def get_matrices(theta: dict[str, float]):
-    A = jnp.array([theta["A11"], theta["A12"], theta["A21"], theta["A22"]]).reshape(
-        2, 2
-    )
-    C = jnp.array([theta["C11"], theta["C12"], theta["C21"], theta["C22"]]).reshape(
-        2, 2
-    )
+- `rinit` simulates the initial state $X_0$.
+- `rproc` simulates one step of the latent process, from $X_{n-1}$ to $X_n$.
+- `dmeas` evaluates the log-density of an observation $Y_n$ given the state $X_n$.
+- `rmeas` simulates an observation $Y_n$ given the state $X_n$.
 
-    # Ensure positive-definiteness for covariance matrices
-    def make_pd(m11_val, m12_val, m22_val):
-        m11 = jnp.maximum(m11_val, 1e-12)
-        m22 = jnp.maximum(m22_val, 1e-12)
-        limit = 0.999 * jnp.sqrt(m11 * m22)
-        m_off_clipped = jnp.clip(m12_val, -limit, limit)
-        return jnp.array([[m11, m_off_clipped], [m_off_clipped, m22]])
+`rinit`, `rproc`, and `rmeas` return dictionaries keyed by the names of the state or observation variables, and `dmeas` returns a scalar log-density.
+Parameters, states, and observations are passed in as dictionaries as well, so the model code can refer to each quantity by name.
 
-    Q = make_pd(theta["Q11"], theta["Q12"], theta["Q22"])
-    R = make_pd(theta["R11"], theta["R12"], theta["R22"])
-    return A, C, Q, R
-```
-
-Next, we define the model mechanics, which need to have a specific set of arguments and a specific output format. 
-This is required so the functions can properly slot in to the internal `pypomp` code.
-For example, `pypomp` needs to know the order in which to pass arguments to the model mechanics.
-There are two ways `pypomp` can determine the order of arguments to pass to the model mechanics:
-
-1. The `Pomp` constructor checks if the model mechanics functions have particular argument names that appear in a predetermined order, in which case internal functions can pass arguments to the functions in a default order without issue.
-
-2. Failing that, it checks if they have particular type hints included in `pypomp.types`, in which case it passes arguments in the order specified by the type hints.
-
-For demonstration, we use both the type hints and the default argument names.
-
-Although every expected argument must be included, it is not necessary for the function to use all of them. 
+`pypomp` calls these functions internally, so it needs to know which argument is which.
+It matches arguments using the type hints in `pypomp.types` (such as `ParamDict` and `RNGKey`) or, for arguments without these hints, the default argument names (`theta_`, `key`, `X_`, `Y_`, `covars`, `t`, `t0`, and `dt`).
+We use both below.
+Every expected argument must be present, even if the function does not use it.
+Our model has no covariates and its dynamics do not depend on time, so `covars`, `t`, `t0`, and `dt` go unused here.
 
 ```{python}
-def rinit(
-    theta_: ParamDict,
-    key: RNGKey,
-    covars: CovarDict = None,
-    t0: InitialTimeFloat = None,
-):
-    """Initial state process simulator for the linear Gaussian model"""
-    A, C, Q, R = get_matrices(theta_)
-    res = jax.random.multivariate_normal(key=key, mean=jnp.array([0, 0]), cov=Q)
-    return {"X1": res[0], "X2": res[1]}
+def rinit(theta_: ParamDict, key: RNGKey, covars: CovarDict, t0: InitialTimeFloat):
+    """Draw X_0 from the stationary distribution of the AR(1) process."""
+    sd = theta_["sigma_x"] / jnp.sqrt(1 - theta_["phi"] ** 2)
+    return {"X": sd * jax.random.normal(key)}
 
 
 def rproc(
     X_: StateDict,
     theta_: ParamDict,
     key: RNGKey,
-    covars: CovarDict = None,
-    t: TimeFloat = None,
-    dt: StepSizeFloat = None,
+    covars: CovarDict,
+    t: TimeFloat,
+    dt: StepSizeFloat,
 ):
-    """Process simulator for the linear Gaussian model"""
-    A, C, Q, R = get_matrices(theta_)
-    X_arr = jnp.array([X_["X1"], X_["X2"]])
-    res = jax.random.multivariate_normal(key=key, mean=A @ X_arr, cov=Q)
-    return {"X1": res[0], "X2": res[1]}
+    """Advance the latent AR(1) process by one step."""
+    X = theta_["phi"] * X_["X"] + theta_["sigma_x"] * jax.random.normal(key)
+    return {"X": X}
 
 
 def dmeas(
     Y_: ObservationDict,
     X_: StateDict,
     theta_: ParamDict,
-    covars: CovarDict = None,
-    t: TimeFloat = None,
+    covars: CovarDict,
+    t: TimeFloat,
 ):
-    """Measurement model distribution for the linear Gaussian model (log-likelihood)"""
-    A, C, Q, R = get_matrices(theta_)
-    X_arr = jnp.array([X_["X1"], X_["X2"]])
-    Y_arr = jnp.array([Y_["Y1"], Y_["Y2"]])
-    return jax.scipy.stats.multivariate_normal.logpdf(Y_arr, C @ X_arr, R)
+    """Log-density of the observation given the latent state."""
+    return jax.scipy.stats.norm.logpdf(Y_["Y"], loc=X_["X"], scale=theta_["sigma_y"])
 
 
 def rmeas(
     X_: StateDict,
     theta_: ParamDict,
     key: RNGKey,
-    covars: CovarDict = None,
-    t: TimeFloat = None,
+    covars: CovarDict,
+    t: TimeFloat,
 ):
-    """Measurement simulator for the linear Gaussian model"""
-    A, C, Q, R = get_matrices(theta_)
-    X_arr = jnp.array([X_["X1"], X_["X2"]])
-    return jax.random.multivariate_normal(key=key, mean=C @ X_arr, cov=R)
+    """Simulate an observation given the latent state."""
+    return {"Y": X_["X"] + theta_["sigma_y"] * jax.random.normal(key)}
 ```
+
+Each function handles a single particle and a single parameter set.
+`pypomp` uses JAX to vectorize them over particles and parameter sets and to compile them, so there is no need to write loops.
 
 ## Parameter Transformations
 
-The algorithms implemented in `pypomp` for searching the parameter space assume that the parameters exist on the real line. 
-To handle parameters that are constrained, such as the diagonal elements of $Q$ and $R$ which must be positive, we write functions describing how to transform the parameters to the real line and back and store them in a `ParTrans` object. 
+The algorithms `pypomp` uses to search the parameter space assume that the parameters can take any real value.
+Our parameters are constrained: $\phi$ lies in $(-1, 1)$ and the standard deviations are positive.
+We therefore write functions that map the parameters to an unconstrained "estimation scale" and back, and store them in a `ParTrans` object.
+Here, we use the inverse hyperbolic tangent for $\phi$ and the logarithm for the standard deviations.
 
 ```{python}
-def to_est(theta):
-    new_theta = {**theta}
-    for name in "ACQR":
-        new_theta[f"{name}11"] = jnp.log(theta[f"{name}11"])
-        new_theta[f"{name}22"] = jnp.log(theta[f"{name}22"])
-    return new_theta
+def to_est(theta: ParamDict) -> ParamDict:
+    return {
+        "phi": jnp.arctanh(theta["phi"]),
+        "sigma_x": jnp.log(theta["sigma_x"]),
+        "sigma_y": jnp.log(theta["sigma_y"]),
+    }
 
 
-def from_est(theta):
-    new_theta = {**theta}
-    for name in "ACQR":
-        new_theta[f"{name}11"] = jnp.exp(theta[f"{name}11"])
-        new_theta[f"{name}22"] = jnp.exp(theta[f"{name}22"])
-    return new_theta
+def from_est(theta: ParamDict) -> ParamDict:
+    return {
+        "phi": jnp.tanh(theta["phi"]),
+        "sigma_x": jnp.exp(theta["sigma_x"]),
+        "sigma_y": jnp.exp(theta["sigma_y"]),
+    }
 
 
 ptrans = pp.ParTrans(to_est=to_est, from_est=from_est)
 ```
 
-## Parameter Sampling & Initialization
-
-The `Pomp` constructor also requires model parameters, provided as a `PompParameters` object. 
-A `PompParameters` object can contain multiple parameter sets, in which case methods like `pfilter` will vectorize over each set.
-Here, we use `Pomp.sample_params()` to generate a `PompParameters` object containing sets of parameters sampled from uniform distributions with bounds passed as a dictionary of length-2 tuples. 
-
-We also generate a pseudorandom number generation (PRNG) key to be used with JAX.
-
-```{python}
-theta = {
-    "A11": jnp.cos(0.2),
-    "A12": -jnp.sin(0.2),
-    "A21": jnp.sin(0.2),
-    "A22": jnp.cos(0.2),
-    "C11": 1.0,
-    "C12": 0.0,
-    "C21": 0.0,
-    "C22": 1.0,
-    "Q11": 0.01,
-    "Q12": 1e-6,
-    "Q22": 0.01,
-    "R11": 0.1,
-    "R12": 0.01,
-    "R22": 0.1,
-}
-param_bounds = {k: (v * 0.9, v * 1.1) for k, v in theta.items()}
-n = 5  # Number of parameter sets to sample
-key = jax.random.key(1)
-key, subkey = jax.random.split(key)
-theta = pp.Pomp.sample_params(param_bounds, n, subkey)
-```
-
 ## Model Construction & Simulation
 
-We finally construct the POMP model object. 
-Observation times are provided to the `Pomp` constructor via the `pandas.DataFrame` row index.
-If covariates were provided, the times at which the covariates were observed would also be provided by the `pandas.DataFrame` row index. 
-Each argument to `Pomp` is accessible from the object as an attribute. 
+We now construct the POMP model object with `pp.Pomp`.
+Parameters are supplied as a `PompParameters` object, which can hold one or more parameter sets.
+Observation times are given by the row index of the data frame of observations, and `t0` sets the time of the initial state.
+`nstep=1` tells `pypomp` to call `rproc` once per observation interval.
 
 We do not have real data in this example, so we generate our own.
-We do this by creating a dummy data frame with the desired observation times and column names, and then we generate the observations using `Pomp.simulate()`, which returns a new `Pomp` object with simulated data.
+We first construct the model with a placeholder data frame that has the desired observation times and column name.
 
 ```{python Make the model}
-key, subkey = jax.random.split(key)
-T = 100
-ys = pd.DataFrame(
-    np.zeros((T, 2)),
-    index=range(1, T + 1),
-    columns=pd.Index(["Y1", "Y2"]),
-)
+theta_true = {"phi": 0.9, "sigma_x": 1.0, "sigma_y": 1.0}
+N = 200
+ys_placeholder = pd.DataFrame({"Y": np.zeros(N)}, index=np.arange(1.0, N + 1))
 
-LG_obj_empty = pp.Pomp(
-    ys=ys,
-    theta=theta,
-    statenames=["X1", "X2"],
+ar1_template = pp.Pomp(
+    ys=ys_placeholder,
+    theta=pp.PompParameters(theta_true),
+    statenames=["X"],
     t0=0.0,
     rinit=rinit,
     rproc=rproc,
@@ -213,92 +165,242 @@ LG_obj_empty = pp.Pomp(
     nstep=1,
     par_trans=ptrans,
 )
-LG_obj = LG_obj_empty.simulate(key=subkey, as_pomp=True)
-LG_obj.theta = theta
 ```
 
-## Inference and Estimation
+JAX handles random numbers differently from NumPy.
+Instead of a global random state, every random function takes an explicit pseudorandom number generator (PRNG) key, and the same key always gives the same result.
+We create a key and split it whenever we need a new one.
 
-Unlike the R family of POMP packages, some `Pomp` methods including `pfilter()`, `mif()`, and `train()` yield results by modifying the object in place instead of returning new objects.
-Results are stored in a list under `LG_obj.results_history`, where each element corresponds to one method call. 
-Each element includes results such as the log-likelihood and parameter estimates when applicable as well as the inputs used for the function call, so it is easy to keep track of how the results were calculated. 
-If multiple parameter sets are supplied in a list as an argument, the method evaluates at each set and the results for each are stored.
+`Pomp.simulate()` returns data frames of simulated states and observations.
 
-We implement IF2 as the `Pomp` method `mif()`. 
-The random walk standard deviations are controlled via an `RWSigma` object. 
-
-The `RWSigma` constructor takes a dictionary of standard deviations and an optional list of `init_names`. 
-Parameters in `init_names` are perturbed only at the initial time $t_0$, while others are perturbed at every time step.
-In this case, we perturb all parameters at every time step.
-We run the `geometric_cooling()` method to set the cooling schedule for the random walk.
-
-```{python Define the random walk standard deviations}
-theta_names = LG_obj.canonical_param_names
-rw_sd = pp.RWSigma(
-    sigmas={k: 0.01 for k in theta_names}
-).geometric_cooling(a=0.5)
+```{python}
+key = jax.random.key(1)
+key, subkey = jax.random.split(key)
+X_sim, Y_sim = ar1_template.simulate(key=subkey)
+Y_sim.head()
 ```
 
-Notably, `Pomp` methods such as `mif()` can update attributes other than `results_history`.
-For example, `LG_obj.mif()` and `LG_obj.train()` replace `LG_obj.theta` with the parameter estimate from the end of the last iteration. 
-Furthermore, each method that takes a key as an argument stores an unused child key under `LG_obj.fresh_key` that later method calls can use by default when a key argument is not given. 
-Consequently, the following sequence of method calls is valid.
+```{python}
+#| fig-width: 8
+#| fig-height: 3.5
+(
+    p9.ggplot()
+    + p9.geom_line(p9.aes(x="time", y="X", color='"latent state X"'), data=X_sim)
+    + p9.geom_point(p9.aes(x="time", y="Y", color='"observation Y"'), data=Y_sim, size=1)
+    + p9.scale_color_manual(values=["black", "#d95f02"])
+    + p9.theme_minimal()
+    + p9.labs(x="Time", y="Value", color="")
+)
+```
+
+Calling `simulate()` again with the same key and `as_pomp=True` reproduces the same draw, but returns a new `Pomp` object with the simulated observations as its data.
+This is the model we fit for the rest of the tutorial.
+
+```{python}
+ar1 = ar1_template.simulate(key=subkey, as_pomp=True)
+np.allclose(ar1.ys["Y"], Y_sim["Y"])
+```
+
+## Likelihood Evaluation with the Particle Filter
+
+The likelihood of a POMP model is usually intractable, so `pypomp` estimates it with the particle filter, which is implemented as the `Pomp` method `pfilter()`.
+The argument `J` sets the number of particles and `reps` sets the number of independent replicate filters.
+
+Unlike the R family of POMP packages, some `Pomp` methods, including `pfilter()`, `mif()`, and `train()`, store their results in the object instead of returning new objects.
+Results are appended to the list `ar1.results_history`, with one element per method call.
+Each element contains the outputs, such as log-likelihood estimates, and the inputs used for the call, so it is easy to keep track of how each result was produced.
+The method `results()` returns the results of one call as a tidy data frame (by default, the most recent call).
+The log-likelihood reported by `pfilter()` averages the replicates on the likelihood scale, and `se` is its Monte Carlo standard error.
+
+Each method that takes a key also stores an unused child key under `ar1.fresh_key`, which later calls use by default when no key is given.
+Below, we give the first call a key and let the others use `fresh_key`.
 
 ```{python}
 key, subkey = jax.random.split(key)
-LG_obj.mif(J=200, M=200, rw_sd=rw_sd, key=subkey)
-LG_obj.pfilter(J=200, reps=10)
+ar1.pfilter(J=100, reps=10, key=subkey)
+ar1.results()
+```
+
+To check this estimate, we compute the exact log-likelihood with the Kalman filter, which is only a few lines of code for this model.
+
+```{python}
+def kalman_loglik(theta: dict[str, float], y: np.ndarray) -> float:
+    """Exact log-likelihood of the AR(1) plus noise model."""
+    phi, sigma_x, sigma_y = theta["phi"], theta["sigma_x"], theta["sigma_y"]
+    m, P = 0.0, sigma_x**2 / (1 - phi**2)  # stationary distribution of X_0
+    loglik = 0.0
+    for y_n in y:
+        m, P = phi * m, phi**2 * P + sigma_x**2  # predict X_n
+        S = P + sigma_y**2  # predictive variance of Y_n
+        loglik += stats.norm.logpdf(y_n, m, np.sqrt(S))
+        K = P / S  # Kalman gain
+        m, P = m + K * (y_n - m), (1 - K) * P  # update given Y_n
+    return loglik
+
+
+y = ar1.ys["Y"].to_numpy()
+exact_loglik = kalman_loglik(theta_true, y)
+exact_loglik
+```
+
+The particle filter estimate becomes more precise as we increase the number of particles.
+The particle filter's estimate of the likelihood is unbiased, but taking its logarithm introduces a small downward bias, which also shrinks as the number of particles grows.
+
+```{python}
+for J in [100, 1_000, 10_000]:
+    ar1.pfilter(J=J, reps=10)
+
+pd.DataFrame(
+    {
+        "J": [100, 1_000, 10_000],
+        "logLik": [ar1.results(i)["logLik"].item() for i in [-3, -2, -1]],
+        "se": [ar1.results(i)["se"].item() for i in [-3, -2, -1]],
+        "exact logLik": exact_loglik,
+    }
+)
+```
+
+## Parameter Estimation with Iterated Filtering
+
+We now pretend that we do not know the parameters and estimate them.
+We implement IF2 as the `Pomp` method `mif()`.
+IF2 adds random walk perturbations to the parameters and runs a particle filter on the perturbed model, gradually shrinking, or "cooling", the perturbations over repeated iterations until the parameters settle near the maximum likelihood estimate (MLE).
+
+Starting a search from several different parameter values is good practice, because it explores more of the parameter space and shows whether the searches agree.
+`Pomp.sample_params()` draws parameter sets from uniform distributions with bounds given as a dictionary of length-2 tuples and returns them in a `PompParameters` object.
+Methods such as `mif()` and `pfilter()` run on every parameter set in a `PompParameters` object at once, so there is no need to make a new `Pomp` object for each set.
+In fact, methods like `mif()` and `pfilter()` are optimized to run substantially faster when operating on multiple parameter sets at once instead of running them sequentially.
+
+```{python}
+key, subkey = jax.random.split(key)
+starts = pp.Pomp.sample_params(
+    {"phi": (0.0, 0.95), "sigma_x": (0.2, 3.0), "sigma_y": (0.2, 3.0)},
+    n=8,
+    key=subkey,
+)
+```
+
+The random walk standard deviations are set with an `RWSigma` object and apply on the estimation scale.
+Parameters listed in its optional `init_names` argument would be perturbed only at the initial time $t_0$, which is useful for parameters that only affect the initial state.
+Our model has no such parameters, so we perturb all of them at every time step.
+`geometric_cooling(a=0.5)` gradually shrinks the perturbations, totaling to a factor of 0.5 every 50 iterations.
+
+```{python Define the random walk standard deviations}
+rw_sd = pp.RWSigma(
+    sigmas={"phi": 0.02, "sigma_x": 0.02, "sigma_y": 0.02}
+).geometric_cooling(a=0.5)
+```
+
+We pass the starting values through the `theta` argument, run `M=100` iterations of IF2 with `J=1000` particles, and then evaluate the resulting estimates with the particle filter.
+`mif()` also replaces `ar1.theta` with the parameter estimates from its last iteration, so the following `pfilter()` call evaluates these estimates by default.
+
+```{python}
+ar1.mif(J=1_000, M=100, rw_sd=rw_sd, theta=starts)
+ar1.pfilter(J=2_000, reps=10)
+ar1.results()
 ```
 
 ::: {.callout-note}
-JAX's GPU acceleration enables `pypomp` to easily handle particle counts ($J$) in the tens of thousands, much larger numbers of IF2 iterations ($M$), more filter replicates (`reps`), and many more parallel parameter searches simultaneously. However, this introductory example uses small values so that it can be quickly run on a standard laptop CPU.
+JAX's GPU acceleration enables `pypomp` to easily handle particle counts ($J$) in the tens of thousands, many more IF2 iterations ($M$), more filter replicates (`reps`), and many more parallel parameter searches.
+This introductory example uses small values so that it runs quickly on a laptop CPU.
 :::
 
 ## Analyzing Results & Diagnostics
 
-One way to access the results of a method call is by using the method `results()`.
-This returns a tidy data frame of results stored in `LG_obj.results_history` at a given index passed to `results()` (defaults to -1, the last method call).
-The data frame includes the log-likelihood and parameter estimates from the method call.
+`ar1.traces()` returns the parameter values and log-likelihood estimates at each iteration of every search as a data frame, including the log-likelihoods from `pfilter()` calls.
+The log-likelihood is not computed before the first iteration, so iteration 0 has a missing value.
 
 ```{python}
-LG_obj.results()
+traces = ar1.traces()
+traces.dropna(subset="logLik").tail()
 ```
 
-We can also use `LG_obj.traces()` to access the traces of the parameters and log-likelihood as a data frame.
-This includes log-likelihood estimates from `pfilter()` as well. 
-Since the log-likelihood is not calculated before the first iteration of the estimation algorithm, the starting values (iteration 0) contain an NA for the log-likelihood.
-We can remove these NA values using `.dropna()` and display or plot the traces to visualize the convergence of the algorithm.
+Since this model has an exact likelihood, we can also find the exact MLE by numerically maximizing the Kalman filter log-likelihood, working on the same estimation scale.
 
 ```{python}
-LG_obj.traces().dropna(subset="logLik")
+def neg_loglik(z):
+    theta = {"phi": np.tanh(z[0]), "sigma_x": np.exp(z[1]), "sigma_y": np.exp(z[2])}
+    return -kalman_loglik(theta, y)
+
+
+opt = optimize.minimize(neg_loglik, x0=np.zeros(3), method="Nelder-Mead")
+mle = {"phi": np.tanh(opt.x[0]), "sigma_x": np.exp(opt.x[1]), "sigma_y": np.exp(opt.x[2])}
+mle_loglik = -opt.fun
 ```
 
+The plots below show the IF2 traces for each search.
+The dashed line marks the exact MLE, and the dotted line in the parameter plot marks the true parameter values.
+The log-likelihoods computed during IF2 are for the perturbed model, so they are noisier than, and not directly comparable to, those from `pfilter()`.
+
 ```{python}
+#| fig-width: 8
+#| fig-height: 3.5
 (
     p9.ggplot(
-        LG_obj.traces().dropna(subset="logLik").reset_index(),
+        traces.query("method == 'mif' and iteration > 0"),
         p9.aes(x="iteration", y="logLik", color="factor(theta_idx)"),
     )
     + p9.geom_line()
+    + p9.geom_hline(yintercept=mle_loglik, linetype="dashed")
+    + p9.coord_cartesian(ylim=(mle_loglik - 25, mle_loglik + 5))
     + p9.theme_minimal()
-    + p9.labs(x="Iteration", y="Log-Likelihood", title="IF2 Convergence", color="Chain")
+    + p9.labs(x="Iteration", y="Log-likelihood", title="IF2 Convergence", color="Search")
 )
 ```
-
 
 ```{python}
-traces_long = (
-    LG_obj.traces()
-    .reset_index()
-    .melt(id_vars=["iteration", "theta_idx"], value_vars=theta_names)
+#| fig-width: 9
+#| fig-height: 3.5
+param_names = list(theta_true)
+traces_long = traces.query("method == 'mif'").melt(
+    id_vars=["iteration", "theta_idx"], value_vars=param_names
 )
-
+reference = pd.DataFrame(
+    {
+        "variable": param_names,
+        "Truth": [theta_true[k] for k in param_names],
+        "MLE": [mle[k] for k in param_names],
+    }
+).melt(id_vars=["variable"], var_name="Reference", value_name="intercept")
 (
-    p9.ggplot(traces_long, p9.aes(x="iteration", y="value", color="factor(theta_idx)"))
-    + p9.geom_line()
+    p9.ggplot(traces_long, p9.aes(x="iteration", y="value"))
+    + p9.geom_line(p9.aes(color="factor(theta_idx)"))
+    + p9.geom_hline(
+        p9.aes(yintercept="intercept", linetype="Reference"),
+        data=reference,
+    )
+    + p9.scale_linetype_manual(values={"Truth": "dotted", "MLE": "dashed"})
     + p9.facet_wrap("~variable", scales="free_y")
     + p9.theme_minimal()
-    + p9.theme(figure_size=(10, 8))
-    + p9.labs(x="Iteration", y="Value", title="Parameter Traces", color="Chain")
+    + p9.labs(
+        x="Iteration",
+        y="Value",
+        title="Parameter Traces",
+        color="Search",
+        linetype="Reference",
+    )
 )
 ```
+
+Finally, we compare the best IF2 estimate with the exact MLE and the true parameter values, evaluating the exact log-likelihood at each.
+The best IF2 estimate should be close to the exact MLE; any remaining gap reflects Monte Carlo error and the limited number of iterations.
+The gap between the MLE and the truth is statistical error, which would shrink with more data.
+
+```{python}
+best = ar1.results().sort_values("logLik", ascending=False).iloc[0]
+best_if2 = {k: best[k] for k in param_names}
+pd.DataFrame(
+    [
+        {**theta_true, "exact logLik": kalman_loglik(theta_true, y)},
+        {**mle, "exact logLik": mle_loglik},
+        {**best_if2, "exact logLik": kalman_loglik(best_if2, y)},
+    ],
+    index=["truth", "exact MLE", "best IF2 estimate"],
+)
+```
+
+## Next Steps
+
+- The [Dhaka cholera tutorial](../dhaka/dhaka_tutorial.html) builds a nonlinear model with covariates and fits it with a combination of IF2 and gradient-based optimization.
+- The [UK measles tutorial](../big_measles/big_measles_tutorial.html) fits a panel model with 1,422 units.
+- The [SBIED short course](../sbied/) covers simulation-based inference for POMP models in depth.
