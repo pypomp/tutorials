@@ -65,15 +65,12 @@ fresh: clean
 skip_code:
 	quarto render ms.qmd --to pdf --no-execute
 
-# Create a virtual Python environment
+# Create or sync virtual Python environment
 venv:
-	@echo "Creating virtual environment in $(VENV_DIR)..."
-	$(PYTHON) -m venv $(VENV_DIR)
-	@echo "Virtual environment created."
-	@echo "Installing dependencies..."
-	$(PIP) install --upgrade pip
-	$(PIP) install -r requirements.txt
+	@echo "Synchronizing virtual environment with uv..."
+	uv sync --project ..
 	@echo "Dependencies installed."
+
 
 
 
