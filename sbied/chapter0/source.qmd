@@ -206,7 +206,7 @@ import pypomp as pp
 import jax
 import matplotlib.pyplot as plt
 
-d = pp.models.dhaka() # constructs an example POMP model
+d = pp.models.dhaka() # an example POMP model
 key = jax.random.key(1)
 n_sims = 1
 X_sims, Y_sims = d.simulate(key=key, nsim=n_sims)

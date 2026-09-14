@@ -23,6 +23,13 @@ format:
     toc: true  
     slide-level: 3
     highlight-style: tango  
+    header-includes: |
+      % Shade code line by line instead of in one framed box, so that a long
+      % code block can break across the frames of an allowframebreaks slide.
+      \renewenvironment{Shaded}{\par\nointerlineskip}{\par}
+      \renewcommand{\FancyVerbFormatLine}[1]{\makebox[0pt][l]{\hspace*{-\fboxsep}\textcolor{shadecolor}{\rule[-\dp\strutbox]{\dimexpr\linewidth+2\fboxsep\relax}{\baselineskip}}}#1}
+      % print cell output at the same size as the code
+      \makeatletter\renewcommand{\verbatim@font}{\scriptsize\ttfamily}\makeatother
     output-file: exercises_beamer.pdf
   
   pdf:
@@ -129,7 +136,7 @@ covars.index = covars.index.astype(float)
 covars.index.name = "time"
 covars = covars.sort_index()
 
-print(f"Covariate columns: {list(covars.columns)}")
+print("Covariate columns:", ", ".join(covars.columns))
 print(f"Time range: {covars.index[0]:.4f} to {covars.index[-1]:.4f}")
 ```
 
@@ -188,7 +195,8 @@ def rproc(X_, theta_, key, covars, t, dt):
     
     key, subkey = jax.random.split(key)
     epsilon = jax.lax.cond(var_epsilon < 1e-6, lambda _: 1.0,
-        lambda _: pp.random.fast_gamma(subkey, 1.0/var_epsilon) * var_epsilon, operand=None)
+        lambda _: pp.random.fast_gamma(subkey, 1.0/var_epsilon) * var_epsilon,
+        operand=None)
     
     lambda_n = lambda_bar * epsilon
     p = jnp.exp(-(delta + lambda_n) / 12.0)
@@ -224,7 +232,8 @@ def dmeas(Y_, X_, theta_, covars, t):
     sd = jnp.sqrt((tau * IO)**2 + jnp.maximum(mu, 0.0) + 1.0)
     
     def _cdf(z):
-        return 0.5 * (1.0 + jax.scipy.special.erf((z - mu) / (jnp.sqrt(2.0) * sd)))
+        return 0.5 * (1.0 + jax.scipy.special.erf(
+            (z - mu) / (jnp.sqrt(2.0) * sd)))
     
     tol = 1e-18
     prob = jax.lax.cond(
@@ -264,7 +273,8 @@ def rinit(theta_, key, covars, t0):
 ```{python}
 #| echo: true
 # Create Pomp object
-data_filtered = data[(data['time'] > t0 + 0.01) & (data['time'] < 1953 + 1/12 + 0.01)].copy()
+data_filtered = data[(data['time'] > t0 + 0.01)
+                     & (data['time'] < 1953 + 1/12 + 0.01)].copy()
 ys = data_filtered[['cases']].copy()
 ys.index = data_filtered['time']
 ys = ys.loc[ys.index.intersection(covars.index)]
@@ -345,7 +355,8 @@ print("- Correlation with other parameters (e.g., rho)")
 
 ```{python}
 #| echo: true
-# Alternative: Also estimate initial baby susceptibles as fractions
+# Alternative: Also estimate initial baby susceptibles
+# as fractions
 def rinit_v2(theta_, key, covars, t0):
     """
     Modified rinit: SB values scaled by a survival fraction.
@@ -622,7 +633,8 @@ if hasattr(pf_result, 'CLL') and not pf_result.CLL().empty:
         pn.ggplot(df_cll, pn.aes(x='time', y='CLL'))
         + pn.geom_line(color='blue', size=0.5)
         + pn.geom_hline(yintercept=cll_mean, color='red', linetype='dashed')
-        + pn.geom_hline(yintercept=cll_mean - 2 * cll_std, color='orange', linetype='dotted')
+        + pn.geom_hline(yintercept=cll_mean - 2 * cll_std,
+                        color='orange', linetype='dotted')
         + pn.labs(
             x='Year',
             y='Conditional Log-Likelihood',
@@ -713,7 +725,8 @@ else:
 #| echo: true
 print("Cooling fraction assessment:")
 print("")
-print("The cooling parameter 'a' controls how quickly perturbations decrease.")
+print("The cooling parameter 'a' controls how quickly"
+      " perturbations decrease.")
 print("")
 print("Signs of a being too small:")
 print("  - Parameter traces flatten early (freeze)")
@@ -767,7 +780,8 @@ strategies = {
 
 for name, params in strategies.items():
     print(f"{name}:")
-    print(f"  Np={params['Np']}, Nmif={params['Nmif']}, Nstarts={params['Nstarts']}")
+    print(f"  Np={params['Np']}, Nmif={params['Nmif']}, "
+          f"Nstarts={params['Nstarts']}")
 ```
 
 ### Two-Stage Search Implementation {.allowframebreaks}
@@ -778,13 +792,15 @@ print("Two-stage search (recommended for 2-hour budget):")
 print("")
 print("Stage 1 (exploration): 1 hour")
 stage1 = {'Np': 1000, 'Nmif': 50, 'Nstarts': 50}
-print(f"  Np={stage1['Np']}, Nmif={stage1['Nmif']}, Nstarts={stage1['Nstarts']}")
+print(f"  Np={stage1['Np']}, Nmif={stage1['Nmif']}, "
+      f"Nstarts={stage1['Nstarts']}")
 print(f"  Goal: Find promising regions")
 print("")
 
 print("Stage 2 (refinement): 1 hour")
 stage2 = {'Np': 2000, 'Nmif': 100, 'Nstarts': 10}
-print(f"  Np={stage2['Np']}, Nmif={stage2['Nmif']}, Nstarts={stage2['Nstarts']}")
+print(f"  Np={stage2['Np']}, Nmif={stage2['Nmif']}, "
+      f"Nstarts={stage2['Nstarts']}")
 print(f"  Goal: Refine top results from Stage 1")
 ```
 

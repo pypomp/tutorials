@@ -434,6 +434,8 @@ par_trans = pp.ParTrans(
     to_est=to_est, from_est=from_est)
 ```
 
+##
+
 When we later relax the assumption on $\mu_{IR}$, we will need a second transformation that also puts $\mu_{IR}$ on the log scale:
 
 ```{python}
@@ -1526,9 +1528,9 @@ How sensitive are the results to these choices?
 
 **3.** **Parameter transformations** via `ParTrans(to_est, from_est)` ensure the random walk respects constraints (e.g., `log` for positive parameters, `logit` for probabilities).
 
-**4.** `pypomp` API for IF2: `mif(J=..., M=..., rw_sd=..., key=...)` runs IF2, `RWSigma(sigmas={...}, init_names=[...]).geometric_cooling(a=...)` specifies perturbations and their cooling, `results_history.last().traces_da` gets parameter traces.
+**4.** `pypomp` API for IF2: `mif()` runs IF2, `RWSigma(...).geometric_cooling(a=...)` sets the perturbations and their cooling, and `traces_da` holds the parameter traces.
 
-**5.** Passing a **list of parameter dicts** to `Pomp` runs all replicates in parallel on the GPU.
+**5.** Passing a **list of parameter dicts** (as `pp.PompParameters`) to `Pomp` runs all replicates in parallel on the GPU.
 
 **6.** Always evaluate likelihood at IF2 endpoints with `pfilter`. Use `mcap` for Monte Carlo-adjusted profile confidence intervals.
 

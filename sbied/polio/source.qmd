@@ -23,6 +23,13 @@ format:
     toc: true  
     slide-level: 3
     highlight-style: tango  
+    header-includes: |
+      % Shade code line by line instead of in one framed box, so that a long
+      % code block can break across the frames of an allowframebreaks slide.
+      \renewenvironment{Shaded}{\par\nointerlineskip}{\par}
+      \renewcommand{\FancyVerbFormatLine}[1]{\makebox[0pt][l]{\hspace*{-\fboxsep}\textcolor{shadecolor}{\rule[-\dp\strutbox]{\dimexpr\linewidth+2\fboxsep\relax}{\baselineskip}}}#1}
+      % print cell output at the same size as the code
+      \makeatletter\renewcommand{\verbatim@font}{\scriptsize\ttfamily}\makeatother
     output-file: slides.pdf
   
   pdf:
@@ -184,7 +191,8 @@ import matplotlib.pyplot as plt
 np.random.seed(594709947)
 
 # Load the data
-# Note: You can download from https://kingaa.github.io/sbied/polio/polio_wisconsin.csv
+# Note: You can download from
+# https://kingaa.github.io/sbied/polio/polio_wisconsin.csv
 data = pd.read_csv("polio_wisconsin.csv", comment='#')
 print(data.head())
 ```
@@ -311,7 +319,7 @@ covars.index = covars.index.astype(float)
 covars.index.name = "time"
 covars = covars.sort_index()
 
-print(f"Covariate columns: {list(covars.columns)}")
+print("Covariate columns:", ", ".join(covars.columns))
 print(f"Time range: {covars.index[0]:.4f} to {covars.index[-1]:.4f}")
 print(covars.head())
 ```
@@ -447,7 +455,8 @@ def dmeas(Y_, X_, theta_, covars, t):
     sd = jnp.sqrt((tau * IO)**2 + jnp.maximum(mu, 0.0) + 1.0)
     
     def _cdf(z):
-        return 0.5 * (1.0 + jax.scipy.special.erf((z - mu) / (jnp.sqrt(2.0) * sd)))
+        return 0.5 * (1.0 + jax.scipy.special.erf(
+            (z - mu) / (jnp.sqrt(2.0) * sd)))
     
     tol = 1e-18
     prob = jax.lax.cond(
@@ -514,7 +523,8 @@ def rinit(theta_, key, covars, t0):
 import pypomp as pp
 
 # Filter data to the analysis period
-data_filtered = data[(data['time'] > t0 + 0.01) & (data['time'] < 1953 + 1/12 + 0.01)].copy()
+data_filtered = data[(data['time'] > t0 + 0.01)
+                     & (data['time'] < 1953 + 1/12 + 0.01)].copy()
 
 # Create observations DataFrame
 ys = data_filtered[['cases']].copy()
@@ -657,7 +667,8 @@ np.random.seed(12345)
 n_starts = min(5, Nreps_local)
 theta_list = [params_guess.copy() for _ in range(n_starts)]
 
-polio.mif(J=Np, M=Nmif, key=key, rw_sd=rw_sd, theta=pp.PompParameters(theta_list))
+polio.mif(J=Np, M=Nmif, key=key, rw_sd=rw_sd,
+          theta=pp.PompParameters(theta_list))
 
 mif_result = polio.results_history[-1]
 print(f"MIF completed")

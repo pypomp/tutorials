@@ -593,7 +593,11 @@ else:
 print(f"Mean: {np.mean(logliks):.1f}",
       f"SE: {np.std(logliks):.1f}")
 ```
+
+##
+
 Individual log-likelihoods:
+
 ```{python}
 arr_str = np.array2string(logliks.reshape(2,-1),
     separator=' ',
@@ -628,7 +632,7 @@ Alternatively, the `to_dataframe()` method used above returns the results as a d
 
 ```{python}
 #| echo: true
-print(result_df)
+print(result_df.T)
 ```
 
 

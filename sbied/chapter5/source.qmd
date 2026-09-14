@@ -21,6 +21,10 @@ format:
     slide-level: 2
     header-includes: |
       \setbeamertemplate{footline}[page number]
+      % Shade code line by line instead of in one framed box, so that a long
+      % code block can break across the frames of an allowframebreaks slide.
+      \renewenvironment{Shaded}{\par\nointerlineskip}{\par}
+      \renewcommand{\FancyVerbFormatLine}[1]{\makebox[0pt][l]{\hspace*{-\fboxsep}\textcolor{shadecolor}{\rule[-\dp\strutbox]{\dimexpr\linewidth+2\fboxsep\relax}{\baselineskip}}}#1}
     output-file: slides.pdf
   pdf:
     colorlinks: true
@@ -200,12 +204,11 @@ data_proj = ccrs.PlateCarree() # Data is in Lat/Long
 
 ```
 
-## Map of cities in the analysis
+## Map of the 20 cities in @He2010
 
 ```{python}
 #| label: locations
 #| echo: false
-#| fig-cap: "Locations of the 20 cities in the @He2010 analysis."
 fig, ax = plt.subplots(figsize=(7, 5), subplot_kw={'projection': map_proj})
 ax.add_feature(cfeature.COASTLINE.with_scale('10m'), edgecolor='blue')
 ax.set_extent([-5, 2, 50, 55], crs=data_proj) # Set bounds for UK
@@ -434,7 +437,8 @@ rate = jnp.array([foi*dw/dt, mu, sigma, mu, gamma, mu])
 births = pp.random.fast_poisson(keys[1], br * dt)
 
 # Euler-multinomial transitions
-transitions = pp.random.fast_multinomial(keys[2], populations, rt_final)
+transitions = pp.random.fast_multinomial(
+    keys[2], populations, rt_final)
 ```
 \normalsize
 
@@ -522,7 +526,8 @@ def rmeas(X_, theta_, key, covars, t):
     m = rho * C
     v = m * (1.0 - rho + psi**2 * m)
     cases = jax.random.normal(key) * (jnp.sqrt(v) + 1e-18) + m
-    return {"cases": jnp.where(cases > 0.0, jnp.round(cases), 0.0)}
+    cases = jnp.where(cases > 0.0, jnp.round(cases), 0.0)
+    return {"cases": cases}
 ```
 \normalsize
 
@@ -536,10 +541,11 @@ We illustrate using London:
 
 ```{python}
 #| echo: true
-london_data = pp.models.UKMeasles.subset(units=["London"])
+london_data = pp.models.UKMeasles.subset(
+    units=["London"])
 dat = london_data["measles"]
-print(f"Date range: {dat['date'].min()}",
-    f" to {dat['date'].max()}")
+print(f"Date range: {dat['date'].min().date()}",
+    f"to {dat['date'].max().date()}")
 print(f"Number of observations: {len(dat)}")
 ```
 
@@ -654,12 +660,12 @@ print(f"Observations: {len(m1.ys)}")
 ```
 
 
-## Estimates from @He2010
+## Estimates from @He2010 {.allowframebreaks .t}
 
 @He2010 estimated the parameters of this model for all 20 cities.
 We verify that we get the same likelihood.
 
-\small
+\scriptsize
 ```{python}
 #| label: compute London loglik at he20 mle
 #| echo: true
@@ -669,15 +675,13 @@ if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
         london_pf = pickle.load(f)
 else:
-    m1.pfilter(J=[50,500,5000][RL], 
-        reps=[2,5,10][RL], key=key, thresh=0, 
-        CLL=True, ESS=True)
+    m1.pfilter(J=[50,500,5000][RL], reps=[2,5,10][RL],
+        key=key, thresh=0, CLL=True, ESS=True)
     pf = m1.results_history[-1]
     london_pf = {"logliks": pf.logLiks.values.flatten(),
         "CLL": pf.CLL(), "ESS": pf.ESS()}
     with open(cache_file, 'wb') as f:
         pickle.dump(london_pf,f)
-
 london_logliks = london_pf["logliks"]
 ll = pp.maths.logmeanexp(london_logliks)
 ll_se = pp.maths.logmeanexp_se(london_logliks)
@@ -695,7 +699,7 @@ X_sims, Y_sims = m1.simulate(key=key, nsim=3)
 ```
 
 
-##
+## {.allowframebreaks}
 
 ```{python}
 #| label: plot sims and data for London
@@ -940,7 +944,7 @@ m1.mif(J=2000, M=50, rw_sd=rw_sd,
 
 ## 
 
-\footnotesize
+\scriptsize
 ```{python}
 #| label: tabulate mles for twenty cities
 #| echo: false
@@ -1421,7 +1425,6 @@ ax.grid(alpha=0.15)
 plt.tight_layout()
 plt.show()
 ```
-®
 
 ## Predicted vs observed critical community size
 

@@ -591,7 +591,8 @@ def rproc(X_, theta_, key, covars, t, dt):
     N = theta_["N"]
     p_SI = 1.0 - jnp.exp(-Beta * I / N * dt)
     p_IR = 1.0 - jnp.exp(-mu_IR * dt)
-    dN_stacked = pp.random.fast_binomial(key, n=jnp.array([S, I]), p=jnp.array([p_SI, p_IR]))
+    dN_stacked = pp.random.fast_binomial(
+        key, n=jnp.array([S, I]), p=jnp.array([p_SI, p_IR]))
     dN_SI = dN_stacked[0]
     dN_IR = dN_stacked[1]
     S_new = S - dN_SI
@@ -638,7 +639,8 @@ def dmeas(Y_, X_, theta_, covars, t):
 ```{python rmeas}
 #| echo: true
 def rmeas(X_, theta_, key, covars, t):
-    """Measurement simulator: sample reports ~ NegBin(k, rho*H)."""
+    """Measurement simulator:
+    sample reports ~ NegBin(k, rho*H)."""
     rho = theta_["rho"]
     k = theta_["k"]
     H = X_["H"]

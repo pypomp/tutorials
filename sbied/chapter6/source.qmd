@@ -21,6 +21,10 @@ format:
     slide-level: 2
     header-includes: |
       \setbeamertemplate{footline}[page number]
+      % Shade code line by line instead of in one framed box, so that a long
+      % code block can break across the frames of an allowframebreaks slide.
+      \renewenvironment{Shaded}{\par\nointerlineskip}{\par}
+      \renewcommand{\FancyVerbFormatLine}[1]{\makebox[0pt][l]{\hspace*{-\fboxsep}\textcolor{shadecolor}{\rule[-\dp\strutbox]{\dimexpr\linewidth+2\fboxsep\relax}{\baselineskip}}}#1}
     output-file: slides.pdf
   pdf:
     colorlinks: true
@@ -227,7 +231,7 @@ def rinit(theta_, key, covars, t0):
     return result
 ```
 
-##
+## Process model {.allowframebreaks .t}
 
 `rproc` deals with multiple $E$ compartments:
 
@@ -266,7 +270,8 @@ def rproc(X_, theta_, key, covars, t, dt):
         jnp.repeat(pE, nstageE),
         jnp.atleast_1d(pI)
     ])
-    draws = pp.random.fast_binomial(key, n=n_stacked, p=p_stacked)
+    draws = pp.random.fast_binomial(
+        key, n=n_stacked, p=p_stacked)
     transS = draws[0]
     transE = draws[1 : 1 + nstageE]
     transI = draws[-1]
@@ -325,7 +330,8 @@ def rmeas(X_, theta_, key, covars, t):
     N_EI = jnp.maximum(X_["N_EI"], 0.0)
     mu = rho * N_EI
     n = 1.0 / jnp.maximum(k, 1e-10)
-    return {"cases": pp.random.fast_nbinomial(key, n, mu=mu)}
+    cases = pp.random.fast_nbinomial(key, n, mu=mu)
+    return {"cases": cases}
 ```
 
 
@@ -486,7 +492,7 @@ else:
         pickle.dump((X_sims, Y_sims), f)
 
 print(f"Simulated {200} trajectories")
-rep_col = 'theta_idx' if 'theta_idx' in Y_sims.columns else 'replicate'
+rep_col = 'theta_idx'
 ```
 
 ##
@@ -588,7 +594,7 @@ def acf_1(obs):
         np.corrcoef(x[:-1], x[1:])[0, 1])
 ```
 
-##
+## Running the probes {.allowframebreaks .t}
 
 ```{python}
 #| label: run-probes
@@ -716,7 +722,8 @@ To incorporate **dynamic noise and measurement error** we use a particle filter 
 sle_forecast = pp.Pomp(
     rinit=rinit, rproc=rproc,
     dmeas=dmeas, rmeas=rmeas,
-    ys=sle.ys, theta=pp.PompParameters(param_samples),
+    ys=sle.ys,
+    theta=pp.PompParameters(param_samples),
     t0=sle.t0, dt=timestep,
     covars=None,
     statenames=sle.statenames,
@@ -841,9 +848,9 @@ else:
         pickle.dump(Y_fc, f)
 
 print(f"Forecast: {Y_fc.shape[0]} rows, "
-      f"{n_forecast} param sets × 10 sims "
-      f"columns: {Y_fc.columns.tolist()}")
-rep_col_fc = 'theta_idx' if 'theta_idx' in Y_fc.columns else 'replicate'
+      f"{n_forecast} param sets × 10 sims")
+print(f"columns: {Y_fc.columns.tolist()}")
+rep_col_fc = 'theta_idx'
 ```
 
 
