@@ -294,7 +294,6 @@ In practice, we can test this claim on examples.
 ```{python}
 #| label: set up packages and cache
 #| echo: true
-import sys
 import jax.numpy as jnp
 import jax
 import pandas as pd
@@ -305,14 +304,6 @@ import pickle
 import os
 import time
 from scipy.stats import chi2
-
-# backward compatibility with older pypomp results location
-import pypomp.core.results
-import pypomp.core.rw_sigma
-sys.modules['pypomp.results'] = pypomp.core.results
-sys.modules['pypomp.RWSigma_class'] = pypomp.core.rw_sigma
-
-
 
 cache_dir = "cache"
 os.makedirs(cache_dir, exist_ok=True)
@@ -405,7 +396,7 @@ def rmeas(X_, theta_, key, covars, t):
     H = X_["H"]
     mu = rho * H
     reports = pp.random.fast_nbinomial(key, n=k, mu=mu)
-    return jnp.array([reports])
+    return {"reports": reports}
 ```
 
 
@@ -504,7 +495,7 @@ statenames = ["S", "I", "R", "H"]
 measSIR = pp.Pomp(
     rinit=rinit, rproc=rproc,
     dmeas=dmeas, rmeas=rmeas,
-    ys=ys, theta=theta,
+    ys=ys, theta=pp.PompParameters(theta),
     statenames=statenames,
     par_trans=par_trans,
     t0=0.0, nstep=7,
@@ -547,7 +538,7 @@ rw_sd = pp.RWSigma(
         "k": 0.0
     },
     init_names=["eta"]
-)
+).geometric_cooling(a=0.5)
 ```
 
 * The **initial value parameter** (IVP) $\eta$, designated by `init_names`, affects the dynamics only at time $t_0$, so it is perturbed only at time $t_0$.
@@ -560,7 +551,7 @@ rw_sd = pp.RWSigma(
 cache_file = cache_dir + "/local-mif.pkl"
 if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
-        mif_result = pickle.load(f)
+        traces_da = pickle.load(f)
 else:
     # 20 parallel runs from same starting point
     n_local = 20
@@ -568,7 +559,7 @@ else:
     mod_local = pp.Pomp(
         rinit=rinit, rproc=rproc,
         dmeas=dmeas, rmeas=rmeas,
-        ys=ys, theta=theta_list,
+        ys=ys, theta=pp.PompParameters(theta_list),
         statenames=statenames,
         par_trans=par_trans,
         t0=0.0, nstep=7,
@@ -578,20 +569,14 @@ else:
     key = jax.random.key(482947940)
     mod_local.mif(
         J=2000, M=50,
-        rw_sd=rw_sd, a=0.5, key=key
+        rw_sd=rw_sd, key=key
     )
-    mif_result = mod_local.results_history.last()
+    traces_da = mod_local.results_history.last().traces_da
     with open(cache_file, 'wb') as f:
-        pickle.dump(mif_result, f)
+        pickle.dump(traces_da, f)
 ```
 
 ## Iterated filtering diagnostics
-
-```{python}
-#| label: extract mif traces
-#| echo: true
-traces_da = mif_result.traces_da
-```
 
 ```{python}
 #| label: plot mif traces
@@ -647,9 +632,9 @@ if os.path.exists(cache_file):
         local_results = pickle.load(f)
 else:
     # Rebuild mod_local from mif endpoints
-    rep_dim = 'theta_idx' if 'theta_idx' in mif_result.traces_da.sizes else 'replicate'
-    n_local = mif_result.traces_da.sizes[rep_dim]
-    traces = mif_result.traces_da
+    rep_dim = 'theta_idx' if 'theta_idx' in traces_da.sizes else 'replicate'
+    n_local = traces_da.sizes[rep_dim]
+    traces = traces_da
     theta_endpoints = []
     for r in range(n_local):
         th = theta.copy()
@@ -662,7 +647,7 @@ else:
     mod_eval = pp.Pomp(
         rinit=rinit, rproc=rproc,
         dmeas=dmeas, rmeas=rmeas,
-        ys=ys, theta=theta_endpoints,
+        ys=ys, theta=pp.PompParameters(theta_endpoints),
         statenames=statenames,
         par_trans=par_trans,
         t0=0.0, nstep=7,
@@ -708,7 +693,7 @@ print(f"(SE:"
 
 For our measles model, a box containing reasonable parameter values might be $\beta\in (5,80)$, $\rho\in (0.2,0.9)$, $\eta\in (0,1)$.
 
-In `pypomp`, passing a list of parameter dicts to `Pomp` causes `mif` and `pfilter` to run all replicates **in parallel on the GPU**.
+In `pypomp`, passing a list of parameter dicts (wrapped in `pp.PompParameters`) to `Pomp` causes `mif` and `pfilter` to run all replicates **in parallel on the GPU**.
 
 The full source code is [online](https://github.com/pypomp/tutorials/blob/main/sbied/chapter4/source.qmd). In summary,
 
@@ -741,7 +726,7 @@ else:
     mod = pp.Pomp(
         rinit=rinit, rproc=rproc,
         dmeas=dmeas, rmeas=rmeas,
-        ys=ys, theta=theta_list,
+        ys=ys, theta=pp.PompParameters(theta_list),
         statenames=statenames,
         par_trans=par_trans,
         t0=0.0, nstep=7,
@@ -750,10 +735,10 @@ else:
     )
     key = jax.random.key(1270401374)
     mod.mif(J=2000, M=50,
-            rw_sd=rw_sd, a=0.5, key=key)
+            rw_sd=rw_sd, key=key)
     key = jax.random.key(1270401375)
     mod.mif(J=2000, M=100,
-            rw_sd=rw_sd, a=0.5, key=key)
+            rw_sd=rw_sd, key=key)
 
     key = jax.random.key(1270401376)
     mod.pfilter(key=key, J=5000, reps=10)
@@ -879,7 +864,7 @@ else:
     mod = pp.Pomp(
         rinit=rinit, rproc=rproc,
         dmeas=dmeas, rmeas=rmeas,
-        ys=ys, theta=theta_list,
+        ys=ys, theta=pp.PompParameters(theta_list),
         statenames=statenames,
         par_trans=par_trans,
         t0=0.0, nstep=7,
@@ -889,10 +874,10 @@ else:
     # All 600 runs in parallel on GPU
     key = jax.random.key(1196696958)
     mod.mif(J=2000, M=50,
-        rw_sd=rw_sd_profile, a=0.5, key=key)
+        rw_sd=rw_sd_profile.geometric_cooling(a=0.5), key=key)
     key = jax.random.key(1196696959)
     mod.mif(J=2000, M=100,
-        rw_sd=rw_sd_profile, a=0.3, key=key)
+        rw_sd=rw_sd_profile.geometric_cooling(a=0.3), key=key)
 
     key = jax.random.key(1196696960)
     mod.pfilter(key=key, J=5000, reps=10)
@@ -1097,7 +1082,7 @@ else:
     mod = pp.Pomp(
         rinit=rinit, rproc=rproc,
         dmeas=dmeas, rmeas=rmeas,
-        ys=ys, theta=theta_list,
+        ys=ys, theta=pp.PompParameters(theta_list),
         statenames=statenames,
         par_trans=par_trans,
         t0=0.0, nstep=7,
@@ -1107,13 +1092,13 @@ else:
     # All 300 runs in parallel on GPU
     key = jax.random.key(2105684752)
     mod.mif(J=2000, M=50,
-        rw_sd=rw_sd_rho_profile, a=0.5, key=key)
+        rw_sd=rw_sd_rho_profile.geometric_cooling(a=0.5), key=key)
     key = jax.random.key(2105684753)
     mod.mif(J=2000, M=100,
-        rw_sd=rw_sd_rho_profile, a=0.3, key=key)
+        rw_sd=rw_sd_rho_profile.geometric_cooling(a=0.3), key=key)
     key = jax.random.key(2105684754)
     mod.mif(J=2000, M=100,
-        rw_sd=rw_sd_rho_profile, a=0.3, key=key)
+        rw_sd=rw_sd_rho_profile.geometric_cooling(a=0.3), key=key)
 
     key = jax.random.key(2105684755)
     mod.pfilter(key=key, J=5000, reps=10)
@@ -1264,7 +1249,7 @@ else:
     mod = pp.Pomp(
         rinit=rinit, rproc=rproc,
         dmeas=dmeas, rmeas=rmeas,
-        ys=ys, theta=theta_list,
+        ys=ys, theta=pp.PompParameters(theta_list),
         statenames=statenames,
         par_trans=par_trans_exp,
         t0=0.0, nstep=7,
@@ -1274,13 +1259,13 @@ else:
     # Simulated tempering: 3 stages
     key = jax.random.key(610408798)
     mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_exp, a=0.5, key=key)
+            rw_sd=rw_sd_exp.geometric_cooling(a=0.5), key=key)
     key = jax.random.key(610408799)
     mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_exp_med, a=0.5, key=key)
+            rw_sd=rw_sd_exp_med.geometric_cooling(a=0.5), key=key)
     key = jax.random.key(610408800)
     mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_exp_small, a=0.5, key=key)
+            rw_sd=rw_sd_exp_small.geometric_cooling(a=0.5), key=key)
 
     key = jax.random.key(610408801)
     mod.pfilter(key=key, J=5000, reps=10)
@@ -1381,7 +1366,7 @@ else:
         mod = pp.Pomp(
             rinit=rinit, rproc=rproc,
             dmeas=dmeas, rmeas=rmeas,
-            ys=ys, theta=theta_list,
+            ys=ys, theta=pp.PompParameters(theta_list),
             statenames=statenames,
             par_trans=par_trans,
             t0=0.0, nstep=7,
@@ -1391,20 +1376,20 @@ else:
         # 4-stage tempering (100 parallel)
         key = jax.random.key(i * 5000)
         mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_muIR_profile,
-            a=0.5, key=key)
+            rw_sd=rw_sd_muIR_profile.geometric_cooling(a=0.5),
+            key=key)
         key = jax.random.key(i * 5000 + 1000)
         mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_muIR_profile,
-            a=0.5, key=key)
+            rw_sd=rw_sd_muIR_profile.geometric_cooling(a=0.5),
+            key=key)
         key = jax.random.key(i * 5000 + 2000)
         mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_muIR_med,
-            a=0.5, key=key)
+            rw_sd=rw_sd_muIR_med.geometric_cooling(a=0.5),
+            key=key)
         key = jax.random.key(i * 5000 + 3000)
         mod.mif(J=2000, M=100,
-            rw_sd=rw_sd_muIR_small,
-            a=0.5, key=key)
+            rw_sd=rw_sd_muIR_small.geometric_cooling(a=0.5),
+            key=key)
 
         key = jax.random.key(i * 5000 + 4000)
         mod.pfilter(key=key, J=5000, reps=10)
@@ -1541,7 +1526,7 @@ How sensitive are the results to these choices?
 
 **3.** **Parameter transformations** via `ParTrans(to_est, from_est)` ensure the random walk respects constraints (e.g., `log` for positive parameters, `logit` for probabilities).
 
-**4.** `pypomp` API for IF2: `mif(J, M, rw_sd, a, key)` runs IF2, `RWSigma(sigmas={...}, init_names=[...])` specifies perturbations, `results_history.last().traces_da` gets parameter traces.
+**4.** `pypomp` API for IF2: `mif(J=..., M=..., rw_sd=..., key=...)` runs IF2, `RWSigma(sigmas={...}, init_names=[...]).geometric_cooling(a=...)` specifies perturbations and their cooling, `results_history.last().traces_da` gets parameter traces.
 
 **5.** Passing a **list of parameter dicts** to `Pomp` runs all replicates in parallel on the GPU.
 

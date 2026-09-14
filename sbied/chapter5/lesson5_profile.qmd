@@ -122,9 +122,9 @@ for param, value in theta_mle.items():
 ```{python}
 #| label: create-pomp
 # Create base POMP object
-measles_pomp = pp.models.UKMeasles.Pomp(
-    unit=["London"],
-    theta=theta_mle,
+measles_pomp = pp.models.UKMeasles.pomp(
+    unit="London",
+    theta=pp.PompParameters(theta_mle),
     model="001b",
     interp_method="shifted_splines",
     first_year=1950,
@@ -245,7 +245,7 @@ def compute_profile_point(sigmaSE_value, theta_mle, n_starts,
     rw_sd = pp.RWSigma(
         sigmas=rw_sigmas,
         init_names=["S_0", "E_0", "I_0", "R_0"]
-    )
+    ).geometric_cooling(a=a)
     
     for i, theta_start in enumerate(starting_points):
         key, subkey = jax.random.split(key)
@@ -256,9 +256,9 @@ def compute_profile_point(sigmaSE_value, theta_mle, n_starts,
         theta_start["iota"] = theta_mle["iota"]
         
         # Create POMP object
-        pomp_obj = pp.models.UKMeasles.Pomp(
-            unit=["London"],
-            theta=theta_start,
+        pomp_obj = pp.models.UKMeasles.pomp(
+            unit="London",
+            theta=pp.PompParameters(theta_start),
             model="001b",
             first_year=1950,
             last_year=1963,
@@ -267,7 +267,7 @@ def compute_profile_point(sigmaSE_value, theta_mle, n_starts,
         )
         
         # Run IF2
-        pomp_obj.mif(J=J, M=M, a=a, rw_sd=rw_sd, key=subkey, thresh=0)
+        pomp_obj.mif(J=J, M=M, rw_sd=rw_sd, key=subkey, thresh=0)
         
         # Evaluate likelihood with particle filter
         key, subkey = jax.random.split(key)
@@ -307,9 +307,9 @@ for sigmaSE_val in quick_sigmaSE:
     theta_test = deepcopy(theta_mle)
     theta_test['sigmaSE'] = sigmaSE_val
     
-    pomp_test = pp.models.UKMeasles.Pomp(
-        unit=["London"],
-        theta=theta_test,
+    pomp_test = pp.models.UKMeasles.pomp(
+        unit="London",
+        theta=pp.PompParameters(theta_test),
         model="001b",
         first_year=1950,
         last_year=1963,

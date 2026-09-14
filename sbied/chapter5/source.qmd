@@ -58,7 +58,6 @@ header-includes: |
 #| label: set up
 #| echo: false
 #| output: false
-import sys
 import jax
 import jax.numpy as jnp
 import pandas as pd
@@ -70,14 +69,6 @@ import pypomp as pp
 
 import os
 import pickle
-
-# backward compatibility with older pypomp results location
-import pypomp.core.results
-import pypomp.core.rw_sigma
-sys.modules['pypomp.results'] = pypomp.core.results
-sys.modules['pypomp.RWSigma_class'] = pypomp.core.rw_sigma
-
-
 
 # run level 0 : quick, 1 : medium, 2 : slow
 RL = 2
@@ -531,7 +522,7 @@ def rmeas(X_, theta_, key, covars, t):
     m = rho * C
     v = m * (1.0 - rho + psi**2 * m)
     cases = jax.random.normal(key) * (jnp.sqrt(v) + 1e-18) + m
-    return jnp.where(cases > 0.0, jnp.round(cases), 0.0)
+    return {"cases": jnp.where(cases > 0.0, jnp.round(cases), 0.0)}
 ```
 \normalsize
 
@@ -599,7 +590,7 @@ A linear or nonlinear trend through time in any parameter or rate or latent stat
 
 * Seasonality can be modeled as a covariate which can enter the model in any scientifically plausible way.
 
-* Periodic B-splines provide a flexible way to incorporate seasonality; the source code for `pp.models.dacca` provides an example.
+* Periodic B-splines provide a flexible way to incorporate seasonality; the source code for `pp.models.dhaka` provides an example.
 
 * The measles model describes seasonality directly via the `t` variable accessible in all the model components.
 
@@ -609,7 +600,7 @@ A linear or nonlinear trend through time in any parameter or rate or latent stat
 * Discretely measured covariates must be interpolated at arbitrary times for a continuous-time POMP.
 
 We interpolate the covariates and delay the entry of newborns into the susceptible pool.
-This is handled internally by `UKMeasles.Pomp()`, which uses smoothing splines for population interpolation and shifts the birth rate by 4 years (the school-entry delay $\tau$).
+This is handled internally by `UKMeasles.pomp()`, which uses smoothing splines for population interpolation and shifts the birth rate by 4 years (the school-entry delay $\tau$).
 
 
 ##
@@ -641,9 +632,9 @@ plt.show()
 #| echo: true
 theta_london = mles["London"].to_dict()
 
-m1 = pp.models.UKMeasles.Pomp(
-    unit=["London"],
-    theta=theta_london,
+m1 = pp.models.UKMeasles.pomp(
+    unit="London",
+    theta=pp.PompParameters(theta_london),
     model="001b",
     interp_method="shifted_splines",
     first_year=1950,
@@ -681,11 +672,13 @@ else:
     m1.pfilter(J=[50,500,5000][RL], 
         reps=[2,5,10][RL], key=key, thresh=0, 
         CLL=True, ESS=True)
-    london_pf = m1.results_history[-1]
+    pf = m1.results_history[-1]
+    london_pf = {"logliks": pf.logLiks.values.flatten(),
+        "CLL": pf.CLL(), "ESS": pf.ESS()}
     with open(cache_file, 'wb') as f:
         pickle.dump(london_pf,f)
 
-london_logliks = london_pf.logLiks.values.flatten()
+london_logliks = london_pf["logliks"]
 ll = pp.maths.logmeanexp(london_logliks)
 ll_se = pp.maths.logmeanexp_se(london_logliks)
 print(f"Log-likelihood: {ll:.1f} (SE {ll_se:.2f})")
@@ -719,7 +712,7 @@ axes[0].set_title("data", fontsize=8)
 for i in range(3):
     sim = Y_sims[(Y_sims["theta_idx"] == 0) & (Y_sims["sim"] == i)]
     sim = sim.sort_values("time")
-    axes[i+1].plot(sim["time"].values, sim["obs_0"].values,
+    axes[i+1].plot(sim["time"].values, sim["cases"].values,
                    color="red", linewidth=0.6)
     axes[i+1].set_title(f"sim {i+1}", fontsize=8)
 
@@ -740,7 +733,7 @@ plt.show()
 key = jax.random.key(73)
 X_sims100, Y_sims100 = m1.simulate(key=key, nsim=100)
 sim_df = Y_sims100.pivot_table(
-    index="time", columns="sim", values="obs_0"
+    index="time", columns="sim", values="cases"
 )
 lo = sim_df.quantile(0.05, axis=1)
 med = sim_df.quantile(0.5, axis=1)
@@ -811,8 +804,7 @@ Anomalies can be used similarly to regression residuals: they can indicate point
 #| label: CLL anomalies for London
 #| echo: false
 #| fig-cap: "Conditional log-likelihood anomalies for London. Positive anomalies indicate the model outperforms ARMA; negative anomalies indicate the model struggles."
-pf = london_pf
-df_cll = pf.CLL() # replicate  rep  time CLL
+df_cll = london_pf["CLL"] # theta_idx  rep  time  CLL
 model_cll = (df_cll
     .groupby('time')['CLL']
     .mean().
@@ -864,7 +856,7 @@ plt.show()
 #| label: ESS as diagnostic
 #| echo: false
 #| fig-cap: "Effective sample size for one particle filter in London."
-df_ess = london_pf.ESS()
+df_ess = london_pf["ESS"]
 rep_col = 'rep' if 'rep' in df_ess.columns else 'replicate'
 ess1 = df_ess.loc[df_ess[rep_col]==0,['ESS']]
 fig, ax = plt.subplots(figsize=(4.5, 2))
@@ -938,9 +930,9 @@ rw_sd = pp.RWSigma(
         "S_0": 0.02, "E_0": 0.02, "I_0": 0.02, "R_0": 0.02
     },
     init_names=["S_0", "E_0", "I_0", "R_0"]
-)
+).geometric_cooling(a=0.95)
 
-m1.mif(J=2000, M=50, a=0.95, rw_sd=rw_sd,
+m1.mif(J=2000, M=50, rw_sd=rw_sd,
        key=jax.random.key(1234567), thresh=0)
 ```
 \normalsize

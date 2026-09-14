@@ -352,13 +352,7 @@ Future pypomp algorithms may implement `dprocess` (transition density for the pr
 
 ## Classes for basic model components
 
-**`mod.rinit`** has class `RInit`
-
-**`mod.dmeas`** has class `DMeas`
-
-**`mod.rmeas`** has class `RMeas`
-
-**`mod.rproc`** has class `RProc`
+**`mod.rinit`**, **`mod.rproc`**, **`mod.dmeas`** and **`mod.rmeas`** are internal `pypomp` wrappers around the user-supplied functions.
 
 **`mod.par_trans`** has class `ParTrans`
 
@@ -386,7 +380,7 @@ These are methods for `Pomp` models that call the elementary algorithms and are 
 
 **`mif`**: Likelihood maximization via the IF2 iterated filtering algorithm.
 
-**`mop`**: An automatically differentiatble "measurement off-parameter" particle filter.
+**`mop`**: An automatically differentiable "measurement off-parameter" particle filter, available as `pp.functional.mop`.
 
 **`train`**: Likelihood maximization based on `mop` or related strategies.
 
@@ -408,9 +402,9 @@ These are methods for `Pomp` models that call the elementary algorithms and are 
 
 Four example constructor functions returning `Pomp` objects.
 
-**`pp.models.dacca`**: The historical Dacca cholera data with the model of @King2008
+**`pp.models.dhaka`**: The historical Dhaka (Dacca) cholera data with the model of @King2008
 
-**`pp.models.LG`**: A linear Gaussian example for validating Monte Carlo methods against exact Kalman filter calculations
+**`pp.models.lg`**: A linear Gaussian example for validating Monte Carlo methods against exact Kalman filter calculations
 
 **`pp.models.UKMeasles`**: Pre-vaccination measles in England and Wales with the model of @He2010
 

@@ -139,7 +139,7 @@ def rmeas(X_, theta_, key, covars, t):
     H = X_["H"]
     mu = rho * H
     reports = pp.random.fast_nbinomial(key, n=k, mu=mu)
-    return jnp.array([reports])
+    return {"reports": reports}
 ```
 
 ## Create POMP Object
@@ -163,7 +163,7 @@ measSIR = pp.Pomp(
     dmeas=dmeas,
     rmeas=rmeas,
     ys=ys,
-    theta=theta,
+    theta=pp.PompParameters(theta),
     statenames=statenames,
     t0=0.0,
     nstep=7,
@@ -485,7 +485,7 @@ def compute_likelihood_slice(param_name, param_values, base_theta,
 
         pomp_test = pp.Pomp(
             rinit=rinit, rproc=rproc, dmeas=dmeas, rmeas=rmeas,
-            ys=ys, theta=theta_test, statenames=statenames,
+            ys=ys, theta=pp.PompParameters(theta_test), statenames=statenames,
             t0=0.0, nstep=7, accumvars=("H",), covars=None
         )
 
@@ -586,7 +586,7 @@ def compute_2d_surface(param1_name, param1_vals, param2_name, param2_vals,
 
             pomp_test = pp.Pomp(
                 rinit=rinit, rproc=rproc, dmeas=dmeas, rmeas=rmeas,
-                ys=ys, theta=theta_test, statenames=statenames,
+                ys=ys, theta=pp.PompParameters(theta_test), statenames=statenames,
                 t0=0.0, nstep=7, accumvars=("H",), covars=None
             )
 

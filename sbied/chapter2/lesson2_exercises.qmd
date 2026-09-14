@@ -212,7 +212,7 @@ def rmeas(X_, theta_, key, covars, t):
     H = X_["H"]
     mu = rho * H
     reports = pp.random.fast_nbinomial(key, n=k, mu=mu)
-    return jnp.array([reports])
+    return {"reports": reports}
 ```
 
 ## Helper Function for Simulation and Plotting
@@ -230,7 +230,7 @@ def run_simulation_and_plot(theta, title="SIR simulation", n_sims=20):
         dmeas=dmeas,
         rmeas=rmeas,
         ys=ys,
-        theta=theta,
+        theta=pp.PompParameters(theta),
         statenames=statenames,
         t0=0.0,
         nstep=7,
@@ -244,7 +244,7 @@ def run_simulation_and_plot(theta, title="SIR simulation", n_sims=20):
     sim_df = Y_sims.pivot_table(
         index="time", 
         columns="sim", 
-        values="obs_0"
+        values="reports"
     )
     sim_df.columns = [f"sim_{i+1}" for i in range(n_sims)]
     
@@ -476,7 +476,7 @@ def seir_rmeas(X_, theta_, key, covars, t):
     H = X_["H"]
     mu = rho * H
     reports = pp.random.fast_nbinomial(key, n=k, mu=mu)
-    return jnp.array([reports])
+    return {"reports": reports}
 ```
 
 ## Helper Function for SEIR Simulations {.allowframebreaks}
@@ -494,7 +494,7 @@ def run_seir_simulation_and_plot(theta, title="SEIR simulation", n_sims=20):
         dmeas=seir_dmeas,
         rmeas=seir_rmeas,
         ys=ys,
-        theta=theta,
+        theta=pp.PompParameters(theta),
         statenames=statenames,
         t0=0.0,
         nstep=7,              # 7 sub-steps per week (daily steps)
@@ -508,7 +508,7 @@ def run_seir_simulation_and_plot(theta, title="SEIR simulation", n_sims=20):
     sim_df = Y_sims.pivot_table(
         index="time", 
         columns="sim", 
-        values="obs_0"
+        values="reports"
     )
     sim_df.columns = [f"sim_{i+1}" for i in range(n_sims)]
     

@@ -404,7 +404,6 @@ The particle filter provides an **unbiased** estimate of the likelihood. This im
 ```{python}
 #| echo: true
 #| label: set up packages and cache
-import sys
 import jax.numpy as jnp
 import jax
 import pandas as pd
@@ -414,12 +413,6 @@ import matplotlib.pyplot as plt
 import time
 import os
 import pickle
-
-# backward compatibility with older pypomp results location
-import pypomp.core.results
-import pypomp.core.rw_sigma
-sys.modules['pypomp.results'] = pypomp.core.results
-sys.modules['pypomp.RWSigma_class'] = pypomp.core.rw_sigma
 
 # run level 0 : quick, 1 : medium, 2 : slow
 RL = 2
@@ -524,7 +517,7 @@ def rmeas(X_, theta_, key, covars, t):
     H = X_["H"]
     mu = rho * H
     reports = pp.random.fast_nbinomial(key, n=k, mu=mu)
-    return jnp.array([reports])
+    return {"reports": reports}
 ```
 
 ## Create POMP Object
@@ -549,7 +542,7 @@ measSIR = pp.Pomp(
     dmeas=dmeas,
     rmeas=rmeas,
     ys=ys,
-    theta=theta,
+    theta=pp.PompParameters(theta),
     statenames=statenames,
     t0=0.0,
     nstep=7,
@@ -588,14 +581,15 @@ key = jax.random.key(652643293)
 cache_file = cache_dir + "/pfilter-reps.pkl"
 if os.path.exists(cache_file):
     with open(cache_file, 'rb') as f:
-        result = pickle.load(f)
+        logliks, result_df = pickle.load(f)
 else:
     measSIR.pfilter(key=key, 
         J=[50,500,5000][RL], reps=[2,6,10][RL])
     result = measSIR.results_history.last()
+    logliks = result.logLiks.values[0, :]
+    result_df = result.to_dataframe()
     with open(cache_file, 'wb') as f:
-        pickle.dump(result,f)
-logliks = result.logLiks.values[0, :]
+        pickle.dump((logliks, result_df), f)
 print(f"Mean: {np.mean(logliks):.1f}",
       f"SE: {np.std(logliks):.1f}")
 ```
@@ -630,13 +624,11 @@ print(f"Log-lik estimate: {ll_est:.4f}",
 
 ##
 
-Alternatively, use the `to_dataframe()` method which automatically applies `logmeanexp`:
+Alternatively, the `to_dataframe()` method used above returns the results as a data frame, with `logmeanexp` already applied:
 
 ```{python}
 #| echo: true
-# Get results as DataFrame with logmeanexp already applied
-df = result.to_dataframe()
-print(df)
+print(result_df)
 ```
 
 
@@ -717,7 +709,7 @@ def compute_likelihood_slice(
         pomp_test = pp.Pomp(
             rinit=rinit, rproc=rproc,
             dmeas=dmeas, rmeas=rmeas,
-            ys=ys, theta=theta_test,
+            ys=ys, theta=pp.PompParameters(theta_test),
             statenames=statenames,
             t0=0.0, nstep=7,
             accumvars=("H",),
@@ -828,7 +820,7 @@ def compute_2d_surface(
             mod = pp.Pomp(
                 rinit=rinit, rproc=rproc,
                 dmeas=dmeas, rmeas=rmeas,
-                ys=ys, theta=th,
+                ys=ys, theta=pp.PompParameters(th),
                 statenames=statenames,
                 t0=0.0, nstep=7,
                 accumvars=("H",),

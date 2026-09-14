@@ -56,7 +56,6 @@ header-includes: |
 ```{python}
 #| label: packages
 #| echo: false
-import sys
 import jax
 import jax.numpy as jnp
 import pandas as pd
@@ -66,14 +65,6 @@ import pypomp as pp
 from scipy.stats import chi2
 import pickle
 import os
-
-# backward compatibility with older pypomp results location
-import pypomp.core.results
-import pypomp.core.rw_sigma
-sys.modules['pypomp.results'] = pypomp.core.results
-sys.modules['pypomp.RWSigma_class'] = pypomp.core.rw_sigma
-
-
 
 cache_dir = "cache"
 os.makedirs(cache_dir, exist_ok=True)
@@ -334,7 +325,7 @@ def rmeas(X_, theta_, key, covars, t):
     N_EI = jnp.maximum(X_["N_EI"], 0.0)
     mu = rho * N_EI
     n = 1.0 / jnp.maximum(k, 1e-10)
-    return jnp.array([pp.random.fast_nbinomial(key, n, mu=mu)])
+    return {"cases": pp.random.fast_nbinomial(key, n, mu=mu)}
 ```
 
 
@@ -354,7 +345,9 @@ def build_ebola_model(country="Guinea"):
     country_data = dat[
         dat['country'] == country].copy()
     ys = (country_data[['week', 'cases']]
-        .copy().astype(float).set_index('week'))
+        .copy().astype(float)
+        .rename(columns={'week': 'time'})
+        .set_index('time'))
     t0 = float(ys.index.min()) - 1.0
 
     statenames = (
@@ -384,7 +377,7 @@ def build_ebola_model(country="Guinea"):
     pomp_obj = pp.Pomp(
         rinit=rinit, rproc=rproc,
         dmeas=dmeas, rmeas=rmeas,
-        ys=ys, theta=theta, t0=t0,
+        ys=ys, theta=pp.PompParameters(theta), t0=t0,
         dt=timestep, covars=None,
         statenames=statenames,
         accumvars=("N_EI", "N_IR"))
@@ -505,7 +498,7 @@ fig, ax = plt.subplots(figsize=(4.5, 2.5))
 for i in range(min(20, 200)):
     sd = Y_sims[(Y_sims[rep_col]==0)
                 & (Y_sims['sim']==i)]
-    ax.plot(sd['time'], sd['obs_0'],
+    ax.plot(sd['time'], sd['cases'],
         alpha=0.2, color='blue', lw=0.5)
 ax.plot(dat_g['week'], dat_g['cases'],
     'k-', lw=2, label='Data')
@@ -523,6 +516,7 @@ plt.show()
   - The simulations appear to be growing a bit more quickly than the data.
 
 - Let's quantify this using the `probe` method in `pypomp`.
+  Each probe receives a dictionary of observation arrays and returns a number.
 
 
 ##
@@ -530,10 +524,10 @@ plt.show()
 ```{python}
 #| label: probe growth_rate
 #| echo: true
-def growth_rate(df):
+def growth_rate(obs):
     """Exponential growth rate via linear
     regression on log(cases)."""
-    y = df.iloc[:, 0].values
+    y = np.asarray(obs["cases"])
     y_safe = np.maximum(y, 0.5)
     log_y = np.log(y_safe)
     t = np.arange(len(y))
@@ -551,9 +545,9 @@ def growth_rate(df):
 ```{python}
 #| label: probe residual_sd
 #| echo: true
-def residual_sd(df):
+def residual_sd(obs):
     """SD of residuals from exponential trend."""
-    y = df.iloc[:, 0].values
+    y = np.asarray(obs["cases"])
     y_safe = np.maximum(y, 0.5)
     log_y = np.log(y_safe)
     t = np.arange(len(y))
@@ -573,19 +567,19 @@ def residual_sd(df):
 ```{python}
 #| label: probes quantiles
 #| echo: true
-def quantile_1(df):
+def quantile_1(obs):
     """1st quartile of log cases."""
-    y = np.maximum(df.iloc[:, 0].values, 0.5)
+    y = np.maximum(np.asarray(obs["cases"]), 0.5)
     return float(np.quantile(np.log(y), 0.25))
 
-def quantile_3(df):
+def quantile_3(obs):
     """3rd quartile of log cases."""
-    y = np.maximum(df.iloc[:, 0].values, 0.5)
+    y = np.maximum(np.asarray(obs["cases"]), 0.5)
     return float(np.quantile(np.log(y), 0.75))
 
-def acf_1(df):
+def acf_1(obs):
     """Lag-1 autocorrelation of log cases."""
-    y = np.maximum(df.iloc[:, 0].values, 0.5)
+    y = np.maximum(np.asarray(obs["cases"]), 0.5)
     x = np.log(y)
     x = x - x.mean()
     if np.var(x) == 0:
@@ -722,13 +716,13 @@ To incorporate **dynamic noise and measurement error** we use a particle filter 
 sle_forecast = pp.Pomp(
     rinit=rinit, rproc=rproc,
     dmeas=dmeas, rmeas=rmeas,
-    ys=sle.ys, theta=param_samples,
+    ys=sle.ys, theta=pp.PompParameters(param_samples),
     t0=sle.t0, dt=timestep,
     covars=None,
     statenames=sle.statenames,
     accumvars=("N_EI", "N_IR"))
 ```
-* We set `theta` to an array of parameters, which will trigger simulations at each parameter vector.
+* We set `theta` to a list of parameter vectors, wrapped in `pp.PompParameters`, which will trigger simulations at each parameter vector.
 
 ##
 
@@ -836,7 +830,7 @@ else:
     fcast = pp.Pomp(
         rinit=rinit_forecast, rproc=rproc,
         dmeas=dmeas, rmeas=rmeas,
-        ys=forecast_ys, theta=forecast_thetas,
+        ys=forecast_ys, theta=pp.PompParameters(forecast_thetas),
         t0=last_week, dt=timestep,
         covars=None,
         statenames=statenames_list,
@@ -883,7 +877,7 @@ for j in range(n_forecast):
     for s in range(min(5, 10)):
         fs = fj[fj['sim'] == s]
         alpha = np.clip(weights[j]*5, 0.02, 0.5)
-        ax.plot(fs['time'], fs['obs_0'],
+        ax.plot(fs['time'], fs['cases'],
             alpha=alpha, color='blue', lw=0.5)
 
 ax.set_ylim(0,5000)

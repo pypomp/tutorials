@@ -240,14 +240,14 @@ def dmeas(Y_, X_, theta_, covars, t):
     return jnp.log(prob)
 
 def rmeas(X_, theta_, key, covars, t):
-    """Measurement simulator. Returns JAX array with shape (ydim,)."""
+    """Measurement simulator. Returns a dict keyed by observation name."""
     rho, tau, IO = theta_['rho'], theta_['tau'], X_['IO']
     mu = rho * IO
     sd = jnp.sqrt((tau * IO)**2 + jnp.maximum(mu, 0.0))
     z = jax.random.normal(key)
     cases_cont = mu + sd * z
     cases = jnp.where(cases_cont > 0.0, jnp.round(cases_cont), 0.0)
-    return jnp.array([cases])
+    return {"cases": cases}
 
 def rinit(theta_, key, covars, t0):
     """Initial state distribution."""
@@ -271,7 +271,7 @@ ys = ys.loc[ys.index.intersection(covars.index)]
 
 polio = pp.Pomp(
     ys=ys,
-    theta=params_guess,
+    theta=pp.PompParameters(params_guess),
     rinit=rinit,
     rproc=rproc,
     dmeas=dmeas,
@@ -593,10 +593,10 @@ rw_sd = pp.RWSigma(
         'SB4_0': 0.0, 'SB5_0': 0.0, 'SB6_0': 0.0
     },
     init_names=['IO_0', 'SO_0']
-)
+).geometric_cooling(a=0.5)
 
 key = jax.random.key(12345)
-polio.mif(J=Np, M=Nmif, key=key, rw_sd=rw_sd, a=0.5)
+polio.mif(J=Np, M=Nmif, key=key, rw_sd=rw_sd)
 mif_result = polio.results_history[-1]
 
 polio.pfilter(J=Np, key=jax.random.key(99), reps=1, thresh=0, CLL=True, ESS=True)
@@ -831,11 +831,11 @@ print(f"  Goal: Refine top results from Stage 1")
 
 1. `RWSigma` requires **ALL parameters** in `sigmas` dict - use `0.0` for fixed params
 
-2. `rmeas` must return a JAX array with shape `(ydim,)`, e.g., `jnp.array([value])`
+2. `rmeas` must return a dict keyed by observation name, e.g., `{'cases': value}`
 
 3. Use `nstep=1` for discrete-time models
 
-4. Multiple starting points: pass `theta=[list_of_dicts]` to `mif()`
+4. Multiple starting points: pass `theta=pp.PompParameters(list_of_dicts)` to `mif()`
 
 5. Use `polio.prune(n=k)` to keep top k parameter sets
 

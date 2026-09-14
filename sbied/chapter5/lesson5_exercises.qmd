@@ -91,9 +91,9 @@ np.random.seed(594709947)
 mles = pp.models.UKMeasles.AK_mles()
 theta_mle = mles["London"].to_dict()
 
-measles_pomp = pp.models.UKMeasles.Pomp(
-    unit=["London"],
-    theta=theta_mle,
+measles_pomp = pp.models.UKMeasles.pomp(
+    unit="London",
+    theta=pp.PompParameters(theta_mle),
     model="001b",
     interp_method="shifted_splines",
     first_year=1950,
@@ -126,8 +126,8 @@ Simulate from the fitted model and compare simulations to data.
 # Simulate from the fitted model
 key = jax.random.key(42)
 
-# simulate() returns DataFrames with columns:
-# replicate, sim, time, state_0/obs_0, state_1/obs_1, ...
+# simulate() returns DataFrames with columns
+# theta_idx, sim, time, and one column per state or observation
 X_sims, Y_sims = measles_pomp.simulate(key=key, nsim=20)
 rep_col = 'theta_idx' if 'theta_idx' in Y_sims.columns else 'replicate'
 
@@ -144,7 +144,7 @@ ax = axes[0]
 for sim_idx in range(n_sims):
     sim_data = Y_sims[(Y_sims[rep_col] == 0) & (Y_sims['sim'] == sim_idx)]
     sim_data = sim_data.sort_values('time')
-    ax.plot(sim_data['time'].values, sim_data['obs_0'].values, 
+    ax.plot(sim_data['time'].values, sim_data['cases'].values, 
             alpha=0.2, color='blue', linewidth=0.5)
 ax.plot(times, data_cases, 
         color='red', linewidth=2, label='Data')
@@ -157,7 +157,7 @@ ax.legend()
 ax = axes[1]
 sim_data = Y_sims[(Y_sims[rep_col] == 0) & (Y_sims['sim'] == 0)]
 sim_data = sim_data.sort_values('time')
-ax.plot(sim_data['time'].values, sim_data['obs_0'].values, 
+ax.plot(sim_data['time'].values, sim_data['cases'].values, 
         color='blue', linewidth=1, label='Simulation')
 ax.plot(times, data_cases, 
         color='red', linewidth=1.5, label='Data')
@@ -177,7 +177,7 @@ data_mean = np.zeros(366)
 # Get first simulation for comparison
 sim_data = Y_sims[(Y_sims[rep_col] == 0) & (Y_sims['sim'] == 0)]
 sim_data = sim_data.sort_values('time')
-sim_obs = sim_data['obs_0'].values
+sim_obs = sim_data['cases'].values
 
 for i, (d, s, obs) in enumerate(zip(day_of_year, sim_obs[:len(day_of_year)], data_cases)):
     if d < 366:
@@ -231,21 +231,21 @@ data_max = np.nanmax(data_cases)
 sim_maxes = []
 for sim_idx in range(n_sims):
     sim_data = Y_sims[(Y_sims[rep_col] == 0) & (Y_sims['sim'] == sim_idx)]
-    sim_maxes.append(np.nanmax(sim_data['obs_0'].values))
+    sim_maxes.append(np.nanmax(sim_data['cases'].values))
 print(f"{'Max cases':<25} {data_max:>10.0f} {np.mean(sim_maxes):>12.0f}")
 
 data_mean_val = np.nanmean(data_cases)
 sim_means = []
 for sim_idx in range(n_sims):
     sim_data = Y_sims[(Y_sims[rep_col] == 0) & (Y_sims['sim'] == sim_idx)]
-    sim_means.append(np.nanmean(sim_data['obs_0'].values))
+    sim_means.append(np.nanmean(sim_data['cases'].values))
 print(f"{'Mean cases':<25} {data_mean_val:>10.0f} {np.mean(sim_means):>12.0f}")
 
 data_std = np.nanstd(data_cases)
 sim_stds = []
 for sim_idx in range(n_sims):
     sim_data = Y_sims[(Y_sims[rep_col] == 0) & (Y_sims['sim'] == sim_idx)]
-    sim_stds.append(np.nanstd(sim_data['obs_0'].values))
+    sim_stds.append(np.nanstd(sim_data['cases'].values))
 print(f"{'Std dev':<25} {data_std:>10.0f} {np.mean(sim_stds):>12.0f}")
 
 # Coefficient of variation
@@ -353,8 +353,7 @@ Set $\sigma_{SE} = 0$ (no extra-demographic stochasticity), and fix $\rho$ and $
 
 ## Model without extra-demographic stochasticity
 
-The `model_001c` variant in `pypomp` is a simplified model that may run faster.
-Here we compare by evaluating at different $\sigma_{SE}$ values:
+Here we compare likelihoods at different $\sigma_{SE}$ values:
 
 ```{python}
 #| label: ex3-sigmase-comparison
@@ -368,9 +367,9 @@ for sigmaSE in sigmaSE_values:
     theta_test['sigmaSE'] = sigmaSE
     
     # Create new POMP object with modified parameters
-    pomp_test = pp.models.UKMeasles.Pomp(
-        unit=["London"],
-        theta=theta_test,
+    pomp_test = pp.models.UKMeasles.pomp(
+        unit="London",
+        theta=pp.PompParameters(theta_test),
         model="001b",
         first_year=1950,
         last_year=1963,
@@ -466,16 +465,16 @@ def compute_profile_point(cohort_value, theta_base, key):
             "S_0": 0.02, "E_0": 0.02, "I_0": 0.02, "R_0": 0.02
         },
         init_names=["S_0", "E_0", "I_0", "R_0"]
-    )
+    ).geometric_cooling(a=0.95)
     
     # Create POMP object
-    pomp_obj = pp.models.UKMeasles.Pomp(
-        unit=["London"], theta=theta_fixed, model="001b",
+    pomp_obj = pp.models.UKMeasles.pomp(
+        unit="London", theta=pp.PompParameters(theta_fixed), model="001b",
         first_year=1950, last_year=1963, dt=1/365.25, clean=True
     )
     
     # Run IF2
-    pomp_obj.mif(J=2000, M=30, a=0.95, rw_sd=rw_sd, key=key, thresh=0)
+    pomp_obj.mif(J=2000, M=30, rw_sd=rw_sd, key=key, thresh=0)
     
     # Evaluate likelihood
     key_pf = jax.random.split(key)[0]
@@ -584,9 +583,9 @@ key = jax.random.key(789012)
 theta_fixed_rho = deepcopy(theta_mle)
 theta_fixed_rho['rho'] = 0.6
 
-pomp_fixed = pp.models.UKMeasles.Pomp(
-    unit=["London"],
-    theta=theta_fixed_rho,
+pomp_fixed = pp.models.UKMeasles.pomp(
+    unit="London",
+    theta=pp.PompParameters(theta_fixed_rho),
     model="001b",
     first_year=1950,
     last_year=1963,

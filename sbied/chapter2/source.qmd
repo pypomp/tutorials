@@ -620,7 +620,7 @@ For the corresponding simulator we use `pp.random.fast_nbinomial` from `pypomp`.
 
 ##
 
-The measurement density `dmeas` and simulator `rmeas`:
+The measurement density `dmeas` returns a log-density, and the simulator `rmeas` returns a dictionary keyed by observation name:
 
 \footnotesize
 ```{python dmeas}
@@ -644,7 +644,7 @@ def rmeas(X_, theta_, key, covars, t):
     H = X_["H"]
     mu = rho * H
     reports = pp.random.fast_nbinomial(key, n=k, mu=mu)
-    return jnp.array([reports])
+    return {"reports": reports}
 ```
 \normalsize
 
@@ -654,14 +654,14 @@ A call to `Pomp` assembles the model components and the data:
 
 ```{python}
 #| echo: true
-theta = {
+theta = pp.PompParameters({
     "Beta": 7.5,
     "mu_IR": 0.5,
     "N": 38000.0,
     "eta": 0.03,
     "rho": 0.5,
     "k": 10.0
-}
+})
 statenames = ["S", "I", "R", "H"]
 sir_obj = pp.Pomp(
     rinit=rinit, rproc=rproc,
@@ -728,7 +728,7 @@ n_sims = 20
 key = jax.random.key(42)
 X_sims, Y_sims = sir_obj.simulate(key=key, nsim=n_sims)
 sim_df = Y_sims.pivot_table(
-    index="time", columns="sim", values="obs_0"
+    index="time", columns="sim", values="reports"
 )
 sim_df.columns = [f"sim_{i+1}" for i in range(n_sims)]
 ```
