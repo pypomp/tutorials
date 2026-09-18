@@ -1,0 +1,3 @@
+[submodule "article_jmlr/quant"]
+	path = article_jmlr/quant
+	url = https://github.com/pypomp/quant.git

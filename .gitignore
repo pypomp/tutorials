@@ -42,3 +42,6 @@ article/ms.tex
 big_measles/results/*/model.jbl
 big_measles/results/*/traces.parquet
 big_measles/results/*/cll*
+
+# misc
+CLAUDE.md

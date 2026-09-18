@@ -18,7 +18,13 @@ PIP = $(VENV_DIR)/bin/pip
 VENV_PYTHON = $(VENV_DIR)/bin/python
 SOURCE = source
 
-.PHONY: venv
+.PHONY: venv quant
+
+# Fetch the pypomp/quant benchmark results at the commit pinned by the
+# submodule. To use newer results, check out a new commit in quant/ and
+# commit the updated submodule pointer.
+quant:
+	git submodule update --init quant
 
 %.pdf: %.qmd
 	quarto render "$*.qmd" --to pdf
