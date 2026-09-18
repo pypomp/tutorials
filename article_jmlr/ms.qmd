@@ -89,6 +89,7 @@ import subprocess
 from pathlib import Path
 
 import pandas as pd
+import pypomp as pp
 from IPython.display import Markdown
 
 QUANT = Path("quant")
@@ -137,6 +138,22 @@ mif_speedups = [
     t["R"]["times"]["mif"] / t["gpu"]["times"]["mif"] for t in timing.values()
 ]
 mif_core_ratios = [R_CORES * s for s in mif_speedups]
+
+# S&P 500 GPU scaling: more chains at J = 1,000, or more particles per chain at
+# 120 chains. Each row was run in its own process with XLA preallocation off,
+# so peak_vram_mb is the memory that configuration actually used.
+spx_scaling = pd.read_csv(QUANT / "tests/spx/scaling/results/gpu/scaling.csv")
+spx_R = timing["spx"]["R"]
+spx_R_cfg = spx_R["meta"]["run_config"]
+# In the R timing run, each core ran one IF2 chain of Np particles.
+spx_r_core_rate = spx_R_cfg["Np"] * spx_R_cfg["Nmif"] / spx_R["times"]["mif"]
+spx_scaling["r_cores"] = (
+    spx_scaling["total_particles_mif"] * spx_scaling["M"] / spx_scaling["mif_time_seconds"]
+) / spx_r_core_rate
+spx_best = spx_scaling.loc[spx_scaling["r_cores"].idxmax()]
+spx_max_vram_gb = spx_scaling["peak_vram_mb"].max() / 1024
+spx_n_obs = len(pp.models.spx().ys)
+
 jax_sampler_slowdown = (
     timing["measles"]["gpu_jax"]["times"]["mif"] / timing["measles"]["gpu"]["times"]["mif"]
 )
@@ -346,6 +363,48 @@ for model, label in TIMING_MODELS.items():
             f"| {label if task == 'IF2' else ''} | {task} | {fmt_s(r)} "
             f"| {fmt_s(None if cpu is None else get(cpu))} | {fmt_s(gpu)} | {speedup} | {per_core} |"
         )
+Markdown("\n".join(rows))
+```
+
+The S&P 500 model shows the smallest GPU advantage in @tbl-timing because its benchmark gives the GPU little work to do in parallel.
+It runs 36 searches of 1,000 particles and resamples after each of its `{python} f"{spx_n_obs:,}"` time steps, each of which involves little computation, so fixed per-step costs dominate the GPU time.
+@tbl-spx-scaling shows that the GPU's throughput grows with the number of particles filtered at once.
+With `{python} f"{spx_best['chains']:,.0f}"` searches of `{python} f"{spx_best['J']:,.0f}"` particles, one GPU matches the IF2 throughput of `{python} f"{spx_best['r_cores']:,.0f}"` CPU cores running R.
+Adding searches raises throughput more than adding particles to each search, and with 120 searches, throughput falls once each search has more than `{python} f"{spx_scaling.loc[spx_scaling['scaling_type'] == 'particles'].sort_values('r_cores').iloc[-1]['J']:,.0f}"` particles.
+Peak GPU memory grows more slowly than the number of particles and stays below `{python} f"{math.ceil(spx_max_vram_gb)}"` GB in every configuration.
+
+```{python}
+#| label: tbl-spx-scaling
+#| tbl-cap: "IF2 time per iteration and peak GPU memory for the S&P 500 model on one GPU as the number of searches (chains) and particles per search grow. The first row is the benchmark in @tbl-timing, whose memory use was not recorded. R cores matched is the number of CPU cores running R needed to match the GPU's IF2 throughput, based on the R time in @tbl-timing. Each configuration ran 50 IF2 iterations, and time per iteration includes JIT compilation."
+#| echo: false
+
+spx_gpu = timing["spx"]["gpu"]
+bench = {
+    "chains": spx_R_cfg["Nstarts"],
+    "J": spx_R_cfg["Np"],
+    "total_particles_mif": spx_R_cfg["Nstarts"] * spx_R_cfg["Np"],
+    "mif_per_iter_seconds": spx_gpu["times"]["mif"] / spx_gpu["meta"]["run_config"]["NFITR"],
+    "peak_vram_mb": float("nan"),
+    "r_cores": R_CORES * spx_R["times"]["mif"] / spx_gpu["times"]["mif"],
+}
+table = pd.concat(
+    [
+        pd.DataFrame([bench]),
+        spx_scaling[spx_scaling["scaling_type"] == "chains"],
+        spx_scaling[spx_scaling["scaling_type"] == "particles"],
+    ],
+    ignore_index=True,
+)
+rows = [
+    "| Chains | Particles per chain | Total particles | IF2 s/iteration | Peak memory (MB) | R cores matched |",
+    "|--:|--:|--:|--:|--:|--:|",
+]
+for _, r in table.iterrows():
+    mem = "---" if pd.isna(r["peak_vram_mb"]) else f"{r['peak_vram_mb']:,.0f}"
+    rows.append(
+        f"| {r['chains']:,.0f} | {r['J']:,.0f} | {r['total_particles_mif']:,.0f} "
+        f"| {r['mif_per_iter_seconds']:.2f} | {mem} | {r['r_cores']:,.0f} |"
+    )
 Markdown("\n".join(rows))
 ```
 
