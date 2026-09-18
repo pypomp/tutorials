@@ -368,44 +368,75 @@ Markdown("\n".join(rows))
 
 The S&P 500 model shows the smallest GPU advantage in @tbl-timing because its benchmark gives the GPU little work to do in parallel.
 It runs 36 searches of 1,000 particles and resamples after each of its `{python} f"{spx_n_obs:,}"` time steps, each of which involves little computation, so fixed per-step costs dominate the GPU time.
-@tbl-spx-scaling shows that the GPU's throughput grows with the number of particles filtered at once.
+@fig-spx-scaling shows that the GPU's throughput grows with the number of particles filtered at once.
 With `{python} f"{spx_best['chains']:,.0f}"` searches of `{python} f"{spx_best['J']:,.0f}"` particles, one GPU matches the IF2 throughput of `{python} f"{spx_best['r_cores']:,.0f}"` CPU cores running R.
 Adding searches raises throughput more than adding particles to each search, and with 120 searches, throughput falls once each search has more than `{python} f"{spx_scaling.loc[spx_scaling['scaling_type'] == 'particles'].sort_values('r_cores').iloc[-1]['J']:,.0f}"` particles.
 Peak GPU memory grows more slowly than the number of particles and stays below `{python} f"{math.ceil(spx_max_vram_gb)}"` GB in every configuration.
 
 ```{python}
-#| label: tbl-spx-scaling
-#| tbl-cap: "IF2 time per iteration and peak GPU memory for the S&P 500 model on one GPU as the number of searches (chains) and particles per search grow. The first row is the benchmark in @tbl-timing, whose memory use was not recorded. R cores matched is the number of CPU cores running R needed to match the GPU's IF2 throughput, based on the R time in @tbl-timing. Each configuration ran 50 IF2 iterations, and time per iteration includes JIT compilation."
+#| label: fig-spx-scaling
+#| fig-cap: "GPU throughput and memory for IF2 on the S&P 500 model as the total number of particles grows, either by adding searches of 1,000 particles each or by adding particles to each of 120 searches. Left: the number of CPU cores running R needed to match the GPU's IF2 throughput, based on the R time in @tbl-timing; the black point is the benchmark in @tbl-timing. Right: peak GPU memory, which was not recorded for the benchmark, on a log scale. Both x-axes use a log scale. Each configuration ran 50 IF2 iterations, including JIT compilation, on one GPU."
 #| echo: false
+#| fig-width: 6.5
+#| fig-height: 2.6
+import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter, NullFormatter
+from matplotlib_inline.backend_inline import set_matplotlib_formats
+
+set_matplotlib_formats("pdf")  # vector output for the PDF manuscript
+
+# Categorical slots 1 and 2 of the dataviz reference palette (validated for
+# color-vision deficiency); marker shape is a second cue for grayscale print.
+SERIES = [
+    ("chains", "More searches, 1,000 particles each", "#2a78d6", "o"),
+    ("particles", "More particles, 120 searches", "#eb6834", "s"),
+]
+INK, MUTED, GRID = "#222222", "#6b6b6b", "#e4e4e0"
+
+plt.rcParams.update({
+    "font.size": 8, "axes.edgecolor": MUTED, "axes.labelcolor": INK,
+    "xtick.color": MUTED, "ytick.color": MUTED, "axes.linewidth": 0.6,
+})
+fig, (ax_tp, ax_mem) = plt.subplots(1, 2, figsize=(6.5, 2.6), constrained_layout=True)
+millions = spx_scaling["total_particles_mif"] / 1e6
+
+for kind, label, color, marker in SERIES:
+    rows_k = spx_scaling["scaling_type"] == kind
+    for ax, col in [(ax_tp, "r_cores"), (ax_mem, "peak_vram_mb")]:
+        ax.plot(millions[rows_k], spx_scaling.loc[rows_k, col], color=color,
+                marker=marker, markersize=4, linewidth=1.5, label=label)
 
 spx_gpu = timing["spx"]["gpu"]
-bench = {
-    "chains": spx_R_cfg["Nstarts"],
-    "J": spx_R_cfg["Np"],
-    "total_particles_mif": spx_R_cfg["Nstarts"] * spx_R_cfg["Np"],
-    "mif_per_iter_seconds": spx_gpu["times"]["mif"] / spx_gpu["meta"]["run_config"]["NFITR"],
-    "peak_vram_mb": float("nan"),
-    "r_cores": R_CORES * spx_R["times"]["mif"] / spx_gpu["times"]["mif"],
-}
-table = pd.concat(
-    [
-        pd.DataFrame([bench]),
-        spx_scaling[spx_scaling["scaling_type"] == "chains"],
-        spx_scaling[spx_scaling["scaling_type"] == "particles"],
-    ],
-    ignore_index=True,
-)
-rows = [
-    "| Chains | Particles per chain | Total particles | IF2 s/iteration | Peak memory (MB) | R cores matched |",
-    "|--:|--:|--:|--:|--:|--:|",
-]
-for _, r in table.iterrows():
-    mem = "---" if pd.isna(r["peak_vram_mb"]) else f"{r['peak_vram_mb']:,.0f}"
-    rows.append(
-        f"| {r['chains']:,.0f} | {r['J']:,.0f} | {r['total_particles_mif']:,.0f} "
-        f"| {r['mif_per_iter_seconds']:.2f} | {mem} | {r['r_cores']:,.0f} |"
-    )
-Markdown("\n".join(rows))
+bench_particles = spx_R_cfg["Nstarts"] * spx_R_cfg["Np"] / 1e6
+bench_cores = R_CORES * spx_R["times"]["mif"] / spx_gpu["times"]["mif"]
+ax_tp.plot(bench_particles, bench_cores, marker="D", markersize=4.5, color=INK,
+           linestyle="none", label="Benchmark, 36 searches")
+
+for ax in (ax_tp, ax_mem):
+    ax.set_xscale("log")
+    ax.set_xlim(0.025, 6)
+    ax.set_xticks([0.03, 0.1, 0.3, 1, 3])
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x:g}"))
+    ax.xaxis.set_minor_formatter(NullFormatter())
+    ax.set_xlabel("Total particles (millions)")
+    ax.grid(True, color=GRID, linewidth=0.6)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+ax_tp.set_ylim(bottom=0)
+ax_tp.set_ylabel("R cores matched")
+ax_tp.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:,.0f}"))
+# Log-log, so a slope below one shows memory growing slower than particles.
+ax_mem.set_yscale("log")
+ax_mem.set_ylim(50, 1200)
+ax_mem.set_yticks([50, 100, 200, 500, 1000])
+ax_mem.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:,.0f}"))
+ax_mem.yaxis.set_minor_formatter(NullFormatter())
+ax_mem.set_ylabel("Peak GPU memory (MB)")
+
+handles, labels = ax_tp.get_legend_handles_labels()
+fig.legend(handles, labels, loc="outside upper center", ncol=3, frameon=False)
+plt.show()
 ```
 
 ## Fitting all towns in England and Wales {#sec-big-measles}
