@@ -128,9 +128,15 @@ pomp_bench_version = timing["dacca"]["R"]["meta"]["pomp_version"]
 panelpomp_bench_version = timing["dacca"]["R"]["meta"]["panelPomp_version"]
 gpu_name = timing["dacca"]["gpu"]["meta"]["slurm"]["gpu_type"].replace("NVIDIA ", "")
 
+# The R scripts run one doParallel worker per core on a 36-core node, and each
+# phase splits independent searches or filters evenly across the workers, so
+# one core would take R_CORES times as long. (latest.json's slurm.cpus is
+# cpus-per-task, which is 1, not the number of workers.)
+R_CORES = 36
 mif_speedups = [
     t["R"]["times"]["mif"] / t["gpu"]["times"]["mif"] for t in timing.values()
 ]
+mif_core_ratios = [R_CORES * s for s in mif_speedups]
 jax_sampler_slowdown = (
     timing["measles"]["gpu_jax"]["times"]["mif"] / timing["measles"]["gpu"]["times"]["mif"]
 )
@@ -151,7 +157,6 @@ big_total_s = big_mif_s + big_pf1_s + big_pf2_s
 # which covers the same 1950-1963 period with the same daily Euler steps. Cost
 # is assumed linear in particles, IF2 iterations and towns. In the quant run,
 # each of the 36 cores ran one IF2 chain and then one particle filter.
-R_CORES = 36
 panel_R = timing["panel_measles"]["R"]
 panel_cfg = panel_R["meta"]["run_config"]
 n_small = len(panel_cfg["units"])
@@ -165,11 +170,16 @@ r_one_pf_s = r_pf_cost * big_par["np_eval"] * n_big
 r_big_pf1_s = math.ceil(big_par["nreps_fitr"] * big_par["nreps_eval"] / R_CORES) * r_one_pf_s
 r_big_pf2_s = math.ceil(big_par["nreps_eval"] / R_CORES) * r_one_pf_s
 r_big_total_s = r_big_mif_s + r_big_pf1_s + r_big_pf2_s
+# On one core, every IF2 chain and particle filter runs in turn.
+n_big_pf = big_par["nreps_fitr"] * big_par["nreps_eval"] + big_par["nreps_eval"]
+r_big_1core_s = big_par["nreps_fitr"] * r_big_mif_s + n_big_pf * r_one_pf_s
 
 HOUR, DAY = 3600, 86400
 big_hours = f"{big_total_s / HOUR:.0f}"
 r_big_months = f"{r_big_total_s / (30.44 * DAY):.1f}"
 big_speedup = f"{r_big_total_s / big_total_s:.0f}"
+r_big_1core_years = f"{r_big_1core_s / (365.25 * DAY):.1f}"
+big_core_ratio = f"{r_big_1core_s / big_total_s:,.0f}"
 ```
 
 # Introduction {#sec-intro}
@@ -197,7 +207,7 @@ Pypomp incorporates advances in high-dimensional particle filter inference for p
 
 
 \EInote{WITH SUITABLE DISCLAIMERS, WE HAVE OBTAINTED ERC VALUES OF AROUND 1000, RIGHT? THAT'S ANOTHER ORDER OF MAGNITUDE BIGGER. IT NEEDS EXTRA VMAPPING, SO THE STATEMENT WOULD HAVE TO BE CAREFUL, BUT PRESUMABLY ONE COULD DRAFT SOMETHING CORRECT THAT DISPLAYS THE BEST RATIO WE HAVE.}
-On a single GPU, Pypomp runs IF2 `{python} f"{min(mif_speedups):.0f}"` to `{python} f"{max(mif_speedups):.0f}"` times faster than the R packages `pomp` and `panelPomp` running on a 36-core CPU node (@sec-performance), enabling plug-and-play likelihood-based inference on datasets that would otherwise be intractably large.
+On a single GPU, Pypomp runs IF2 `{python} f"{min(mif_speedups):.0f}"` to `{python} f"{max(mif_speedups):.0f}"` times faster than the R packages `pomp` and `panelPomp` running on a 36-core CPU node, which is the throughput of `{python} f"{min(mif_core_ratios):,.0f}"` to `{python} f"{max(mif_core_ratios):,.0f}"` CPU cores running R (@sec-performance). This enables plug-and-play likelihood-based inference on datasets that would otherwise be intractably large.
 In @sec-big-measles, we fit a panel POMP model to the England and Wales measles dataset of @korevaar2020, which contains over one million observations from `{python} f"{n_big:,}"` towns and cities.
 One GPU completed the fit in `{python} big_hours` hours, whereas we estimate that the same computation would take about `{python} r_big_months` months with the R package `panelPomp` [@breto2020].
 
@@ -304,12 +314,13 @@ We benchmarked Pypomp against the R packages `pomp` and `panelPomp` using the qu
 @tbl-timing reports wall-clock times for the same workload on three platforms: R on a 36-core CPU node, Pypomp on a 36-core CPU node, and Pypomp on one `{python} gpu_name` GPU.
 The runs used Pypomp `{python} pypomp_bench_version`, `pomp` `{python} pomp_bench_version`, and `panelPomp` `{python} panelpomp_bench_version`.
 On the GPU, Pypomp runs IF2 between `{python} f"{min(mif_speedups):.0f}"` and `{python} f"{max(mif_speedups):.0f}"` times faster than R.
+R divided each workload evenly across its 36 cores, so a single core would take 36 times as long, and one GPU matches the IF2 throughput of `{python} f"{min(mif_core_ratios):,.0f}"` to `{python} f"{max(mif_core_ratios):,.0f}"` CPU cores running R.
 Pypomp on the CPU is faster than R for the cholera and S&P 500 models but slower for the measles model, whose Poisson, binomial, and gamma draws are expensive for JAX on a CPU.
 The GPU times depend on the approximate inverse-CDF samplers in `pypomp.random`: with the standard `jax.random` samplers, IF2 for the London measles model took `{python} f"{jax_sampler_slowdown:.0f}"` times longer on the same GPU.
 
 ```{python}
 #| label: tbl-timing
-#| tbl-cap: "Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation of the IF2 estimates. Each IF2 row runs 36 searches from the same starting points on every platform. Pypomp PF times include JIT compilation. Speedup is the R time divided by the Pypomp GPU time. The 4-town panel PF speedup is omitted because the two quant scripts filter different numbers of parameter sets, and no Pypomp CPU run was recorded for that model."
+#| tbl-cap: "Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation of the IF2 estimates. Each IF2 row runs 36 searches from the same starting points on every platform. Pypomp PF times include JIT compilation. Speedup is the R time divided by the Pypomp GPU time. Throughput relative to one core is the speedup multiplied by the 36 R cores: the number of CPU cores running R needed to match one GPU. The 4-town panel PF comparisons are omitted because the two quant scripts filter different numbers of parameter sets, and no Pypomp CPU run was recorded for that model."
 #| echo: false
 
 
@@ -320,8 +331,8 @@ def fmt_s(x):
 
 
 rows = [
-    "| Model | Task | R (36 cores) | Pypomp (36 cores) | Pypomp (1 GPU) | Speedup |",
-    "|:--|:--|--:|--:|--:|--:|",
+    "| Model | Task | R (36 cores) | Pypomp (36 cores) | Pypomp (1 GPU) | Speedup | Throughput vs. 1 core |",
+    "|:--|:--|--:|--:|--:|--:|--:|",
 ]
 for model, label in TIMING_MODELS.items():
     t = timing[model]
@@ -330,9 +341,10 @@ for model, label in TIMING_MODELS.items():
         r, gpu = get(t["R"]["times"]), get(t["gpu"]["times"])
         comparable = not (model == "panel_measles" and task == "PF")
         speedup = f"{r / gpu:.0f}$\\times$" if comparable else "---"
+        per_core = f"{R_CORES * r / gpu:,.0f}$\\times$" if comparable else "---"
         rows.append(
             f"| {label if task == 'IF2' else ''} | {task} | {fmt_s(r)} "
-            f"| {fmt_s(None if cpu is None else get(cpu))} | {fmt_s(gpu)} | {speedup} |"
+            f"| {fmt_s(None if cpu is None else get(cpu))} | {fmt_s(gpu)} | {speedup} | {per_core} |"
         )
 Markdown("\n".join(rows))
 ```
@@ -348,6 +360,7 @@ For comparison, we estimated how long the same computation would take with `pane
 We measured `panelPomp`'s cost per particle, per IF2 iteration, and per town on the 4-town panel in @tbl-timing, which covers the same period with the same daily time step, and scaled it linearly to the full computation.
 IF2 searches run sequentially, so R can use at most one core per search, and the extra cores only help with the particle filter evaluations.
 By this estimate, R would need about `{python} r_big_months` months, `{python} big_speedup` times longer than the `{python} big_hours` hours taken on the GPU.
+On a single core, R would need about `{python} r_big_1core_years` years, so the GPU delivered the throughput of about `{python} big_core_ratio` CPU cores running R.
 
 ```{python}
 #| label: tbl-big-measles
