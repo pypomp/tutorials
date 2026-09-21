@@ -50,7 +50,7 @@ format:
     keep-tex: true
     cite-method: natbib
 bibliography: references.bib
-abstract: Model development and parameter estimation for non-Gaussian partially observed Markov process (POMP) mechanistic models are fundamental challenges in a variety of fields including epidemiology, ecology, and finance. Particle filter methods can provide statistically efficient inference for highly nonlinear POMP models, but their practical application is limited by high computational demands. We introduce Pypomp, a high-performance Python library for statistical inference using POMP models. Pypomp includes state-of-the-art particle filtering algorithms to take advantage of GPU hardware, just-in-time computation, and automatic differentiation accessed using JAX. Basic inference algorithms run with throughput up to 1000 times greater than on a CPU core, and advanced algorithms provide further acceleration. Pypomp provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
+abstract: Model development and parameter estimation for non-Gaussian partially observed Markov process (POMP) mechanistic models are fundamental challenges in a variety of fields including epidemiology, ecology, and finance. Particle filter methods can provide statistically efficient inference for highly nonlinear POMP models, but their practical application is limited by high computational demands. We introduce Pypomp, a high-performance Python library for statistical inference using POMP models. Pypomp includes state-of-the-art particle filtering algorithms to take advantage of GPU hardware, just-in-time computation, and automatic differentiation accessed using JAX. Basic inference algorithms run with throughput as high as 8000 times greater than on a CPU core, and advanced algorithms provide further acceleration. Pypomp provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -170,6 +170,26 @@ spx_overlap = np.exp(np.linspace(
 spx_chain_advantage = np.mean(
     spx_throughput_at("chains", spx_overlap) / spx_throughput_at("particles", spx_overlap)
 )
+
+# Dhaka and London measles GPU scaling, on the same grid as S&P 500 but with
+# only M = 10 IF2 iterations, run twice: the first run includes JIT
+# compilation and the second does not. Project each configuration to the
+# benchmark's IF2 length, compilation included, to compare with @tbl-timing.
+def scaling_r_cores(model):
+    s = pd.read_csv(QUANT / "tests" / model / "scaling/results/gpu/scaling.csv")
+    R = timing[model]["R"]
+    cfg = R["meta"]["run_config"]
+    r_core_rate = cfg["NP"] * cfg["NFITR"] / R["times"]["mif"]
+    compile_s = s["mif_cold_seconds"] - s["mif_warm_seconds"]
+    mif_s = compile_s + cfg["NFITR"] * s["mif_per_iter_seconds"]
+    s["r_cores"] = s["total_particles_mif"] * cfg["NFITR"] / mif_s / r_core_rate
+    return s
+
+
+scaling = {m: scaling_r_cores(m) for m in ["dacca", "measles"]}
+scaling["spx"] = spx_scaling
+peak_r_cores = {m: s["r_cores"].max() for m, s in scaling.items()}
+peak_gain = {m: peak_r_cores[m] / c for m, c in zip(timing, mif_core_ratios) if m in peak_r_cores}
 
 jax_sampler_slowdown = (
     timing["measles"]["gpu_jax"]["times"]["mif"] / timing["measles"]["gpu"]["times"]["mif"]
@@ -352,7 +372,7 @@ The GPU times depend on the approximate inverse-CDF samplers in `pypomp.random`:
 
 ```{python}
 #| label: tbl-timing
-#| tbl-cap: "Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation of the IF2 estimates. Each IF2 row runs 36 searches from the same starting points on every platform. Pypomp PF times include JIT compilation. Speedup is the R time divided by the Pypomp GPU time. Throughput relative to one core is the speedup multiplied by the 36 R cores: the number of CPU cores running R needed to match one GPU. The 4-town panel PF comparisons are omitted because the two quant scripts filter different numbers of parameter sets, and no Pypomp CPU run was recorded for that model."
+#| tbl-cap: "Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation of the IF2 estimates. Each IF2 row runs 36 searches from the same starting points on every platform. Pypomp PF times include JIT compilation. Speedup is the R time divided by the Pypomp GPU time. Throughput relative to one core is the speedup multiplied by the 36 R cores: the number of CPU cores running R needed to match one GPU. Peak is the highest IF2 throughput relative to one core in the GPU scaling tests, which give the GPU more searches or more particles per search than the benchmark (@fig-spx-scaling for the S&P 500 model). For the cholera and measles models, those tests ran 10 IF2 iterations per configuration, and their times are projected to the benchmark's 100 iterations, including JIT compilation. The 4-town panel PF comparisons are omitted because the two quant scripts filter different numbers of parameter sets, and no Pypomp CPU run was recorded for that model."
 #| echo: false
 
 
@@ -363,8 +383,8 @@ def fmt_s(x):
 
 
 rows = [
-    "| Model | Task | R (36 cores) | Pypomp (36 cores) | Pypomp (1 GPU) | Speedup | Throughput vs. 1 core |",
-    "|:--|:--|--:|--:|--:|--:|--:|",
+    "| Model | Task | R (36 cores) | Pypomp (36 cores) | Pypomp (1 GPU) | Speedup | Throughput vs. 1 core | Peak vs. 1 core |",
+    "|:--|:--|--:|--:|--:|--:|--:|--:|",
 ]
 for model, label in TIMING_MODELS.items():
     t = timing[model]
@@ -374,9 +394,14 @@ for model, label in TIMING_MODELS.items():
         comparable = not (model == "panel_measles" and task == "PF")
         speedup = f"{r / gpu:.0f}$\\times$" if comparable else "---"
         per_core = f"{R_CORES * r / gpu:,.0f}$\\times$" if comparable else "---"
+        peak = (
+            f"{peak_r_cores[model]:,.0f}$\\times$"
+            if task == "IF2" and model in peak_r_cores else "---"
+        )
         rows.append(
             f"| {label if task == 'IF2' else ''} | {task} | {fmt_s(r)} "
-            f"| {fmt_s(None if cpu is None else get(cpu))} | {fmt_s(gpu)} | {speedup} | {per_core} |"
+            f"| {fmt_s(None if cpu is None else get(cpu))} | {fmt_s(gpu)} | {speedup} "
+            f"| {per_core} | {peak} |"
         )
 Markdown("\n".join(rows))
 ```
@@ -387,6 +412,7 @@ It runs 36 searches of 1,000 particles and resamples after each of its `{python}
 With `{python} f"{spx_best['chains']:,.0f}"` searches of `{python} f"{spx_best['J']:,.0f}"` particles, one GPU matches the IF2 throughput of `{python} f"{spx_best['r_cores']:,.0f}"` CPU cores running R.
 At a given total number of particles the two ways of adding them perform similarly, with extra searches ahead by an average of `{python} f"{(spx_chain_advantage - 1) * 100:.0f}"`%, and with 120 searches, throughput falls once each search has more than `{python} f"{spx_scaling.loc[spx_scaling['scaling_type'] == 'particles'].sort_values('r_cores').iloc[-1]['J']:,.0f}"` particles.
 Peak GPU memory grows more slowly than the number of particles and stays below `{python} f"{math.ceil(spx_max_vram_gb)}"` GB in every configuration.
+The same scaling tests for the cholera and measles models, whose benchmarks already give the GPU more work, raise their IF2 throughput by a smaller factor, to `{python} f"{peak_r_cores['dacca']:,.0f}"` and `{python} f"{peak_r_cores['measles']:,.0f}"` CPU cores running R, `{python} f"{peak_gain['dacca']:.1f}"` and `{python} f"{peak_gain['measles']:.1f}"` times the benchmark values (@tbl-timing).
 
 ```{python}
 #| label: fig-spx-scaling
