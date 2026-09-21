@@ -50,7 +50,7 @@ format:
     keep-tex: true
     cite-method: natbib
 bibliography: references.bib
-abstract: Model development and parameter estimation for non-Gaussian partially observed Markov process (POMP) mechanistic models are fundamental challenges in a variety of fields including epidemiology, ecology, and finance. Particle filter methods can provide statistically efficient inference for highly nonlinear POMP models, but their practical application is limited by high computational demands. We introduce Pypomp, a high-performance Python library for statistical inference using POMP models. Pypomp includes state-of-the-art particle filtering algorithms to take advantage of GPU hardware, just-in-time computation, and automatic differentiation accessed using JAX. Basic inference algorithms run up to 1000 times faster than on a CPU core, and advanced algorithms provide further acceleration \EInote{THIS SEEMS LIKE A BIG CLAIM, BUT IF WE CAN MAKE AND ADEQUATELY SUPPORT A BIG CLAIM, WE SHOULD DO SO}. Pypomp provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
+abstract: Model development and parameter estimation for non-Gaussian partially observed Markov process (POMP) mechanistic models are fundamental challenges in a variety of fields including epidemiology, ecology, and finance. Particle filter methods can provide statistically efficient inference for highly nonlinear POMP models, but their practical application is limited by high computational demands. We introduce Pypomp, a high-performance Python library for statistical inference using POMP models. Pypomp includes state-of-the-art particle filtering algorithms to take advantage of GPU hardware, just-in-time computation, and automatic differentiation accessed using JAX. Basic inference algorithms run with throughput up to 1000 times greater than on a CPU core, and advanced algorithms provide further acceleration. Pypomp provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -88,6 +88,7 @@ import math
 import subprocess
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pypomp as pp
 from IPython.display import Markdown
@@ -153,6 +154,22 @@ spx_scaling["r_cores"] = (
 spx_best = spx_scaling.loc[spx_scaling["r_cores"].idxmax()]
 spx_max_vram_gb = spx_scaling["peak_vram_mb"].max() / 1024
 spx_n_obs = len(pp.models.spx().ys)
+
+
+# The two scaling branches were run on different grids of total particles, so
+# compare them by interpolating each onto the range where they overlap.
+def spx_throughput_at(kind, totals):
+    s = spx_scaling[spx_scaling["scaling_type"] == kind].sort_values("total_particles_mif")
+    return np.interp(np.log(totals), np.log(s["total_particles_mif"]), s["r_cores"])
+
+
+spx_totals = spx_scaling.groupby("scaling_type")["total_particles_mif"]
+spx_overlap = np.exp(np.linspace(
+    np.log(spx_totals.min().max()), np.log(spx_totals.max().min()), 25
+))
+spx_chain_advantage = np.mean(
+    spx_throughput_at("chains", spx_overlap) / spx_throughput_at("particles", spx_overlap)
+)
 
 jax_sampler_slowdown = (
     timing["measles"]["gpu_jax"]["times"]["mif"] / timing["measles"]["gpu"]["times"]["mif"]
@@ -222,8 +239,6 @@ This makes Pypomp especially relevant to applications in ecology and epidemiolog
 The plug-and-play property of the particle filter makes Pypomp a convenient exploratory tool, enabling rapid model development even in situations where alternative methods are applicable.
 Pypomp incorporates advances in high-dimensional particle filter inference for panel data [@breto2020] to address a theoretical limitation of the particle filter, that it scales poorly with state space dimension. 
 
-
-\EInote{WITH SUITABLE DISCLAIMERS, WE HAVE OBTAINTED ERC VALUES OF AROUND 1000, RIGHT? THAT'S ANOTHER ORDER OF MAGNITUDE BIGGER. IT NEEDS EXTRA VMAPPING, SO THE STATEMENT WOULD HAVE TO BE CAREFUL, BUT PRESUMABLY ONE COULD DRAFT SOMETHING CORRECT THAT DISPLAYS THE BEST RATIO WE HAVE.}
 On a single GPU, Pypomp runs IF2 `{python} f"{min(mif_speedups):.0f}"` to `{python} f"{max(mif_speedups):.0f}"` times faster than the R packages `pomp` and `panelPomp` running on a 36-core CPU node, which is the throughput of `{python} f"{min(mif_core_ratios):,.0f}"` to `{python} f"{max(mif_core_ratios):,.0f}"` CPU cores running R (@sec-performance). This enables plug-and-play likelihood-based inference on datasets that would otherwise be intractably large.
 In @sec-big-measles, we fit a panel POMP model to the England and Wales measles dataset of @korevaar2020, which contains over one million observations from `{python} f"{n_big:,}"` towns and cities.
 One GPU completed the fit in `{python} big_hours` hours, whereas we estimate that the same computation would take about `{python} r_big_months` months with the R package `panelPomp` [@breto2020].
@@ -370,7 +385,7 @@ The S&P 500 model shows the smallest GPU advantage in @tbl-timing because its be
 It runs 36 searches of 1,000 particles and resamples after each of its `{python} f"{spx_n_obs:,}"` time steps, each of which involves little computation, so fixed per-step costs dominate the GPU time.
 @fig-spx-scaling shows that the GPU's throughput grows with the number of particles filtered at once.
 With `{python} f"{spx_best['chains']:,.0f}"` searches of `{python} f"{spx_best['J']:,.0f}"` particles, one GPU matches the IF2 throughput of `{python} f"{spx_best['r_cores']:,.0f}"` CPU cores running R.
-Adding searches raises throughput more than adding particles to each search, and with 120 searches, throughput falls once each search has more than `{python} f"{spx_scaling.loc[spx_scaling['scaling_type'] == 'particles'].sort_values('r_cores').iloc[-1]['J']:,.0f}"` particles.
+At a given total number of particles the two ways of adding them perform similarly, with extra searches ahead by an average of `{python} f"{(spx_chain_advantage - 1) * 100:.0f}"`%, and with 120 searches, throughput falls once each search has more than `{python} f"{spx_scaling.loc[spx_scaling['scaling_type'] == 'particles'].sort_values('r_cores').iloc[-1]['J']:,.0f}"` particles.
 Peak GPU memory grows more slowly than the number of particles and stays below `{python} f"{math.ceil(spx_max_vram_gb)}"` GB in every configuration.
 
 ```{python}
