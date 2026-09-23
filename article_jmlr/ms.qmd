@@ -173,12 +173,7 @@ peak_r_cores = {m: s["r_cores"].max() for m, s in scaling.items()}
 peak_gain = {m: peak_r_cores[m] / c for m, c in zip(timing, mif_core_ratios)}
 
 spx_scaling = scaling["spx"]
-spx_R = timing["spx"]["R"]
-spx_R_cfg = spx_R["meta"]["run_config"]
 spx_best = spx_scaling.loc[spx_scaling["r_cores"].idxmax()]
-spx_max_vram_gb = spx_scaling["peak_vram_mb"].max() / 1024
-spx_fixed_chains = spx_scaling.loc[spx_scaling["scaling_type"] == "particles", "chains"].iloc[0]
-spx_scaling_M = spx_scaling["M"].iloc[0]
 spx_n_obs = len(pp.models.spx().ys)
 
 
@@ -197,8 +192,19 @@ spx_chain_advantage = np.mean(
     spx_throughput_at("chains", spx_overlap) / spx_throughput_at("particles", spx_overlap)
 )
 
+# The configuration that used the most GPU memory across all scaling tests.
+max_vram_model = max(scaling, key=lambda m: scaling[m]["peak_vram_mb"].max())
+max_vram = scaling[max_vram_model].loc[scaling[max_vram_model]["peak_vram_mb"].idxmax()]
+
 jax_sampler_slowdown = (
     timing["measles"]["gpu_jax"]["times"]["mif"] / timing["measles"]["gpu"]["times"]["mif"]
+)
+jax_sampler_pf_slowdown = (
+    pf_time(timing["measles"]["gpu_jax"]["times"]) / pf_time(timing["measles"]["gpu"]["times"])
+)
+max_w1_norm = max(
+    max(g["w_dist_norm"])
+    for g in json.loads((QUANT / "tests/samplers/benchmark_results.json").read_text())["grids"].values()
 )
 
 # England and Wales measles fit (all 1,422 towns) on one GPU.
@@ -263,13 +269,14 @@ This makes plug-and-play likelihood-based inference feasible on datasets that wo
 In @sec-big-measles, we fit a panel POMP model to the England and Wales measles dataset of @korevaar2020, which contains over one million observations from `{python} f"{n_big:,}"` towns and cities.
 One GPU completed the fit in `{python} big_hours` hours, whereas we estimate that the same computation would take about `{python} r_big_months` months with the R package `panelPomp` [@breto2020].
 
-\EInote{A BRAINSTORMING IDEA: IN THE SMC READING GROUP, I STARTED USING THE PHRASE ``MICHIGAN NOTATION'' TO EXPLAIN OUR COHERENT SET OF NAMES AND NOTATIONS THAT IS SOMEWHAT DIFFERENT TO THE DIVERSE TERMINOLOGIES FOUND ELSEWHERE. I'M NOT SURE IF THIS IS THE RIGHT PLACE, BUT MAYBE IT IS. ANYWAY, HERE'S A GO}
+<!-- \EInote{A BRAINSTORMING IDEA: IN THE SMC READING GROUP, I STARTED USING THE PHRASE ``MICHIGAN NOTATION'' TO EXPLAIN OUR COHERENT SET OF NAMES AND NOTATIONS THAT IS SOMEWHAT DIFFERENT TO THE DIVERSE TERMINOLOGIES FOUND ELSEWHERE. I'M NOT SURE IF THIS IS THE RIGHT PLACE, BUT MAYBE IT IS. ANYWAY, HERE'S A GO} -->
 
-# POMP Modeling: The Michigan notation {#sec-pomp}
+# POMP Modeling {#sec-pomp}
+<!-- # POMP Modeling: The Michigan notation {#sec-pomp} -->
 
-Diverse terminologies and notations have evolved for POMP models in different communities. 
+<!-- Diverse terminologies and notations have evolved for POMP models in different communities. 
 Pypomp uses the Michigan notation that arose from the program to build a unifying software environment to represent a wide range of proposed statistical methodologies in the R pomp package. 
-Distinguishing features are: (i) $t$ is used to represent continuous time, allowing proper handling of scientific units and situations where the latent variable is defined not just at times it is observed; (ii) $\{t_n, n=1,\dots,N\}$ is a discrete sequence of $N$ measurement times; (iii) ranges are upper-case Roman letters with the corresponding lower-case often used as an index; (iv) joint and conditional densities are defined using appropriate subscripts and avoiding overloading, for example, $f_{Y_n|X_n}(y_n|x_n;\theta)$ denotes the conditional density of $Y_n$ given $X_n$; (v) sequences are denoted by colons, for example, $\{t_n, n=1,\dots,N\}$ is written as $t_{1:N}$. \EInote{TO BE CONTINUED, IF WE GO THIS ROUTE}.
+Distinguishing features are: (i) $t$ is used to represent continuous time, allowing proper handling of scientific units and situations where the latent variable is defined not just at times it is observed; (ii) $\{t_n, n=1,\dots,N\}$ is a discrete sequence of $N$ measurement times; (iii) ranges are upper-case Roman letters with the corresponding lower-case often used as an index; (iv) joint and conditional densities are defined using appropriate subscripts and avoiding overloading, for example, $f_{Y_n|X_n}(y_n|x_n;\theta)$ denotes the conditional density of $Y_n$ given $X_n$; (v) sequences are denoted by colons, for example, $\{t_n, n=1,\dots,N\}$ is written as $t_{1:N}$. \EInote{TO BE CONTINUED, IF WE GO THIS ROUTE}. -->
 
 A POMP model consists of an unobserved Markov process $\{X(t), t_0 \leq t \leq t_{N}\}$ and observations $Y_{1:N}$ made at times $t_{1:N}$, with observed values $y^*_{1:N}$.
 The initial state is defined at time $t_0$, $X_n := X(t_n)$, and $Y_n$ is independent of $Y_m, X_m$, $m \neq n$, conditional on $X_n$.
@@ -296,7 +303,9 @@ For example, the S&P 500 model included in the package defines its state transit
 # | echo: true
 import jax
 import jax.numpy as jnp
-from pypomp.types import StateDict, ParamDict, CovarDict, TimeFloat, StepSizeFloat, RNGKey
+from pypomp.types import (
+    StateDict, ParamDict, CovarDict, TimeFloat, StepSizeFloat, RNGKey
+)
 
 def rproc(
     X_: StateDict, theta_: ParamDict, key: RNGKey, covars: CovarDict,
@@ -344,14 +353,15 @@ The source code is available at [https://github.com/pypomp/pypomp](https://githu
 # Performance {#sec-performance}
 
 We benchmarked Pypomp `{python} pypomp_bench_version` against `pomp` `{python} pomp_bench_version` and `panelPomp` `{python} panelpomp_bench_version` using the quantitative test suite at [https://github.com/pypomp/quant](https://github.com/pypomp/quant) (commit `{python} quant_sha`).
-@tbl-timing reports wall-clock times for the same workloads with R on a 36-core CPU node, Pypomp on the same node, and Pypomp on one `{python} gpu_name` GPU.
+@tbl-timing compares IF2 wall-clock times for the same workloads with R on a 36-core CPU node and Pypomp on one `{python} gpu_name` GPU.
 R divided each workload evenly across its 36 cores, so one core would take 36 times as long.
-Pypomp on the CPU is faster than R for the cholera and S&P 500 models but slower for the London measles model, whose Poisson, binomial, and gamma draws are expensive for JAX on a CPU.
-The GPU times rely on the approximate inverse-CDF samplers in `pypomp.random`: with the standard `jax.random` samplers, IF2 for the London measles model took `{python} f"{jax_sampler_slowdown:.0f}"` times longer on the GPU.
+The S&P 500 benchmark gives the GPU little parallel work, but with more particles in flight, one GPU matches `{python} f"{spx_best['r_cores']:,.0f}"` CPU cores running R (Appendix -@sec-scaling).
+The GPU times rely on the approximate samplers in `pypomp.random`: with the standard `jax.random` samplers, IF2 for the London measles model took `{python} f"{jax_sampler_slowdown:.0f}"` times longer (Appendix -@sec-samplers).
+Appendix -@sec-benchmarks gives particle filter and Pypomp CPU times.
 
 ```{python}
 #| label: tbl-timing
-#| tbl-cap: "Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation of the IF2 estimates. Each IF2 row runs 36 searches from the same starting points on every platform, and Pypomp PF times include JIT compilation. Speedup is the R time divided by the Pypomp GPU time. Throughput is the speedup times 36: the number of CPU cores running R that one GPU matches. Peak is the highest IF2 throughput in GPU scaling tests with more searches or more particles per search (@fig-spx-scaling), projected to the benchmark's number of IF2 iterations including JIT compilation. The 4-town panel has no PF comparison because the quant scripts filter different numbers of parameter sets, and it has no Pypomp CPU run."
+#| tbl-cap: "Wall-clock time in seconds for IF2, running 36 searches from the same starting points. Speedup is the R time divided by the GPU time. Cores matched is the speedup times 36: the number of CPU cores running R that one GPU matches. Peak is the highest value of cores matched in GPU scaling tests with more particles in flight (Appendix -@sec-scaling)."
 #| echo: false
 
 
@@ -362,8 +372,57 @@ def fmt_s(x):
 
 
 rows = [
-    "| Model | Task | R (36 cores) | Pypomp (36 cores) | Pypomp (1 GPU) | Speedup | Throughput vs. 1 core | Peak vs. 1 core |",
-    "|:--|:--|--:|--:|--:|--:|--:|--:|",
+    "| Model | R (36 cores) | Pypomp (1 GPU) | Speedup | Cores matched | Peak |",
+    # Dash counts set the relative column widths in the PDF.
+    "|:------------------------|-------------:|-------------:|--------:|---------:|--------:|",
+]
+for model, label in TIMING_MODELS.items():
+    r, gpu = timing[model]["R"]["times"]["mif"], timing[model]["gpu"]["times"]["mif"]
+    rows.append(
+        f"| {label} | {fmt_s(r)} | {fmt_s(gpu)} | {r / gpu:.0f}$\\times$ "
+        f"| {R_CORES * r / gpu:,.0f} | {peak_r_cores[model]:,.0f} |"
+    )
+Markdown("\n".join(rows))
+```
+
+## Fitting all towns in England and Wales {#sec-big-measles}
+
+To show the scale of problem this acceleration makes feasible, we fit the measles model of @he2010 to weekly case reports from all `{python} f"{n_big:,}"` towns and cities in England and Wales between 1950 and 1963 [@korevaar2020], treating every parameter as specific to each town.
+One GPU completed the fit, including likelihood evaluation, in `{python} big_hours` hours.
+Scaling `panelPomp`'s cost on the 4-town panel linearly, we estimate that R on a 36-core node would need about `{python} r_big_months` months, `{python} big_speedup` times longer (Appendix -@sec-big-measles-details).
+
+# Discussion {#sec-discussion}
+
+
+
+# References {.unnumbered}
+
+::: {#refs}
+:::
+
+
+\appendix
+
+# Full benchmark results {#sec-benchmarks}
+
+@tbl-timing-full extends @tbl-timing with particle filter times and Pypomp on the same 36-core CPU node as R.
+Pypomp on the CPU is faster than R for the cholera and S&P 500 models but slower for the London measles model, whose Poisson, binomial, and gamma draws are expensive for JAX on a CPU.
+
+```{python}
+#| label: tbl-timing-full
+#| tbl-cap: "Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation of the IF2 estimates. Each IF2 row runs 36 searches from the same starting points on every platform, and Pypomp PF times include JIT compilation. Speedup is the R time divided by the Pypomp GPU time. Cores matched and Peak are as in @tbl-timing. The 4-town panel has no PF comparison because the quant scripts filter different numbers of parameter sets, and it has no Pypomp CPU run."
+#| echo: false
+
+
+def fmt_s(x):
+    if x is None or pd.isna(x):
+        return "---"
+    return f"{x:,.0f}" if x >= 100 else f"{x:.1f}"
+
+
+rows = [
+    "| Model | Task | R (36 cores) | Pypomp (36 cores) | Pypomp (1 GPU) | Speedup | Cores matched | Peak |",
+    "|:----------------------|:-----|----------:|----------:|----------:|-------:|--------:|-------:|",
 ]
 for model, label in TIMING_MODELS.items():
     t = timing[model]
@@ -372,9 +431,9 @@ for model, label in TIMING_MODELS.items():
         r, gpu = get(t["R"]["times"]), get(t["gpu"]["times"])
         comparable = not (model == "panel_measles" and task == "PF")
         speedup = f"{r / gpu:.0f}$\\times$" if comparable else "---"
-        per_core = f"{R_CORES * r / gpu:,.0f}$\\times$" if comparable else "---"
+        per_core = f"{R_CORES * r / gpu:,.0f}" if comparable else "---"
         peak = (
-            f"{peak_r_cores[model]:,.0f}$\\times$"
+            f"{peak_r_cores[model]:,.0f}"
             if task == "IF2" and model in peak_r_cores else "---"
         )
         rows.append(
@@ -385,17 +444,11 @@ for model, label in TIMING_MODELS.items():
 Markdown("\n".join(rows))
 ```
 
-The S&P 500 model shows the smallest GPU advantage in @tbl-timing because its benchmark gives the GPU little parallel work: 36 searches of 1,000 particles, resampled after each of `{python} f"{spx_n_obs:,}"` cheap time steps, so fixed per-step costs dominate.
-@fig-spx-scaling shows that throughput grows with the number of particles filtered at once, and with `{python} f"{spx_best['chains']:,.0f}"` searches of `{python} f"{spx_best['J']:,.0f}"` particles, one GPU matches `{python} f"{spx_best['r_cores']:,.0f}"` CPU cores running R.
-At a given total number of particles, adding searches beats adding particles per search by an average of only `{python} f"{(spx_chain_advantage - 1) * 100:.0f}"`%, and peak GPU memory stays below `{python} f"{math.ceil(spx_max_vram_gb)}"` GB.
-For the cholera and measles models, whose benchmarks already give the GPU more work, the scaling tests raise IF2 throughput by a smaller factor, to between `{python} f"{min(peak_r_cores[m] for m in ['dacca', 'measles', 'panel_measles']):,.0f}"` and `{python} f"{max(peak_r_cores[m] for m in ['dacca', 'measles', 'panel_measles']):,.0f}"` CPU cores running R, `{python} f"{min(peak_gain[m] for m in ['dacca', 'measles', 'panel_measles']):.1f}"` to `{python} f"{max(peak_gain[m] for m in ['dacca', 'measles', 'panel_measles']):.1f}"` times the benchmark values (@tbl-timing).
+# GPU scaling tests {#sec-scaling}
 
 ```{python}
-#| label: fig-spx-scaling
-#| fig-cap: "GPU throughput and memory for IF2 on the S&P 500 model as the total number of particles grows, either by adding searches of 1,000 particles or by adding particles to each of 120 searches. Left: CPU cores running R matched by one GPU, with the @tbl-timing benchmark in black. Right: peak GPU memory. Each configuration ran 10 IF2 iterations, projected to the benchmark's 200 iterations including JIT compilation. All axes except the left y-axis use a log scale."
+#| label: scaling-plot-setup
 #| echo: false
-#| fig-width: 6.5
-#| fig-height: 2.6
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter, NullFormatter
 from matplotlib_inline.backend_inline import set_matplotlib_formats
@@ -404,73 +457,213 @@ set_matplotlib_formats("pdf")  # vector output for the PDF manuscript
 
 # Categorical slots 1 and 2 of the dataviz reference palette (validated for
 # color-vision deficiency); marker shape is a second cue for grayscale print.
-SERIES = [
-    ("chains", "More searches, 1,000 particles each", "#2a78d6", "o"),
-    ("particles", "More particles, 120 searches", "#eb6834", "s"),
-]
+BLUE, ORANGE = "#2a78d6", "#eb6834"
 INK, MUTED, GRID = "#222222", "#6b6b6b", "#e4e4e0"
-
 plt.rcParams.update({
     "font.size": 8, "axes.edgecolor": MUTED, "axes.labelcolor": INK,
     "xtick.color": MUTED, "ytick.color": MUTED, "axes.linewidth": 0.6,
 })
-fig, (ax_tp, ax_mem) = plt.subplots(1, 2, figsize=(6.5, 2.6), constrained_layout=True)
-millions = spx_scaling["total_particles_mif"] / 1e6
 
-for kind, label, color, marker in SERIES:
-    rows_k = spx_scaling["scaling_type"] == kind
-    for ax, col in [(ax_tp, "r_cores"), (ax_mem, "peak_vram_mb")]:
-        ax.plot(millions[rows_k], spx_scaling.loc[rows_k, col], color=color,
-                marker=marker, markersize=4, linewidth=1.5, label=label)
 
-spx_gpu = timing["spx"]["gpu"]
-bench_particles = spx_R_cfg["Nstarts"] * spx_R_cfg["Np"] / 1e6
-bench_cores = R_CORES * spx_R["times"]["mif"] / spx_gpu["times"]["mif"]
-ax_tp.plot(bench_particles, bench_cores, marker="D", markersize=4.5, color=INK,
-           linestyle="none", label="Benchmark, 36 searches")
+def log_axis(axis, ticks, lo, hi):
+    """Log scale with plain-number labels at the given ticks between lo and hi."""
+    axis.axes.set_xscale("log") if axis is axis.axes.xaxis else axis.axes.set_yscale("log")
+    axis.set_ticks([t for t in ticks if lo <= t <= hi])
+    axis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,g}"))
+    axis.set_minor_formatter(NullFormatter())
+    (axis.axes.set_xlim if axis is axis.axes.xaxis else axis.axes.set_ylim)(lo, hi)
 
-for ax in (ax_tp, ax_mem):
-    ax.set_xscale("log")
-    ax.set_xlim(0.025, 6)
-    ax.set_xticks([0.03, 0.1, 0.3, 1, 3])
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x:g}"))
-    ax.xaxis.set_minor_formatter(NullFormatter())
-    ax.set_xlabel("Total particles (millions)")
-    ax.grid(True, color=GRID, linewidth=0.6)
-    ax.set_axisbelow(True)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-ax_tp.set_ylim(bottom=0)
-ax_tp.set_ylabel("R cores matched")
-ax_tp.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:,.0f}"))
-# Log-log, so a slope below one shows memory growing slower than particles.
-ax_mem.set_yscale("log")
-ax_mem.set_ylim(50, 1200)
-ax_mem.set_yticks([50, 100, 200, 500, 1000])
-ax_mem.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:,.0f}"))
-ax_mem.yaxis.set_minor_formatter(NullFormatter())
-ax_mem.set_ylabel("Peak GPU memory (MB)")
 
-handles, labels = ax_tp.get_legend_handles_labels()
-fig.legend(handles, labels, loc="outside upper center", ncol=3, frameon=False)
-plt.show()
+def bench_point(model):
+    """Total IF2 particles (millions) and R cores matched in the @tbl-timing benchmark."""
+    cfg = timing[model]["R"]["meta"]["run_config"]
+    n_starts = cfg.get("NSTARTS", cfg.get("Nstarts"))
+    np_r, _ = r_mif_config(model)
+    cores = R_CORES * timing[model]["R"]["times"]["mif"] / timing[model]["gpu"]["times"]["mif"]
+    return n_starts * np_r / 1e6, cores
+
+
+def plot_scaling(model):
+    s = scaling[model]
+    fixed_chains = s.loc[s["scaling_type"] == "particles", "chains"].iloc[0]
+    fixed_j = s.loc[s["scaling_type"] == "chains", "J"].iloc[0]
+    series = [
+        ("chains", f"More searches, {fixed_j:,} particles each", BLUE, "o"),
+        ("particles", f"More particles, {fixed_chains} searches", ORANGE, "s"),
+    ]
+    fig, (ax_tp, ax_mem) = plt.subplots(1, 2, figsize=(6.5, 2.4), constrained_layout=True)
+    millions = s["total_particles_mif"] / 1e6
+    for kind, label, color, marker in series:
+        k = s["scaling_type"] == kind
+        for ax, col in [(ax_tp, "r_cores"), (ax_mem, "peak_vram_mb")]:
+            ax.plot(millions[k], s.loc[k, col], color=color, marker=marker,
+                    markersize=4, linewidth=1.5, label=label)
+    bench_x, bench_y = bench_point(model)
+    ax_tp.plot(bench_x, bench_y, marker="D", markersize=4.5, color=INK,
+               linestyle="none", label="Benchmark (Table 1)")
+
+    x_lo = min(millions.min(), bench_x) / 1.3
+    x_hi = millions.max() * 1.3
+    mem = s["peak_vram_mb"]
+    for ax in (ax_tp, ax_mem):
+        log_axis(ax.xaxis, [0.03, 0.1, 0.3, 1, 3], x_lo, x_hi)
+        ax.set_xlabel("Total particles (millions)")
+        ax.grid(True, color=GRID, linewidth=0.6)
+        ax.set_axisbelow(True)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    ax_tp.set_ylim(0, max(s["r_cores"].max(), bench_y) * 1.1)
+    ax_tp.set_ylabel("R cores matched")
+    ax_tp.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:,.0f}"))
+    log_axis(ax_mem.yaxis, [20, 50, 100, 200, 500, 1000, 2000],
+             mem.min() / 1.3, mem.max() * 1.3)
+    ax_mem.set_ylabel("Peak GPU memory (MB)")
+    handles, labels = ax_tp.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="outside upper center", ncol=3, frameon=False)
+    plt.show()
+
+
+def scaling_iters(model):
+    """IF2 iterations per scaling configuration, and in the benchmark."""
+    return int(scaling[model]["M"].iloc[0]), r_mif_config(model)[1]
+
+
+def best(model):
+    return scaling[model].loc[scaling[model]["r_cores"].idxmax()]
+
+
+n_dacca_obs = len(pp.models.dacca().ys)
 ```
 
-## Fitting all towns in England and Wales {#sec-big-measles}
+The benchmark in @tbl-timing uses the R configuration, which does not give the GPU enough work to reach its highest throughput for every model.
+The scaling tests in quant ran IF2 on one `{python} gpu_name` GPU with more particles in flight, added in two ways: more searches of 1,000 particles each, or more particles for each of a fixed number of searches.
+Each configuration ran in its own process and ran a short IF2 twice, so that the second run excludes JIT compilation.
+We project each configuration's time to the benchmark's number of IF2 iterations, including compilation, and divide the benchmark's R time by it to get the number of CPU cores running R that one GPU matches.
+The highest of these values is the Peak column of @tbl-timing.
+JAX's memory preallocation was turned off, so the peak GPU memory is the memory each configuration used.
+No scaling test used more than `{python} f"{max_vram['peak_vram_mb'] / 1024:.1f}"` GB of GPU memory, the peak for the cholera model with `{python} f"{max_vram['total_particles_mif'] / 1e6:.1f}"` million particles.
 
-To show the scale of problem that this acceleration makes feasible, we fit the measles model of @he2010 to weekly case reports from all `{python} f"{n_big:,}"` towns and cities in England and Wales between 1950 and 1963 [@korevaar2020], treating every parameter as specific to each town.
+For every model, throughput peaks at between `{python} f"{min(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` and `{python} f"{max(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` million particles and falls at larger sizes, where the time per iteration grows faster than the number of particles.
+The four models stress different parts of the particle filter, so together they show where the GPU helps most and least.
+
+**Cholera, Dhaka.**
+The cholera model of @king2008 has `{python} f"{n_dacca_obs:,}"` monthly observations with 20 Euler steps between each, and each step updates a stochastic differential equation with one normal draw.
+The process model is cheap, but there are many steps between resamples, so this model is sensitive to per-step overhead inside the process model.
+Extra particles raise its throughput to `{python} f"{peak_r_cores['dacca']:,.0f}"` CPU cores running R, `{python} f"{peak_gain['dacca']:.1f}"` times the benchmark (@fig-scaling-dacca).
+
+::: {#fig-scaling-dacca}
+```{python}
+#| echo: false
+plot_scaling("dacca")
+```
+
+IF2 scaling on one GPU for the cholera model. Left: CPU cores running R matched by the GPU. Right: peak GPU memory. Each configuration ran `{python} scaling_iters("dacca")[0]` IF2 iterations, projected to the benchmark's `{python} scaling_iters("dacca")[1]`. All axes except the left y-axis use a log scale.
+:::
+
+**Measles, London.**
+The measles model of @he2010 has weekly case reports from 1950 to 1963 and takes a daily Euler step, interpolating covariates and drawing binomial, gamma, and Poisson random variables at every step.
+It has the most expensive process model of the four, so it is sensitive to how the GPU handles heavy computation per particle, and it relies on the approximate samplers in `pypomp.random`.
+Extra particles raise its throughput to `{python} f"{peak_r_cores['measles']:,.0f}"` CPU cores running R, `{python} f"{peak_gain['measles']:.1f}"` times the benchmark (@fig-scaling-measles).
+
+::: {#fig-scaling-measles}
+```{python}
+#| echo: false
+plot_scaling("measles")
+```
+
+IF2 scaling on one GPU for the London measles model, with panels as in @fig-scaling-dacca. Each configuration ran `{python} scaling_iters("measles")[0]` IF2 iterations, projected to the benchmark's `{python} scaling_iters("measles")[1]`.
+:::
+
+**Measles, 4-town panel.**
+The panel model fits the same measles model to `{python} ", ".join(panel_cfg["units"][:-1])`, and `{python} panel_cfg["units"][-1]` jointly, with some parameters shared across towns and the rest specific to each town.
+Panel iterated filtering (PIF) [@breto2020] filters the towns one after another in each iteration, so an iteration costs about four single-town iterations with the same number of particles in flight.
+This model tests the panel methods used in @sec-big-measles.
+Extra particles raise its throughput to `{python} f"{peak_r_cores['panel_measles']:,.0f}"` CPU cores running R, `{python} f"{peak_gain['panel_measles']:.1f}"` times the benchmark (@fig-scaling-panel-measles).
+The peak throughput is lower than the single London measles model because the R benchmark overperformed, likely because the random variate generators used in the R models can take a cheaper route for the smaller parameters values associated with the smaller towns.
+
+::: {#fig-scaling-panel-measles}
+```{python}
+#| echo: false
+plot_scaling("panel_measles")
+```
+
+IF2 scaling on one GPU for the 4-town measles panel, with panels as in @fig-scaling-dacca. Each configuration ran `{python} scaling_iters("panel_measles")[0]` IF2 iterations, projected to the benchmark's `{python} scaling_iters("panel_measles")[1]`.
+:::
+
+**S&P 500.**
+The stochastic volatility model of @Breto2014 has `{python} f"{spx_n_obs:,}"` daily log returns and takes one step of its process model per observation, with a single normal draw.
+Each step between resamples is very cheap, so fixed per-step costs such as resampling dominate, which makes this model the most sensitive to overhead in the framework.
+It gains the most from extra particles, reaching `{python} f"{peak_r_cores['spx']:,.0f}"` CPU cores running R, `{python} f"{peak_gain['spx']:.1f}"` times the benchmark (@fig-scaling-spx).
+At a given total number of particles, adding searches beats adding particles per search by an average of `{python} f"{(spx_chain_advantage - 1) * 100:.0f}"`%.
+
+::: {#fig-scaling-spx}
+```{python}
+#| echo: false
+plot_scaling("spx")
+```
+
+IF2 scaling on one GPU for the S&P 500 model, with panels as in @fig-scaling-dacca. Each configuration ran `{python} scaling_iters("spx")[0]` IF2 iterations, projected to the benchmark's `{python} scaling_iters("spx")[1]`.
+:::
+
+# Random variable samplers {#sec-samplers}
+
+`jax.random` draws Poisson, binomial, and gamma random variables with rejection samplers, which loop a random number of times per draw.
+This suits GPUs poorly, since threads that run together wait for the slowest one.
+`pypomp.random` instead provides approximate inverse-CDF samplers, which avoid rejection loops.
+@tbl-samplers compares the two on 1,000,000 draws per call, with parameters spread across the values where each sampler switches algorithms, averaged over 20 calls.
+The approximation error is small: over a grid of parameter values, the Wasserstein distance between 1,000,000 draws from each `pypomp.random` sampler and from a reference sampler is at most `{python} f"{max_w1_norm * 100:.1f}"`% of the reference standard deviation.
+In the London measles benchmark, the `jax.random` samplers made IF2 `{python} f"{jax_sampler_slowdown:.0f}"` times slower and particle filtering `{python} f"{jax_sampler_pf_slowdown:.0f}"` times slower on the GPU.
+
+```{python}
+#| label: tbl-samplers
+#| tbl-cap: "Time in milliseconds for 1,000,000 draws from `pypomp.random` and `jax.random`, on one GPU and on one CPU core, with parameters spread across the values where the samplers switch algorithms. `jax.random` has no negative binomial sampler. Max $W_1/\\sigma$ is the largest Wasserstein distance between `pypomp.random` draws and draws from `jax.random` (or `scipy.stats` for the negative binomial) over a grid of parameter values, relative to the standard deviation."
+#| echo: false
+SAMPLERS = json.loads((QUANT / "tests/samplers/benchmark_results.json").read_text())
+SAMPLER_ROWS = {  # distribution: label, cached regime with parameters across the switches
+    "poisson": ("Poisson", "Mixed Rates (around switches)"),
+    "binomial": ("Binomial", "Mixed Grid (around switches)"),
+    "gamma": ("Gamma", "Mixed Shapes (around switch)"),
+    "nbinomial": ("Negative binomial", "Mixed Grid (around switches)"),
+}
+
+
+def fmt_ms(x):
+    return "---" if x is None else (f"{x:,.0f}" if x >= 100 else f"{x:.2f}")
+
+
+def ratio(num, den):
+    return "---" if num is None else f"{num / den:.0f}$\\times$"
+
+
+rows = [
+    "| Distribution | GPU, `pypomp` | GPU, `jax` | GPU speedup | CPU, `pypomp` | CPU, `jax` | CPU speedup | Max $W_1/\\sigma$ |",
+    "|:--|--:|--:|--:|--:|--:|--:|--:|",
+]
+for dist, (label, regime) in SAMPLER_ROWS.items():
+    t = SAMPLERS[dist][regime]
+    jax_gpu, jax_cpu = t.get("t_jax_gpu"), t.get("t_jax_cpu")
+    w1 = max(SAMPLERS["grids"][dist]["w_dist_norm"])
+    rows.append(
+        f"| {label} | {fmt_ms(t['t_pp_gpu'])} | {fmt_ms(jax_gpu)} | {ratio(jax_gpu, t['t_pp_gpu'])} "
+        f"| {fmt_ms(t['t_pp_cpu'])} | {fmt_ms(jax_cpu)} | {ratio(jax_cpu, t['t_pp_cpu'])} | {w1:.3f} |"
+    )
+Markdown("\n".join(rows))
+```
+
+# England and Wales measles fit {#sec-big-measles-details}
+
 We ran `{python} big_par["nreps_fitr"]` panel IF2 searches, each with `{python} f"{big_par['np_fitr']:,}"` particles for `{python} big_par["nfitr"]` iterations, and evaluated each endpoint with `{python} big_par["nreps_eval"]` particle filter replicates of `{python} f"{big_par['np_eval']:,}"` particles.
 We then combined the best estimate for each town across searches [@breto2020] and evaluated the result with another `{python} big_par["nreps_eval"]` replicates.
 @tbl-big-measles gives the time for each stage on one GPU with Pypomp `{python} big_meta["environment"]["pypomp_version"]`.
 
 For comparison, we estimated how long the same computation would take with `panelPomp` on a 36-core node.
-We measured `panelPomp`'s cost per particle, per IF2 iteration, and per town on the 4-town panel in @tbl-timing, which covers the same period with the same daily time step, and scaled it linearly to the full computation.
+We measured `panelPomp`'s cost per particle, per IF2 iteration, and per town on the 4-town panel in @tbl-timing-full, which covers the same period with the same daily time step, and scaled it linearly to the full computation.
 Each IF2 search is sequential, so R can use at most one core per search, and the extra cores only help with the particle filter evaluations.
 By this estimate, R would need about `{python} r_big_months` months, `{python} big_speedup` times longer than the GPU, and about `{python} r_big_1core_years` years on a single core, so the GPU delivered the throughput of about `{python} big_core_ratio` CPU cores running R.
 
 ```{python}
 #| label: tbl-big-measles
-#| tbl-cap: "Wall-clock time for fitting the measles model to all towns in England and Wales. Pypomp times were measured on one GPU. R times are estimates for `panelPomp` on a 36-core CPU node, extrapolated from @tbl-timing."
+#| tbl-cap: "Wall-clock time for fitting the measles model to all towns in England and Wales. Pypomp times were measured on one GPU. R times are estimates for `panelPomp` on a 36-core CPU node, extrapolated from the 4-town panel in @tbl-timing-full."
 #| echo: false
 
 
@@ -495,16 +688,3 @@ rows = [
 rows += [f"| {name} | {fmt_dur(g)} | {fmt_dur(r)} |" for name, g, r in stages]
 Markdown("\n".join(rows))
 ```
-
-# Discussion {#sec-discussion}
-
-
-
-# References {.unnumbered}
-
-::: {#refs}
-:::
-
-# Appendix {#sec-appendix}
-
-\AAnote{Include imporant numerical results here? Or refer to the quant repo?}
