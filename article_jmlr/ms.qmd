@@ -50,7 +50,7 @@ format:
     keep-tex: true
     cite-method: natbib
 bibliography: references.bib
-abstract: Model development and parameter estimation for non-Gaussian partially observed Markov process (POMP) mechanistic models are fundamental challenges in a variety of fields including epidemiology, ecology, and finance. Particle filter methods can provide statistically efficient inference for highly nonlinear POMP models, but their practical application is limited by high computational demands. We introduce Pypomp, a high-performance Python library for statistical inference using POMP models. Pypomp includes state-of-the-art particle filtering algorithms to take advantage of GPU hardware, just-in-time computation, and automatic differentiation accessed using JAX. Basic inference algorithms run with throughput as high as 8000 times greater than on a CPU core, and advanced algorithms provide further acceleration. Pypomp provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
+abstract: Model development and parameter estimation for non-Gaussian partially observed Markov process (POMP) mechanistic models are fundamental challenges in a variety of fields including epidemiology, ecology, and finance. Particle filter methods can provide statistically efficient inference for highly nonlinear POMP models, but their practical application is limited by high computational demands. We introduce Pypomp, a high-performance Python library for statistical inference using POMP models. Pypomp includes state-of-the-art particle filtering algorithms to take advantage of GPU hardware, just-in-time computation, and automatic differentiation accessed using JAX. Basic inference algorithms run with throughput as high as 8000 times greater than on a CPU core using the R package Pomp, and advanced algorithms provide further acceleration. Pypomp provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -120,6 +120,23 @@ def pf_time(times):
     return times.get("pfilter_cold", times.get("pfilter_warm"))
 
 
+def latex_table(cols, head, body):
+    """A table at the text width, as raw LaTeX for a tbl- div.
+
+    Pandoc writes Markdown tables as longtables, which can break across pages
+    and then repeat the caption. cols is the tabular column spec, head the
+    header lines (with their own row ends), and body the rows without them.
+    """
+    lines = [
+        "\\setlength{\\tabcolsep}{4pt}",
+        f"\\begin{{tabular*}}{{\\linewidth}}{{@{{\\extracolsep{{\\fill}}}}{cols}@{{}}}}",
+        "\\toprule", *head, "\\midrule",
+        *[row + " \\\\" for row in body],
+        "\\bottomrule", "\\end{tabular*}",
+    ]
+    return Markdown("```{=latex}\n" + "\n".join(lines) + "\n```")
+
+
 timing = {m: load_timing(m) for m in TIMING_MODELS}
 quant_sha = subprocess.run(
     ["git", "-C", str(QUANT), "rev-parse", "--short", "HEAD"],
@@ -171,9 +188,21 @@ SCALING_MODELS = ["dacca", "measles", "panel_measles", "spx"]
 scaling = {m: scaling_r_cores(m) for m in SCALING_MODELS}
 peak_r_cores = {m: s["r_cores"].max() for m, s in scaling.items()}
 peak_gain = {m: peak_r_cores[m] / c for m, c in zip(timing, mif_core_ratios)}
+peak_speedups = [peak_r_cores[m] / R_CORES for m in SCALING_MODELS]
+
+
+def bench_particles(model):
+    """Total particles in flight during IF2 in the @tbl-timing benchmark."""
+    cfg = timing[model]["R"]["meta"]["run_config"]
+    return cfg.get("NSTARTS", cfg.get("Nstarts")) * r_mif_config(model)[0]
+
+
+bench_totals = [bench_particles(m) for m in SCALING_MODELS]
+peak_totals = [
+    s.loc[s["r_cores"].idxmax(), "total_particles_mif"] for s in scaling.values()
+]
 
 spx_scaling = scaling["spx"]
-spx_best = spx_scaling.loc[spx_scaling["r_cores"].idxmax()]
 spx_n_obs = len(pp.models.spx().ys)
 
 
@@ -262,9 +291,9 @@ Rejection sampling algorithms for common distributions are poorly suited to GPUs
 
 When the state space is small and discrete, or the model is linear Gaussian or close enough for Gaussian filtering approximations, the particle filter is unnecessary, and the Dynamax library [@linderman2025] provides a JAX-based solution.
 Pypomp is aimed at more complex, nonlinear models such as those common in ecology and epidemiology, although its plug-and-play property also makes it convenient for rapid model development when alternatives apply.
-It also implements panel methods [@breto2020] that address the particle filter's poor scaling with state dimension.
+It also supports panel POMP models and methods, including panel iterated filtering [@breto2020].
 
-On a single GPU, Pypomp runs the iterated filtering 2 (IF2) algorithm `{python} f"{min(mif_speedups):.0f}"` to `{python} f"{max(mif_speedups):.0f}"` times faster than the R packages `pomp` and `panelPomp` on a 36-core CPU node, matching the throughput of `{python} f"{min(mif_core_ratios):,.0f}"` to `{python} f"{max(mif_core_ratios):,.0f}"` CPU cores running R (@sec-performance).
+When a GPU is fully saturated with work as a result of using many particles and method replications, it runs iterated filtering methods `{python} f"{min(peak_speedups):.0f}"` to `{python} f"{max(peak_speedups):.0f}"` times faster than a 36-core node running `pomp` or `panelPomp`, matching `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores (Appendix -@sec-scaling).
 This makes plug-and-play likelihood-based inference feasible on datasets that would otherwise be intractably large.
 In @sec-big-measles, we fit a panel POMP model to the England and Wales measles dataset of @korevaar2020, which contains over one million observations from `{python} f"{n_big:,}"` towns and cities.
 One GPU completed the fit in `{python} big_hours` hours, whereas we estimate that the same computation would take about `{python} r_big_months` months with the R package `panelPomp` [@breto2020].
@@ -355,13 +384,15 @@ The source code is available at [https://github.com/pypomp/pypomp](https://githu
 We benchmarked Pypomp `{python} pypomp_bench_version` against `pomp` `{python} pomp_bench_version` and `panelPomp` `{python} panelpomp_bench_version` using the quantitative test suite at [https://github.com/pypomp/quant](https://github.com/pypomp/quant) (commit `{python} quant_sha`).
 @tbl-timing compares IF2 wall-clock times for the same workloads with R on a 36-core CPU node and Pypomp on one `{python} gpu_name` GPU.
 R divided each workload evenly across its 36 cores, so one core would take 36 times as long.
-The S&P 500 benchmark gives the GPU little parallel work, but with more particles in flight, one GPU matches `{python} f"{spx_best['r_cores']:,.0f}"` CPU cores running R (Appendix -@sec-scaling).
+These workloads are sized for R, and they keep only `{python} f"{min(bench_totals):,}"` to `{python} f"{max(bench_totals):,}"` particles in flight, too few to saturate the GPU.
+In scaling tests that add more searches or more particles per search (Appendix -@sec-scaling), throughput keeps rising until `{python} f"{min(peak_totals) / 1e6:.1f}"` to `{python} f"{max(peak_totals) / 1e6:.0f}"` million particles are in flight.
+At that point, one GPU runs IF2 `{python} f"{min(peak_speedups):.0f}"` to `{python} f"{max(peak_speedups):.0f}"` times faster than the 36-core node and matches `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores running R, the Peak column of @tbl-timing.
+The gain over the benchmark ranges from `{python} f"{min(peak_gain.values()):.1f}"` times for the 4-town panel to `{python} f"{peak_gain['spx']:.0f}"` times for the S&P 500 model, whose benchmark, with `{python} f"{r_mif_config('spx')[0]:,}"` particles per search and a cheap process model, gives the GPU the least work.
 The GPU times rely on the approximate samplers in `pypomp.random`: with the standard `jax.random` samplers, IF2 for the London measles model took `{python} f"{jax_sampler_slowdown:.0f}"` times longer (Appendix -@sec-samplers).
 Appendix -@sec-benchmarks gives particle filter and Pypomp CPU times.
 
+::: {#tbl-timing}
 ```{python}
-#| label: tbl-timing
-#| tbl-cap: "Wall-clock time in seconds for IF2, running 36 searches from the same starting points. Speedup is the R time divided by the GPU time. Cores matched is the speedup times 36: the number of CPU cores running R that one GPU matches. Peak is the highest value of cores matched in GPU scaling tests with more particles in flight (Appendix -@sec-scaling)."
 #| echo: false
 
 
@@ -371,19 +402,22 @@ def fmt_s(x):
     return f"{x:,.0f}" if x >= 100 else f"{x:.1f}"
 
 
-rows = [
-    "| Model | R (36 cores) | Pypomp (1 GPU) | Speedup | Cores matched | Peak |",
-    # Dash counts set the relative column widths in the PDF.
-    "|:------------------------|-------------:|-------------:|--------:|---------:|--------:|",
-]
+rows = []
 for model, label in TIMING_MODELS.items():
     r, gpu = timing[model]["R"]["times"]["mif"], timing[model]["gpu"]["times"]["mif"]
     rows.append(
-        f"| {label} | {fmt_s(r)} | {fmt_s(gpu)} | {r / gpu:.0f}$\\times$ "
-        f"| {R_CORES * r / gpu:,.0f} | {peak_r_cores[model]:,.0f} |"
+        f"{label} & {fmt_s(r)} & {fmt_s(gpu)} & {r / gpu:.0f}$\\times$ "
+        f"& {R_CORES * r / gpu:,.0f} & {peak_r_cores[model]:,.0f}"
     )
-Markdown("\n".join(rows))
+latex_table(
+    "lrrrrr",
+    ["Model & R (36 cores) & Pypomp (1 GPU) & Speedup & Cores matched & Peak \\\\"],
+    rows,
+)
 ```
+
+Wall-clock time in seconds for IF2, running 36 searches from the same starting points. Speedup is the R time divided by the GPU time. Cores matched is the speedup times 36: the number of CPU cores running R that one GPU matches. Peak is the highest value of cores matched in GPU scaling tests with more particles in flight (Appendix -@sec-scaling).
+:::
 
 ## Fitting all towns in England and Wales {#sec-big-measles}
 
@@ -476,11 +510,8 @@ def log_axis(axis, ticks, lo, hi):
 
 def bench_point(model):
     """Total IF2 particles (millions) and R cores matched in the @tbl-timing benchmark."""
-    cfg = timing[model]["R"]["meta"]["run_config"]
-    n_starts = cfg.get("NSTARTS", cfg.get("Nstarts"))
-    np_r, _ = r_mif_config(model)
     cores = R_CORES * timing[model]["R"]["times"]["mif"] / timing[model]["gpu"]["times"]["mif"]
-    return n_starts * np_r / 1e6, cores
+    return bench_particles(model) / 1e6, cores
 
 
 def plot_scaling(model):
@@ -614,9 +645,8 @@ This suits GPUs poorly, since threads that run together wait for the slowest one
 The approximation error is small: over a grid of parameter values, the Wasserstein distance between 1,000,000 draws from each `pypomp.random` sampler and from a reference sampler is at most `{python} f"{max_w1_norm * 100:.1f}"`% of the reference standard deviation.
 In the London measles benchmark, the `jax.random` samplers made IF2 `{python} f"{jax_sampler_slowdown:.0f}"` times slower and particle filtering `{python} f"{jax_sampler_pf_slowdown:.0f}"` times slower on the GPU.
 
+::: {#tbl-samplers}
 ```{python}
-#| label: tbl-samplers
-#| tbl-cap: "Time in milliseconds for 1,000,000 draws from `pypomp.random` and `jax.random`, on one GPU and on one CPU core, with parameters spread across the values where the samplers switch algorithms. `jax.random` has no negative binomial sampler. Max $W_1/\\sigma$ is the largest Wasserstein distance between `pypomp.random` draws and draws from `jax.random` (or `scipy.stats` for the negative binomial) over a grid of parameter values, relative to the standard deviation."
 #| echo: false
 SAMPLERS = json.loads((QUANT / "tests/samplers/benchmark_results.json").read_text())
 SAMPLER_ROWS = {  # distribution: label, cached regime with parameters across the switches
@@ -635,20 +665,29 @@ def ratio(num, den):
     return "---" if num is None else f"{num / den:.0f}$\\times$"
 
 
-rows = [
-    "| Distribution | GPU, `pypomp` | GPU, `jax` | GPU speedup | CPU, `pypomp` | CPU, `jax` | CPU speedup | Max $W_1/\\sigma$ |",
-    "|:--|--:|--:|--:|--:|--:|--:|--:|",
-]
+rows = []
 for dist, (label, regime) in SAMPLER_ROWS.items():
     t = SAMPLERS[dist][regime]
     jax_gpu, jax_cpu = t.get("t_jax_gpu"), t.get("t_jax_cpu")
     w1 = max(SAMPLERS["grids"][dist]["w_dist_norm"])
     rows.append(
-        f"| {label} | {fmt_ms(t['t_pp_gpu'])} | {fmt_ms(jax_gpu)} | {ratio(jax_gpu, t['t_pp_gpu'])} "
-        f"| {fmt_ms(t['t_pp_cpu'])} | {fmt_ms(jax_cpu)} | {ratio(jax_cpu, t['t_pp_cpu'])} | {w1:.3f} |"
+        f"{label} & {fmt_ms(t['t_pp_gpu'])} & {fmt_ms(jax_gpu)} & {ratio(jax_gpu, t['t_pp_gpu'])} "
+        f"& {fmt_ms(t['t_pp_cpu'])} & {fmt_ms(jax_cpu)} & {ratio(jax_cpu, t['t_pp_cpu'])} & {w1:.3f}"
     )
-Markdown("\n".join(rows))
+latex_table(
+    "lrrrrrrr",
+    [
+        "& \\multicolumn{3}{c}{GPU} & \\multicolumn{3}{c}{CPU} & \\\\",
+        "\\cmidrule(lr){2-4} \\cmidrule(lr){5-7}",
+        "Distribution & \\texttt{pypomp} & \\texttt{jax} & Speedup "
+        "& \\texttt{pypomp} & \\texttt{jax} & Speedup & Max $W_1/\\sigma$ \\\\",
+    ],
+    rows,
+)
 ```
+
+Time in milliseconds for 1,000,000 draws from `pypomp.random` and `jax.random`, on one GPU and on one CPU core, with parameters spread across the values where the samplers switch algorithms. `jax.random` has no negative binomial sampler. Max $W_1/\sigma$ is the largest Wasserstein distance between `pypomp.random` draws and draws from `jax.random` (or `scipy.stats` for the negative binomial) over a grid of parameter values, relative to the standard deviation.
+:::
 
 # England and Wales measles fit {#sec-big-measles-details}
 
