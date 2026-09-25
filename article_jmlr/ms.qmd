@@ -285,14 +285,14 @@ These methods only need to simulate from the process model, not evaluate its tra
 Consequently, they apply to a wide range of models unconstrained by mathematical convenience, and they are used in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains where mechanistic dynamic modeling is desired.
 
 Pypomp is a Python library combining advances in hardware, software, and algorithms to provide novel capabilities for POMP models, with an emphasis on inference via particle filters.
-It is built on JAX [@bradbury2018], which provides just-in-time (JIT) compilation, automatic differentiation (AD), and access to massively parallel hardware such as GPUs.
+It is built on JAX [@bradbury2018], which provides \ac{jit} compilation, \ac{ad}, and access to massively parallel hardware such as GPUs.
 Pypomp inherits its software design from the R package `pomp` [@king2016] and implements the algorithmic advances needed to take advantage of JAX.
-For AD, it implements a differentiable particle filter that controls both bias and variance [@tan2024].
+For \ac{ad}, it implements a differentiable particle filter that controls both bias and variance [@tan2024].
 Rejection sampling algorithms for common distributions are poorly suited to GPUs, so Pypomp also provides alternative samplers [@giles2016; @giles2024; @temme1992].
 
 When the state space is small and discrete, or the model is linear Gaussian or close enough for Gaussian filtering approximations, the particle filter is unnecessary, and the Dynamax library [@linderman2025] provides a JAX-based solution.
 Pypomp is aimed at more complex, nonlinear models such as those common in ecology and epidemiology, although its plug-and-play property also makes it convenient for rapid model development when alternatives apply.
-It also supports panel POMP models and methods, including panel iterated filtering [@breto2020].
+It also supports panel POMP models and methods, including \ac{pif} [@breto2020].
 
 When a GPU is fully saturated with work as a result of using many particles and method replications, it runs iterated filtering methods `{python} f"{min(peak_speedups):.0f}"` to `{python} f"{max(peak_speedups):.0f}"` times faster than a 36-core node running `pomp` or `panelPomp`, matching `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores (Appendix -@sec-scaling).
 This makes plug-and-play likelihood-based inference feasible on datasets that would otherwise be intractably large.
@@ -311,7 +311,7 @@ Distinguishing features are: (i) $t$ is used to represent continuous time, allow
 A POMP model consists of an unobserved Markov process $\{X(t), t_0 \leq t \leq t_{N}\}$ and observations $Y_{1:N}$ made at times $t_{1:N}$, with observed values $y^*_{1:N}$.
 The initial state is defined at time $t_0$, $X_n := X(t_n)$, and $Y_n$ is independent of $Y_m, X_m$, $m \neq n$, conditional on $X_n$.
 The model has a joint density $f_{Y_{1:N},X_{0:N}}(y_{1:N},x_{0:N}; \theta)$ with parameters $\theta$, which may be intractable to evaluate.
-The particle filter estimates the likelihood $f_{Y_{1:N}}(y^*_{1:N}; \theta)$, and IF2 [@ionides2015] estimates the maximum likelihood estimate of $\theta$, without evaluating this joint density or the transition density.
+The particle filter estimates the likelihood $f_{Y_{1:N}}(y^*_{1:N}; \theta)$, and \ac{if2} [@ionides2015] estimates the maximum likelihood estimate of $\theta$, without evaluating this joint density or the transition density.
 For these plug-and-play methods, it is sufficient to specify:
 
 \begin{itemize}
@@ -324,7 +324,7 @@ In Pypomp, the user passes the data and programmatic descriptions of these funct
 
 # Inference Methods in Pypomp {#sec-pomp-methods}
 
-Pypomp implements the particle filter (`pfilter`) for likelihood evaluation and state estimation, IF2 (`mif`) for global maximum likelihood estimation, and the differentiable particle filter MOP-$\alpha$ (`mop`, @tan2024), whose gradients the `train` method uses for local optimization.
+Pypomp implements the particle filter (`pfilter`) for likelihood evaluation and state estimation, \ac{if2} (`mif`) for global maximum likelihood estimation, and the differentiable particle filter MOP-$\alpha$ (`mop`, @tan2024), whose gradients the `train` method uses for local optimization.
 These are methods of the `Pomp` class, and each model component is a JAX-compatible function.
 For example, the S&P 500 model included in the package defines its state transition simulator as follows:
 
@@ -353,8 +353,8 @@ def rproc(
     return {"V": V, "S": S}
 ``` 
 
-Pypomp vectorizes such a function over particles and over replicate runs, such as when starting searches from many values of $\theta$, and JIT compiles it so that the computation runs in parallel across GPU cores.
-The following example searches globally with IF2, refines the estimate by gradient descent, and evaluates the likelihood of the result:
+Pypomp vectorizes such a function over particles and over replicate runs, such as when starting searches from many values of $\theta$, and \ac{jit} compiles it so that the computation runs in parallel across GPU cores.
+The following example searches globally with \ac{if2}, refines the estimate by gradient descent, and evaluates the likelihood of the result:
 
 ```{python}
 # | label: spx-inference-workflow
@@ -384,13 +384,13 @@ The source code is available at [https://github.com/pypomp/pypomp](https://githu
 
 We benchmarked Pypomp `{python} pypomp_bench_version` against `pomp` `{python} pomp_bench_version` and `panelPomp` `{python} panelpomp_bench_version` on several models using the quantitative test suite at [https://github.com/pypomp/quant](https://github.com/pypomp/quant) (commit `{python} quant_sha`).
 The models differ in the cost of the process model, the number of process model steps between resampling, and whether they are panels, so together they show where the GPU helps most and least (Appendix -@sec-benchmarks).
-@tbl-timing compares IF2 wall-clock times for the same workloads with R on a 36-core CPU node and Pypomp on one `{python} gpu_name` GPU.
+@tbl-timing compares \ac{if2} wall-clock times for the same workloads with R on a 36-core CPU node and Pypomp on one `{python} gpu_name` GPU.
 R divided each workload evenly across its 36 cores, so one core would take 36 times as long.
 These workloads are sized for R, and they keep only `{python} f"{min(bench_totals):,}"` to `{python} f"{max(bench_totals):,}"` particles in flight, too few to saturate the GPU.
 In scaling tests that add more searches or more particles per search (Appendix -@sec-scaling), throughput keeps rising until `{python} f"{min(peak_totals) / 1e6:.1f}"` to `{python} f"{max(peak_totals) / 1e6:.0f}"` million particles are in flight.
-At that point, one GPU runs IF2 `{python} f"{min(peak_speedups):.0f}"` to `{python} f"{max(peak_speedups):.0f}"` times faster than the 36-core node and matches `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores running R, the Peak column of @tbl-timing.
+At that point, one GPU runs \ac{if2} `{python} f"{min(peak_speedups):.0f}"` to `{python} f"{max(peak_speedups):.0f}"` times faster than the 36-core node and matches `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores running R, the Peak column of @tbl-timing.
 The gain over the benchmark ranges from `{python} f"{min(peak_gain.values()):.1f}"` times for the 4-town panel to `{python} f"{peak_gain['spx']:.0f}"` times for the S&P 500 model, whose benchmark, with `{python} f"{r_mif_config('spx')[0]:,}"` particles per search and a cheap process model, gives the GPU the least work.
-The GPU times rely on the approximate samplers in `pypomp.random`: with the standard `jax.random` samplers, IF2 for the London measles model took `{python} f"{jax_sampler_slowdown:.0f}"` times longer (Appendix -@sec-samplers).
+The GPU times rely on the approximate samplers in `pypomp.random`: with the standard `jax.random` samplers, \ac{if2} for the London measles model took `{python} f"{jax_sampler_slowdown:.0f}"` times longer (Appendix -@sec-samplers).
 Appendix -@sec-benchmarks gives particle filter and Pypomp CPU times.
 
 ::: {#tbl-timing}
@@ -418,7 +418,7 @@ latex_table(
 )
 ```
 
-Wall-clock time in seconds for IF2, running 36 searches from the same starting points. Speedup is the R time divided by the GPU time. Cores matched is the speedup times 36: the number of CPU cores running R that one GPU matches. Peak is the highest value of cores matched in GPU scaling tests with more particles in flight (Appendix -@sec-scaling).
+Wall-clock time in seconds for \ac{if2}, running 36 searches from the same starting points. Speedup is the R time divided by the GPU time. Cores matched is the speedup times 36: the number of CPU cores running R that one GPU matches. Peak is the highest value of cores matched in GPU scaling tests with more particles in flight (Appendix -@sec-scaling).
 :::
 
 ## Fitting all towns in England and Wales {#sec-big-measles}
@@ -453,7 +453,7 @@ It has the most expensive process model of the four, so it isolates how the GPU 
 
 **Measles, 4-town panel.**
 The panel model fits the same measles model to `{python} ", ".join(panel_cfg["units"][:-1])`, and `{python} panel_cfg["units"][-1]` jointly, with some parameters shared across towns and the rest specific to each town.
-Panel iterated filtering (PIF) [@breto2020] filters the towns one after another in each iteration, so an iteration costs about four single-town iterations with the same number of particles in flight.
+\ac{pif} [@breto2020] filters the towns one after another in each iteration, so an iteration costs about four single-town iterations with the same number of particles in flight.
 This model tests the panel methods used in @sec-big-measles.
 Its speedup is lower than for the London model because R runs it relatively fast, likely because the random variate generators in R can take a cheaper route for the smaller parameter values of the smaller towns.
 
@@ -588,9 +588,9 @@ fixed_chains = sorted({
 ```
 
 The benchmark in @tbl-timing uses the R configuration, which does not give the GPU enough work to reach its highest throughput for every model.
-The scaling tests in quant ran IF2 on one `{python} gpu_name` GPU with more particles in flight, added in two ways: more searches of 1,000 particles each, or more particles for each of a fixed number of searches.
+The scaling tests in quant ran \ac{if2} on one `{python} gpu_name` GPU with more particles in flight, added in two ways: more searches of 1,000 particles each, or more particles for each of a fixed number of searches.
 Each configuration ran in its own process and ran a short IF2 twice, so that the second run excludes JIT compilation.
-We project each configuration's time to the benchmark's number of IF2 iterations, including compilation, and divide the benchmark's R time by it to get the number of CPU cores running R that one GPU matches.
+We project each configuration's time to the benchmark's number of \ac{if2} iterations, including compilation, and divide the benchmark's R time by it to get the number of CPU cores running R that one GPU matches.
 The highest of these values is the Peak column of @tbl-timing.
 JAX's memory preallocation was turned off, so the peak GPU memory is the memory each configuration used.
 No scaling test used more than `{python} f"{max_vram['peak_vram_mb'] / 1024:.1f}"` GB of GPU memory, the peak for the cholera model with `{python} f"{max_vram['total_particles_mif'] / 1e6:.1f}"` million particles.
@@ -607,7 +607,7 @@ For this model, adding searches beats adding particles per search at a given tot
 plot_scaling()
 ```
 
-IF2 throughput on one GPU, as the number of CPU cores running R that the GPU matches, against the total number of particles in flight. Blue adds searches of 1,000 particles each; orange adds particles to each of `{python} " or ".join(map(str, fixed_chains))` searches. Each configuration ran `{python} " or ".join(map(str, scaling_m))` IF2 iterations, projected to the benchmark's number. The x-axes use a log scale.
+\ac{if2} throughput on one GPU, as the number of CPU cores running R that the GPU matches, against the total number of particles in flight. Blue adds searches of 1,000 particles each; orange adds particles to each of `{python} " or ".join(map(str, fixed_chains))` searches. Each configuration ran `{python} " or ".join(map(str, scaling_m))` \ac{if2} iterations, projected to the benchmark's number. The x-axes use a log scale.
 :::
 
 # Random variable samplers {#sec-samplers}
@@ -617,7 +617,7 @@ This suits GPUs poorly, since threads that run together wait for the slowest one
 `pypomp.random` instead provides approximate inverse-CDF samplers, which avoid rejection loops.
 @tbl-samplers compares the two on 1,000,000 draws per call, with parameters spread across the values where each sampler switches algorithms, averaged over 20 calls.
 The approximation error is small: over a grid of parameter values, the Wasserstein distance between 1,000,000 draws from each `pypomp.random` sampler and from a reference sampler is at most `{python} f"{max_w1_norm * 100:.1f}"`% of the reference standard deviation.
-In the London measles benchmark, the `jax.random` samplers made IF2 `{python} f"{jax_sampler_slowdown:.0f}"` times slower and particle filtering `{python} f"{jax_sampler_pf_slowdown:.0f}"` times slower on the GPU.
+In the London measles benchmark, the `jax.random` samplers made \ac{if2} `{python} f"{jax_sampler_slowdown:.0f}"` times slower and particle filtering `{python} f"{jax_sampler_pf_slowdown:.0f}"` times slower on the GPU.
 
 ::: {#tbl-samplers}
 ```{python}
@@ -665,13 +665,13 @@ Time in milliseconds for 1,000,000 draws from `pypomp.random` and `jax.random`, 
 
 # England and Wales measles fit {#sec-big-measles-details}
 
-We ran `{python} big_par["nreps_fitr"]` panel IF2 searches, each with `{python} f"{big_par['np_fitr']:,}"` particles for `{python} big_par["nfitr"]` iterations, and evaluated each endpoint with `{python} big_par["nreps_eval"]` particle filter replicates of `{python} f"{big_par['np_eval']:,}"` particles.
+We ran `{python} big_par["nreps_fitr"]` panel \ac{if2} searches, each with `{python} f"{big_par['np_fitr']:,}"` particles for `{python} big_par["nfitr"]` iterations, and evaluated each endpoint with `{python} big_par["nreps_eval"]` particle filter replicates of `{python} f"{big_par['np_eval']:,}"` particles.
 We then combined the best estimate for each town across searches [@breto2020] and evaluated the result with another `{python} big_par["nreps_eval"]` replicates.
 @tbl-big-measles gives the time for each stage on one GPU with Pypomp `{python} big_meta["environment"]["pypomp_version"]`.
 
 For comparison, we estimated how long the same computation would take with `panelPomp` on a 36-core node.
-We measured `panelPomp`'s cost per particle, per IF2 iteration, and per town on the 4-town panel in @tbl-timing-full, which covers the same period with the same daily time step, and scaled it linearly to the full computation.
-Each IF2 search is sequential, so R can use at most one core per search, and the extra cores only help with the particle filter evaluations.
+We measured `panelPomp`'s cost per particle, per \ac{if2} iteration, and per town on the 4-town panel in @tbl-timing-full, which covers the same period with the same daily time step, and scaled it linearly to the full computation.
+Each \ac{if2} search is sequential, so R can use at most one core per search, and the extra cores only help with the particle filter evaluations.
 By this estimate, R would need about `{python} r_big_months` months, `{python} big_speedup` times longer than the GPU, and about `{python} r_big_1core_years` years on a single core, so the GPU delivered the throughput of about `{python} big_core_ratio` CPU cores running R.
 
 ```{python}
