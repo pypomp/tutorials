@@ -204,6 +204,7 @@ peak_totals = [
 
 spx_scaling = scaling["spx"]
 spx_n_obs = len(pp.models.spx().ys)
+n_dacca_obs = len(pp.models.dacca().ys)
 
 
 # The two scaling branches were run on different grids of total particles, so
@@ -381,7 +382,8 @@ The source code is available at [https://github.com/pypomp/pypomp](https://githu
 
 # Performance {#sec-performance}
 
-We benchmarked Pypomp `{python} pypomp_bench_version` against `pomp` `{python} pomp_bench_version` and `panelPomp` `{python} panelpomp_bench_version` using the quantitative test suite at [https://github.com/pypomp/quant](https://github.com/pypomp/quant) (commit `{python} quant_sha`).
+We benchmarked Pypomp `{python} pypomp_bench_version` against `pomp` `{python} pomp_bench_version` and `panelPomp` `{python} panelpomp_bench_version` on several models using the quantitative test suite at [https://github.com/pypomp/quant](https://github.com/pypomp/quant) (commit `{python} quant_sha`).
+The models differ in the cost of the process model, the number of process model steps between resampling, and whether they are panels, so together they show where the GPU helps most and least (Appendix -@sec-benchmarks).
 @tbl-timing compares IF2 wall-clock times for the same workloads with R on a 36-core CPU node and Pypomp on one `{python} gpu_name` GPU.
 R divided each workload evenly across its 36 cores, so one core would take 36 times as long.
 These workloads are sized for R, and they keep only `{python} f"{min(bench_totals):,}"` to `{python} f"{max(bench_totals):,}"` particles in flight, too few to saturate the GPU.
@@ -438,6 +440,26 @@ Scaling `panelPomp`'s cost on the 4-town panel linearly, we estimate that R on a
 \appendix
 
 # Full benchmark results {#sec-benchmarks}
+
+The four benchmark models stress different parts of the particle filter, which helps explain why the GPU's advantage varies across them.
+
+**Cholera, Dhaka.**
+The cholera model of @king2008 has `{python} f"{n_dacca_obs:,}"` monthly observations with 20 Euler steps between each, and each step updates a stochastic differential equation with one normal draw.
+The process model is cheap, but there are many steps between resamples, so this model isolates the per-step overhead inside the process model.
+
+**Measles, London.**
+The measles model of @he2010 has weekly case reports from 1950 to 1963 and takes a daily Euler step, interpolating covariates and drawing binomial, gamma, and Poisson random variables at every step.
+It has the most expensive process model of the four, so it isolates how the GPU handles heavy computation per particle, and it relies on the approximate samplers in `pypomp.random` (Appendix -@sec-samplers).
+
+**Measles, 4-town panel.**
+The panel model fits the same measles model to `{python} ", ".join(panel_cfg["units"][:-1])`, and `{python} panel_cfg["units"][-1]` jointly, with some parameters shared across towns and the rest specific to each town.
+Panel iterated filtering (PIF) [@breto2020] filters the towns one after another in each iteration, so an iteration costs about four single-town iterations with the same number of particles in flight.
+This model tests the panel methods used in @sec-big-measles.
+Its speedup is lower than for the London model because R runs it relatively fast, likely because the random variate generators in R can take a cheaper route for the smaller parameter values of the smaller towns.
+
+**S&P 500.**
+The stochastic volatility model of @Breto2014 has `{python} f"{spx_n_obs:,}"` daily log returns and takes one step of its process model per observation, with a single normal draw.
+Each step between resamples is very cheap, so fixed per-step costs such as resampling dominate, which isolates the overhead of the framework itself.
 
 @tbl-timing-full extends @tbl-timing with particle filter times and Pypomp on the same 36-core CPU node as R.
 Pypomp on the CPU is faster than R for the cholera and S&P 500 models but slower for the London measles model, whose Poisson, binomial, and gamma draws are expensive for JAX on a CPU.
@@ -514,56 +536,55 @@ def bench_point(model):
     return bench_particles(model) / 1e6, cores
 
 
-def plot_scaling(model):
-    s = scaling[model]
-    fixed_chains = s.loc[s["scaling_type"] == "particles", "chains"].iloc[0]
-    fixed_j = s.loc[s["scaling_type"] == "chains", "J"].iloc[0]
-    series = [
-        ("chains", f"More searches, {fixed_j:,} particles each", BLUE, "o"),
-        ("particles", f"More particles, {fixed_chains} searches", ORANGE, "s"),
-    ]
-    fig, (ax_tp, ax_mem) = plt.subplots(1, 2, figsize=(6.5, 2.4), constrained_layout=True)
-    millions = s["total_particles_mif"] / 1e6
-    for kind, label, color, marker in series:
-        k = s["scaling_type"] == kind
-        for ax, col in [(ax_tp, "r_cores"), (ax_mem, "peak_vram_mb")]:
-            ax.plot(millions[k], s.loc[k, col], color=color, marker=marker,
-                    markersize=4, linewidth=1.5, label=label)
-    bench_x, bench_y = bench_point(model)
-    ax_tp.plot(bench_x, bench_y, marker="D", markersize=4.5, color=INK,
-               linestyle="none", label="Benchmark (Table 1)")
+SCALING_TITLES = {
+    "dacca": "Cholera, Dhaka",
+    "measles": "Measles, London",
+    "panel_measles": "Measles, 4-town panel",
+    "spx": "S&P 500",
+}
 
-    x_lo = min(millions.min(), bench_x) / 1.3
-    x_hi = millions.max() * 1.3
-    mem = s["peak_vram_mb"]
-    for ax in (ax_tp, ax_mem):
-        log_axis(ax.xaxis, [0.03, 0.1, 0.3, 1, 3], x_lo, x_hi)
-        ax.set_xlabel("Total particles (millions)")
+
+def plot_scaling():
+    fig, axes = plt.subplots(2, 2, figsize=(6.5, 4.2), constrained_layout=True)
+    for ax, model in zip(axes.flat, SCALING_MODELS):
+        s = scaling[model]
+        millions = s["total_particles_mif"] / 1e6
+        for kind, label, color, marker in [
+            ("chains", "More searches, 1,000 particles each", BLUE, "o"),
+            ("particles", "More particles, fixed number of searches", ORANGE, "s"),
+        ]:
+            k = s["scaling_type"] == kind
+            ax.plot(millions[k], s.loc[k, "r_cores"], color=color, marker=marker,
+                    markersize=3.5, linewidth=1.3, label=label)
+        bench_x, bench_y = bench_point(model)
+        ax.plot(bench_x, bench_y, marker="D", markersize=4, color=INK,
+                linestyle="none", label="Benchmark (Table 1)")
+        log_axis(ax.xaxis, [0.03, 0.1, 0.3, 1, 3],
+                 min(millions.min(), bench_x) / 1.3, millions.max() * 1.3)
+        ax.set_ylim(0, max(s["r_cores"].max(), bench_y) * 1.1)
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:,.0f}"))
+        ax.set_title(SCALING_TITLES[model], fontsize=8, color=INK, loc="left")
         ax.grid(True, color=GRID, linewidth=0.6)
         ax.set_axisbelow(True)
         for side in ("top", "right"):
             ax.spines[side].set_visible(False)
-    ax_tp.set_ylim(0, max(s["r_cores"].max(), bench_y) * 1.1)
-    ax_tp.set_ylabel("R cores matched")
-    ax_tp.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:,.0f}"))
-    log_axis(ax_mem.yaxis, [20, 50, 100, 200, 500, 1000, 2000],
-             mem.min() / 1.3, mem.max() * 1.3)
-    ax_mem.set_ylabel("Peak GPU memory (MB)")
-    handles, labels = ax_tp.get_legend_handles_labels()
+    for ax in axes[1]:
+        ax.set_xlabel("Total particles (millions)")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("R cores matched")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="outside upper center", ncol=3, frameon=False)
     plt.show()
-
-
-def scaling_iters(model):
-    """IF2 iterations per scaling configuration, and in the benchmark."""
-    return int(scaling[model]["M"].iloc[0]), r_mif_config(model)[1]
 
 
 def best(model):
     return scaling[model].loc[scaling[model]["r_cores"].idxmax()]
 
 
-n_dacca_obs = len(pp.models.dacca().ys)
+scaling_m = sorted({int(s["M"].iloc[0]) for s in scaling.values()})
+fixed_chains = sorted({
+    int(s.loc[s["scaling_type"] == "particles", "chains"].iloc[0]) for s in scaling.values()
+})
 ```
 
 The benchmark in @tbl-timing uses the R configuration, which does not give the GPU enough work to reach its highest throughput for every model.
@@ -574,66 +595,19 @@ The highest of these values is the Peak column of @tbl-timing.
 JAX's memory preallocation was turned off, so the peak GPU memory is the memory each configuration used.
 No scaling test used more than `{python} f"{max_vram['peak_vram_mb'] / 1024:.1f}"` GB of GPU memory, the peak for the cholera model with `{python} f"{max_vram['total_particles_mif'] / 1e6:.1f}"` million particles.
 
+@fig-scaling shows the results.
 For every model, throughput peaks at between `{python} f"{min(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` and `{python} f"{max(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` million particles and falls at larger sizes, where the time per iteration grows faster than the number of particles.
-The four models stress different parts of the particle filter, so together they show where the GPU helps most and least.
+The peak is `{python} f"{peak_gain['dacca']:.1f}"` times the benchmark for the cholera model, `{python} f"{peak_gain['measles']:.1f}"` times for the London measles model, `{python} f"{peak_gain['panel_measles']:.1f}"` times for the 4-town panel, and `{python} f"{peak_gain['spx']:.1f}"` times for the S&P 500 model.
+The S&P 500 model gains the most because its benchmark, with cheap steps and few particles, leaves the GPU mostly idle.
+For this model, adding searches beats adding particles per search at a given total number of particles by an average of `{python} f"{(spx_chain_advantage - 1) * 100:.0f}"`%.
 
-**Cholera, Dhaka.**
-The cholera model of @king2008 has `{python} f"{n_dacca_obs:,}"` monthly observations with 20 Euler steps between each, and each step updates a stochastic differential equation with one normal draw.
-The process model is cheap, but there are many steps between resamples, so this model is sensitive to per-step overhead inside the process model.
-Extra particles raise its throughput to `{python} f"{peak_r_cores['dacca']:,.0f}"` CPU cores running R, `{python} f"{peak_gain['dacca']:.1f}"` times the benchmark (@fig-scaling-dacca).
-
-::: {#fig-scaling-dacca}
+::: {#fig-scaling}
 ```{python}
 #| echo: false
-plot_scaling("dacca")
+plot_scaling()
 ```
 
-IF2 scaling on one GPU for the cholera model. Left: CPU cores running R matched by the GPU. Right: peak GPU memory. Each configuration ran `{python} scaling_iters("dacca")[0]` IF2 iterations, projected to the benchmark's `{python} scaling_iters("dacca")[1]`. All axes except the left y-axis use a log scale.
-:::
-
-**Measles, London.**
-The measles model of @he2010 has weekly case reports from 1950 to 1963 and takes a daily Euler step, interpolating covariates and drawing binomial, gamma, and Poisson random variables at every step.
-It has the most expensive process model of the four, so it is sensitive to how the GPU handles heavy computation per particle, and it relies on the approximate samplers in `pypomp.random`.
-Extra particles raise its throughput to `{python} f"{peak_r_cores['measles']:,.0f}"` CPU cores running R, `{python} f"{peak_gain['measles']:.1f}"` times the benchmark (@fig-scaling-measles).
-
-::: {#fig-scaling-measles}
-```{python}
-#| echo: false
-plot_scaling("measles")
-```
-
-IF2 scaling on one GPU for the London measles model, with panels as in @fig-scaling-dacca. Each configuration ran `{python} scaling_iters("measles")[0]` IF2 iterations, projected to the benchmark's `{python} scaling_iters("measles")[1]`.
-:::
-
-**Measles, 4-town panel.**
-The panel model fits the same measles model to `{python} ", ".join(panel_cfg["units"][:-1])`, and `{python} panel_cfg["units"][-1]` jointly, with some parameters shared across towns and the rest specific to each town.
-Panel iterated filtering (PIF) [@breto2020] filters the towns one after another in each iteration, so an iteration costs about four single-town iterations with the same number of particles in flight.
-This model tests the panel methods used in @sec-big-measles.
-Extra particles raise its throughput to `{python} f"{peak_r_cores['panel_measles']:,.0f}"` CPU cores running R, `{python} f"{peak_gain['panel_measles']:.1f}"` times the benchmark (@fig-scaling-panel-measles).
-The peak throughput is lower than the single London measles model because the R benchmark overperformed, likely because the random variate generators used in the R models can take a cheaper route for the smaller parameters values associated with the smaller towns.
-
-::: {#fig-scaling-panel-measles}
-```{python}
-#| echo: false
-plot_scaling("panel_measles")
-```
-
-IF2 scaling on one GPU for the 4-town measles panel, with panels as in @fig-scaling-dacca. Each configuration ran `{python} scaling_iters("panel_measles")[0]` IF2 iterations, projected to the benchmark's `{python} scaling_iters("panel_measles")[1]`.
-:::
-
-**S&P 500.**
-The stochastic volatility model of @Breto2014 has `{python} f"{spx_n_obs:,}"` daily log returns and takes one step of its process model per observation, with a single normal draw.
-Each step between resamples is very cheap, so fixed per-step costs such as resampling dominate, which makes this model the most sensitive to overhead in the framework.
-It gains the most from extra particles, reaching `{python} f"{peak_r_cores['spx']:,.0f}"` CPU cores running R, `{python} f"{peak_gain['spx']:.1f}"` times the benchmark (@fig-scaling-spx).
-At a given total number of particles, adding searches beats adding particles per search by an average of `{python} f"{(spx_chain_advantage - 1) * 100:.0f}"`%.
-
-::: {#fig-scaling-spx}
-```{python}
-#| echo: false
-plot_scaling("spx")
-```
-
-IF2 scaling on one GPU for the S&P 500 model, with panels as in @fig-scaling-dacca. Each configuration ran `{python} scaling_iters("spx")[0]` IF2 iterations, projected to the benchmark's `{python} scaling_iters("spx")[1]`.
+IF2 throughput on one GPU, as the number of CPU cores running R that the GPU matches, against the total number of particles in flight. Blue adds searches of 1,000 particles each; orange adds particles to each of `{python} " or ".join(map(str, fixed_chains))` searches. Each configuration ran `{python} " or ".join(map(str, scaling_m))` IF2 iterations, projected to the benchmark's number. The x-axes use a log scale.
 :::
 
 # Random variable samplers {#sec-samplers}
