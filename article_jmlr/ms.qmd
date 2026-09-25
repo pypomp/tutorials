@@ -37,6 +37,10 @@ author:
         department: Department of Statistics
     email: jonth@umich.edu   
   - name: Aaron A. King
+    affiliations:
+      - name: University of Michigan
+        department: Department of Ecology and Evolutionary Biology
+    email: kingaa@umich.edu   
   - name: Edward L. Ionides
     affiliations:
       - name: University of Michigan
@@ -50,7 +54,7 @@ format:
     keep-tex: true
     cite-method: natbib
 bibliography: references.bib
-abstract: Model development and parameter estimation for non-Gaussian partially observed Markov process (POMP) mechanistic models are fundamental challenges in a variety of fields including epidemiology, ecology, and finance. Particle filter methods can provide statistically efficient inference for highly nonlinear POMP models, but their practical application is limited by high computational demands. We introduce Pypomp, a high-performance Python library for statistical inference using POMP models. Pypomp includes state-of-the-art particle filtering algorithms to take advantage of GPU hardware, just-in-time computation, and automatic differentiation accessed using JAX. Basic inference algorithms run with throughput as high as 8000 times greater than on a CPU core using the R package Pomp, and advanced algorithms provide further acceleration. Pypomp provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
+abstract: Model development and parameter estimation for non-Gaussian partially observed Markov process (POMP) mechanistic models are fundamental challenges in a variety of fields including epidemiology, ecology, and finance. Particle filter methods can provide statistically efficient inference for highly nonlinear POMP models, but their practical application is limited by high computational demands. We introduce Pypomp, a high-performance Python library for statistical inference using POMP models. Pypomp includes state-of-the-art particle filtering algorithms to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation via JAX. Basic inference algorithms run with throughput as high as 8000 times greater than on a CPU core using the R package Pomp, and advanced algorithms provide further acceleration. Pypomp provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -291,8 +295,8 @@ For \ac{ad}, it implements a differentiable particle filter that controls both b
 Rejection sampling algorithms for common distributions are poorly suited to GPUs, so Pypomp also provides alternative samplers [@giles2016; @giles2024; @temme1992].
 
 When the state space is small and discrete, or the model is linear Gaussian or close enough for Gaussian filtering approximations, the particle filter is unnecessary, and the Dynamax library [@linderman2025] provides a JAX-based solution.
-Pypomp is aimed at more complex, nonlinear models such as those common in ecology and epidemiology, although its plug-and-play property also makes it convenient for rapid model development when alternatives apply.
-It also supports panel POMP models and methods, including \ac{pif} [@breto2020].
+Pypomp is aimed at more complex, nonlinear models such as those common in ecology and epidemiology, although its plug-and-play property also makes it convenient for rapid model development even when alternative methods apply.
+It also supports panel POMP models and methods, including \ac{pif} and \ac{mpif} [@breto2020; @wheeler2025].
 
 When a GPU is fully saturated with work as a result of using many particles and method replications, it runs iterated filtering methods `{python} f"{min(peak_speedups):.0f}"` to `{python} f"{max(peak_speedups):.0f}"` times faster than a 36-core node running `pomp` or `panelPomp`, matching `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores (Appendix -@sec-scaling).
 This makes plug-and-play likelihood-based inference feasible on datasets that would otherwise be intractably large.
@@ -379,10 +383,11 @@ spx_obj.pfilter(J=1000, reps=10) # Particle filter
 Each method call stores its log-likelihood estimates, parameter traces, execution time, and arguments in `spx_obj.results_history`, and helpers such as `traces` return these in convenient formats such as a data frame.
 The JIT-compiled functions behind these methods are available in `pypomp.functional` for building custom inference procedures.
 The source code is available at [https://github.com/pypomp/pypomp](https://github.com/pypomp/pypomp), and documentation is available at [https://pypomp.readthedocs.io](https://pypomp.readthedocs.io).
+Quantitative tests that validate the correctness and speed of Pypomp's main methods are available at [https://github.com/pypomp/quant](https://github.com/pypomp/quant).
 
 # Performance {#sec-performance}
 
-We benchmarked Pypomp `{python} pypomp_bench_version` against `pomp` `{python} pomp_bench_version` and `panelPomp` `{python} panelpomp_bench_version` on several models using the quantitative test suite at [https://github.com/pypomp/quant](https://github.com/pypomp/quant) (commit `{python} quant_sha`).
+We benchmarked Pypomp `{python} pypomp_bench_version` against `pomp` `{python} pomp_bench_version` and `panelPomp` `{python} panelpomp_bench_version` on several models using the quantitative test suite (commit `{python} quant_sha`).
 The models differ in the cost of the process model, the number of process model steps between resampling, and whether they are panels, so together they show where the GPU helps most and least (Appendix -@sec-benchmarks).
 @tbl-timing compares \ac{if2} wall-clock times for the same workloads with R on a 36-core CPU node and Pypomp on one `{python} gpu_name` GPU.
 R divided each workload evenly across its 36 cores, so one core would take 36 times as long.
@@ -425,7 +430,7 @@ Wall-clock time in seconds for \ac{if2}, running 36 searches from the same start
 
 To show the scale of problem this acceleration makes feasible, we fit the measles model of @he2010 to weekly case reports from all `{python} f"{n_big:,}"` towns and cities in England and Wales between 1950 and 1963 [@korevaar2020], treating every parameter as specific to each town.
 One GPU completed the fit, including likelihood evaluation, in `{python} big_hours` hours.
-Scaling `panelPomp`'s cost on the 4-town panel linearly, we estimate that R on a 36-core node would need about `{python} r_big_months` months, `{python} big_speedup` times longer (Appendix -@sec-big-measles-details).
+Scaling `panelPomp`'s cost on the 4-town panel linearly, we estimate that R on a 36-core node would need about `{python} r_big_months` months, or `{python} big_speedup` times longer (Appendix -@sec-big-measles-details).
 
 # Discussion {#sec-discussion}
 
@@ -453,7 +458,7 @@ It has the most expensive process model of the four, so it isolates how the GPU 
 
 **Measles, 4-town panel.**
 The panel model fits the same measles model to `{python} ", ".join(panel_cfg["units"][:-1])`, and `{python} panel_cfg["units"][-1]` jointly, with some parameters shared across towns and the rest specific to each town.
-\ac{pif} [@breto2020] filters the towns one after another in each iteration, so an iteration costs about four single-town iterations with the same number of particles in flight.
+\ac{mpif} [@wheeler2025] filters the towns sequentially within each iteration, so an iteration costs about four single-town iterations with the same number of particles in flight.
 This model tests the panel methods used in @sec-big-measles.
 Its speedup is lower than for the London model because R runs it relatively fast, likely because the random variate generators in R can take a cheaper route for the smaller parameter values of the smaller towns.
 
@@ -665,13 +670,15 @@ Time in milliseconds for 1,000,000 draws from `pypomp.random` and `jax.random`, 
 
 # England and Wales measles fit {#sec-big-measles-details}
 
-We ran `{python} big_par["nreps_fitr"]` panel \ac{if2} searches, each with `{python} f"{big_par['np_fitr']:,}"` particles for `{python} big_par["nfitr"]` iterations, and evaluated each endpoint with `{python} big_par["nreps_eval"]` particle filter replicates of `{python} f"{big_par['np_eval']:,}"` particles.
-We then combined the best estimate for each town across searches [@breto2020] and evaluated the result with another `{python} big_par["nreps_eval"]` replicates.
+<!-- TODO: iron out R timing; currently uses 36 cores against 12 MPIF reps but 36 pfilter reps, which is messy.-->
+
+We ran `{python} big_par["nreps_fitr"]` \ac{mpif} searches, each with `{python} f"{big_par['np_fitr']:,}"` particles for `{python} big_par["nfitr"]` iterations, and evaluated each endpoint with `{python} big_par["nreps_eval"]` particle filter replicates of `{python} f"{big_par['np_eval']:,}"` particles.
+We then combined the best estimate for each town across searches and evaluated the result with another `{python} big_par["nreps_eval"]` replicates.
 @tbl-big-measles gives the time for each stage on one GPU with Pypomp `{python} big_meta["environment"]["pypomp_version"]`.
 
 For comparison, we estimated how long the same computation would take with `panelPomp` on a 36-core node.
 We measured `panelPomp`'s cost per particle, per \ac{if2} iteration, and per town on the 4-town panel in @tbl-timing-full, which covers the same period with the same daily time step, and scaled it linearly to the full computation.
-Each \ac{if2} search is sequential, so R can use at most one core per search, and the extra cores only help with the particle filter evaluations.
+We assume `panelPomp` fits the towns jointly with \ac{mpif}, as Pypomp did, so each search runs on one core and does not parallelize across units.
 By this estimate, R would need about `{python} r_big_months` months, `{python} big_speedup` times longer than the GPU, and about `{python} r_big_1core_years` years on a single core, so the GPU delivered the throughput of about `{python} big_core_ratio` CPU cores running R.
 
 ```{python}
