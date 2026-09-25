@@ -462,7 +462,7 @@ The stochastic volatility model of @Breto2014 has `{python} f"{spx_n_obs:,}"` da
 Each step between resamples is very cheap, so fixed per-step costs such as resampling dominate, which isolates the overhead of the framework itself.
 
 @tbl-timing-full extends @tbl-timing with particle filter times and Pypomp on the same 36-core CPU node as R.
-Pypomp on the CPU is faster than R for the cholera and S&P 500 models but slower for the London measles model, whose Poisson, binomial, and gamma draws are expensive for JAX on a CPU.
+Pypomp on the CPU is faster than R for every model.
 
 ```{python}
 #| label: tbl-timing-full
