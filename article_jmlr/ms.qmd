@@ -54,7 +54,7 @@ format:
     keep-tex: true
     cite-method: natbib
 bibliography: references.bib
-abstract: Model development and parameter estimation for non-Gaussian partially observed Markov process (POMP) mechanistic models are fundamental challenges in a variety of fields including epidemiology, ecology, and finance. Particle filter methods can provide statistically efficient inference for highly nonlinear POMP models, but their practical application is limited by high computational demands. We introduce Pypomp, a high-performance Python library for statistical inference using POMP models. Pypomp includes state-of-the-art particle filtering algorithms to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation via JAX. Basic inference algorithms run with throughput as high as 8000 times greater than on a CPU core using the R package Pomp, and advanced algorithms provide further acceleration. Pypomp provides a comprehensive interface that streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
+abstract: Particle filtering methods provide statistically efficient inference for nonlinear, non-Gaussian partially observed Markov process (POMP) models, which are widely used in epidemiology, ecology, and finance, but their computational demands limit their practical use. We introduce Pypomp, a Python library for inference on POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. On one GPU, iterated filtering can run with the throughput of more than 8,000 CPU cores running the R package pomp. Pypomp's interface streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -298,11 +298,12 @@ Pypomp is aimed at more complex, nonlinear models such as those common in ecolog
 It also supports panel POMP models and methods, including \ac{pif} and \ac{mpif} [@breto2020; @wheeler2025].
 
 With enough particles and method replications to saturate it, one GPU runs iterated filtering as fast as `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores running `pomp` or `panelPomp` (Appendix -@sec-scaling).
-This makes plug-and-play inference feasible at previously intractable scales: one GPU fits a panel POMP model to the England and Wales measles data of @korevaar2020, over one million observations from `{python} f"{n_big:,}"` towns and cities, in `{python} big_hours` hours, compared with an estimated `{python} r_big_months` months for `panelPomp` on a 36-core node (@sec-performance).
+Such replications are routine in practice: likelihood maximization involves searching from many initial parameter vectors, and Monte Carlo adjusted profile (MCAP) confidence intervals [@ionides2017], which Pypomp computes with `mcap`, require many iterated filtering searches at each point of a likelihood profile.
+The GPU also makes plug-and-play inference feasible at previously intractable scales: one GPU fits a panel POMP model to the England and Wales measles data of @korevaar2020, over one million observations from `{python} f"{n_big:,}"` towns and cities, in `{python} big_hours` hours, compared with an estimated `{python} r_big_months` months for `panelPomp` on a 36-core node (@sec-performance).
 
 <!-- \EInote{A BRAINSTORMING IDEA: IN THE SMC READING GROUP, I STARTED USING THE PHRASE ``MICHIGAN NOTATION'' TO EXPLAIN OUR COHERENT SET OF NAMES AND NOTATIONS THAT IS SOMEWHAT DIFFERENT TO THE DIVERSE TERMINOLOGIES FOUND ELSEWHERE. I'M NOT SURE IF THIS IS THE RIGHT PLACE, BUT MAYBE IT IS. ANYWAY, HERE'S A GO} -->
 
-# POMP Modeling {#sec-pomp}
+# POMP Modeling in Pypomp {#sec-pomp}
 <!-- # POMP Modeling: The Michigan notation {#sec-pomp} -->
 
 <!-- Diverse terminologies and notations have evolved for POMP models in different communities. 
@@ -311,11 +312,8 @@ Distinguishing features are: (i) $t$ is used to represent continuous time, allow
 
 A POMP model consists of an unobserved Markov process $\{X(t), t_0 \leq t \leq t_{N}\}$ and observations $Y_{1:N}$ made at times $t_{1:N}$, with observed values $y^*_{1:N}$.
 The initial state is defined at time $t_0$, $X_n := X(t_n)$, and $Y_n$ is independent of $Y_m, X_m$, $m \neq n$, conditional on $X_n$.
-Plug-and-play methods need only a simulator for the initial state, $X_0 \sim f_{X_0}(x_0 ; \theta)$, a simulator for the state transition, $X_{n+1} \sim f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)$, and the measurement density $f_{Y_n|X_n}(y_n| x_n; \theta)$, where $\theta$ denotes the model parameters.
-
+Plug-and-play methods need only a simulator for the initial state, $X_0 \sim f_{X_0}(x_0 ; \theta)$, a simulator for the state transition, $X_{n+1} \sim f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)$, and the measurement density $f_{Y_n|X_n}(y_n| x_n; \theta)$, where $\theta$ denotes the model parameters. 
 In Pypomp, the user passes the data and programmatic descriptions of these functions to a `Pomp` object.
-
-# Inference Methods in Pypomp {#sec-pomp-methods}
 
 Pypomp implements the particle filter (`pfilter`) for likelihood evaluation and state estimation, \ac{if2} (`mif`) for global maximum likelihood estimation, and the differentiable particle filter MOP-$\alpha$ (`mop`, @tan2024), whose gradients the `train` method uses for local optimization.
 These are methods of the `Pomp` class, and each model component is a JAX-compatible function.
@@ -326,9 +324,8 @@ For example, the S&P 500 model included in the package defines its state transit
 # | echo: true
 import jax
 import jax.numpy as jnp
-from pypomp.types import (
-    StateDict, ParamDict, CovarDict, TimeFloat, StepSizeFloat, RNGKey
-)
+from pypomp.types import (StateDict, ParamDict, CovarDict, 
+                          TimeFloat, StepSizeFloat, RNGKey)
 
 def rproc(X_: StateDict, theta_: ParamDict, key: RNGKey,
           covars: CovarDict, t: TimeFloat, dt: StepSizeFloat):
@@ -356,8 +353,7 @@ spx_obj = pp.models.spx()
 key = jax.random.key(1)
 rw_sd = pp.RWSigma( # Random walk standard deviations for IF2
     sigmas={"mu": 0.02, "kappa": 0.02, "theta": 0.02, 
-            "xi": 0.02, "rho": 0.02, "V_0": 0.1},
-    init_names=["V_0"],
+            "xi": 0.02, "rho": 0.02, "V_0": 0.1}, init_names=["V_0"],
 ).geometric_cooling(a=0.5)
 spx_obj.mif(rw_sd=rw_sd, J=1000, M=10, key=key) # IF2
 eta = pp.LearningRate(
@@ -374,7 +370,7 @@ The quantitative tests that validate the correctness and speed of Pypomp's main 
 
 # Performance {#sec-performance}
 
-We benchmarked Pypomp `{python} pypomp_bench_version` against `pomp` `{python} pomp_bench_version` and `panelPomp` `{python} panelpomp_bench_version` on several models using the quantitative test suite (commit `{python} quant_sha`).
+We benchmarked Pypomp `{python} pypomp_bench_version` against `pomp` `{python} pomp_bench_version` and `panelPomp` `{python} panelpomp_bench_version` on four models using the quantitative test suite (commit `{python} quant_sha`).
 The models differ in the cost of the process model, the number of process model steps between resampling, and whether they are panels, so together they show where the GPU helps most and least (Appendix -@sec-benchmarks).
 @tbl-timing compares \ac{if2} wall-clock times for the same workloads with R on a 36-core CPU node and Pypomp on one `{python} gpu_name` GPU.
 These workloads are sized for R, and they keep only `{python} f"{min(bench_totals):,}"` to `{python} f"{max(bench_totals):,}"` particles in flight, too few to saturate the GPU.
@@ -382,7 +378,6 @@ In scaling tests that add more searches or more particles per search (Appendix -
 At that point, one GPU matches `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores running R, the Peak column of @tbl-timing.
 The S&P 500 model gains the most from scaling because its benchmark, with `{python} f"{r_mif_config('spx')[0]:,}"` particles per search and a cheap process model, gives the GPU the least work.
 The GPU times rely on the approximate samplers in `pypomp.random`: with the standard `jax.random` samplers, \ac{if2} for the London measles model took `{python} f"{jax_sampler_slowdown:.0f}"` times longer (Appendix -@sec-samplers).
-Appendix -@sec-benchmarks gives particle filter and Pypomp CPU times.
 Fitting the measles model of @he2010 to all `{python} f"{n_big:,}"` towns and cities for 1950--1963 took one GPU `{python} big_hours` hours, including likelihood evaluation, versus an estimated `{python} r_big_months` months for R on a 36-core node, extrapolating linearly from `panelPomp`'s cost on the 4-town panel (Appendix -@sec-big-measles-details).
 
 ::: {#tbl-timing}
@@ -413,9 +408,10 @@ latex_table(
 Wall-clock time in seconds for \ac{if2}, running 36 searches from the same starting points. Speedup is the R time divided by the GPU time, and cores matched is the speedup times 36. Peak is the highest value of cores matched in GPU scaling tests with more particles in flight (Appendix -@sec-scaling).
 :::
 
-# Discussion {#sec-discussion}
+# Conclusion {#sec-conclusion}
 
-
+The computational cost of particle filtering has limited both the size of datasets that practitioners can fit and how many models and likelihood profiles they can afford to evaluate.
+We expect Pypomp's speed will allow practitioners to iterate more quickly on model structure, fit datasets as large as the England and Wales measles data, and develop and evaluate more realistic models of the systems they study.
 
 # References {.unnumbered}
 
