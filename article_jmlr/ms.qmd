@@ -54,7 +54,7 @@ format:
     keep-tex: true
     cite-method: natbib
 bibliography: references.bib
-abstract: Particle filtering methods provide statistically efficient inference for nonlinear, non-Gaussian partially observed Markov process (POMP) models, which are widely used in epidemiology, ecology, and finance, but their computational demands limit their practical use. We introduce Pypomp, a Python library for inference on POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. On one GPU, iterated filtering can run with the throughput of more than 8,000 CPU cores running the R package pomp. Pypomp's interface streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
+abstract: Particle filtering methods provide statistically efficient inference for nonlinear, non-Gaussian partially observed Markov process (POMP) models, which are widely used in areas such as epidemiology, ecology, and finance, but their computational demands limit their practical use. We introduce Pypomp, a Python library for inference on POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. On one GPU, iterated filtering can run with the throughput of more than 8,000 CPU cores running the R package pomp. Pypomp's interface streamlines model construction, fitting, and analysis, allowing practitioners to develop and evaluate complex models with minimal implementation overhead.
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -288,10 +288,9 @@ These methods only need to simulate from the process model, not evaluate its tra
 Consequently, they apply to a wide range of models unconstrained by mathematical convenience, and they are used in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains where mechanistic dynamic modeling is desired.
 
 Pypomp is a Python library combining advances in hardware, software, and algorithms to provide novel capabilities for POMP models, with an emphasis on inference via particle filters.
-It is built on JAX [@bradbury2018], which provides \ac{jit} compilation, \ac{ad}, and access to massively parallel hardware such as GPUs.
-Pypomp inherits its software design from the R package `pomp` [@king2016] and implements the algorithmic advances needed to take advantage of JAX.
-For \ac{ad}, it implements a differentiable particle filter that controls both bias and variance [@tan2024].
-Rejection sampling algorithms for common distributions are poorly suited to GPUs, so Pypomp also provides alternative samplers [@giles2016; @giles2024; @temme1992].
+While Pypomp inherits its software design from the R package `pomp` [@king2016], it improves on it by leveraging JAX [@bradbury2018], which provides \ac{jit} compilation, \ac{ad}, and access to massively parallel hardware such as GPUs.
+For example, it uses \ac{ad} to implement a differentiable particle filter that excels in local searches [@tan2024].
+Pypomp also includes optimized inverse transform sampling methods as alternatives to some `jax.random` samplers, as the rejection sampling methods used by `jax.random` are inefficient on GPUs [@giles2016; @giles2024; @temme1992].
 
 When the state space is small and discrete, or the model is linear Gaussian or close enough for Gaussian filtering approximations, the particle filter is unnecessary, and the Dynamax library [@linderman2025] provides a JAX-based solution.
 Pypomp is aimed at more complex, nonlinear models such as those common in ecology and epidemiology, although its plug-and-play property also makes it convenient for rapid model development even when alternative methods apply.
