@@ -149,6 +149,7 @@ quant_sha = subprocess.run(
 pypomp_bench_version = timing["dacca"]["gpu"]["meta"]["pypomp_version"]
 pomp_bench_version = timing["dacca"]["R"]["meta"]["pomp_version"]
 panelpomp_bench_version = timing["dacca"]["R"]["meta"]["panelPomp_version"]
+r_bench_version = timing["dacca"]["R"]["meta"]["r_version"]
 gpu_name = timing["dacca"]["gpu"]["meta"]["slurm"]["gpu_type"].replace("NVIDIA ", "")
 
 # The R scripts run one doParallel worker per core on a 36-core node, and each
@@ -160,6 +161,22 @@ mif_speedups = [
     t["R"]["times"]["mif"] / t["gpu"]["times"]["mif"] for t in timing.values()
 ]
 mif_core_ratios = [R_CORES * s for s in mif_speedups]
+
+
+def fmt_ratio(x):
+    return f"{x:.1f}" if x < 10 else f"{x:.0f}"
+
+
+# Split R time / GPU time into software (R / Pypomp on the same CPU node) and
+# hardware (Pypomp CPU / Pypomp GPU), over the IF2 and PF rows of
+# @tbl-timing-full that have a Pypomp CPU run.
+software_ratios, hardware_ratios = [], []
+for t in timing.values():
+    if "cpu" in t:
+        for get in [lambda s: s["mif"], pf_time]:
+            r, py_cpu, gpu = (get(t[b]["times"]) for b in ["R", "cpu", "gpu"])
+            software_ratios.append(r / py_cpu)
+            hardware_ratios.append(py_cpu / gpu)
 
 # GPU scaling tests: more chains at J = 1,000, or more particles per chain at a
 # fixed number of chains. Each configuration ran in its own process with XLA
@@ -370,8 +387,9 @@ The quantitative tests that validate the correctness and speed of Pypomp's main 
 # Performance {#sec-performance}
 
 We benchmarked Pypomp `{python} pypomp_bench_version` against `pomp` `{python} pomp_bench_version` and `panelPomp` `{python} panelpomp_bench_version` on four models using the quantitative test suite (commit `{python} quant_sha`).
+Below, R refers to `pomp`, or `panelPomp` for the panel model, running in R `{python} r_bench_version` on a 36-core CPU node.
 The models differ in the cost of the process model, the number of process model steps between resampling, and whether they are panels, so together they show where the GPU helps most and least (Appendix -@sec-benchmarks).
-@tbl-timing compares \ac{if2} wall-clock times for the same workloads with R on a 36-core CPU node and Pypomp on one `{python} gpu_name` GPU.
+@tbl-timing compares \ac{if2} wall-clock times for the same workloads with R and with Pypomp on one `{python} gpu_name` GPU.
 These workloads are sized for R, and they keep only `{python} f"{min(bench_totals):,}"` to `{python} f"{max(bench_totals):,}"` particles in flight, too few to saturate the GPU.
 In scaling tests that add more searches or more particles per search (Appendix -@sec-scaling), throughput keeps rising until `{python} f"{min(peak_totals) / 1e6:.1f}"` to `{python} f"{max(peak_totals) / 1e6:.0f}"` million particles are in flight.
 At that point, one GPU matches `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores running R, the Peak column of @tbl-timing.
@@ -382,7 +400,6 @@ Fitting the measles model of @he2010 to all `{python} f"{n_big:,}"` towns and ci
 ::: {#tbl-timing}
 ```{python}
 #| echo: false
-
 
 def fmt_s(x):
     if x is None or pd.isna(x):
@@ -399,12 +416,15 @@ for model, label in TIMING_MODELS.items():
     )
 latex_table(
     "lrrrrr",
-    ["Model & R (36 cores) & Pypomp (1 GPU) & Speedup & Cores matched & Peak \\\\"],
+    [
+        " & \\texttt{pomp}$^*$ & Pypomp & & CPU cores & Peak cores \\\\",
+        "Model & (36 cores) & (1 GPU) & Ratio & matched & matched \\\\",
+    ],
     rows,
 )
 ```
 
-Wall-clock time in seconds for \ac{if2}, running 36 searches from the same starting points. Speedup is the R time divided by the GPU time, and cores matched is the speedup times 36. Peak is the highest value of cores matched in GPU scaling tests with more particles in flight (Appendix -@sec-scaling).
+Wall-clock time in seconds for \ac{if2}, running 36 searches from the same starting points. $^*$`panelPomp` for the 4-town panel. Ratio is the `pomp` time divided by the Pypomp time, and CPU cores matched is that ratio times 36. Peak cores matched is the highest throughput in terms of CPU cores matched in GPU scaling tests with more particles in flight (Appendix -@sec-scaling). 
 :::
 
 # Conclusion {#sec-conclusion}
@@ -436,20 +456,20 @@ It has the most expensive process model of the four, so it isolates how the GPU 
 The panel model fits the same measles model to `{python} ", ".join(panel_cfg["units"][:-1])`, and `{python} panel_cfg["units"][-1]` jointly, with some parameters shared across towns and the rest specific to each town.
 \ac{mpif} [@wheeler2025] filters the towns sequentially within each iteration, so an iteration costs about four single-town iterations with the same number of particles in flight.
 This model tests the panel methods used in Appendix -@sec-big-measles-details.
-Its speedup is lower than for the London model because R runs it relatively fast, likely because the random variate generators in R can take a cheaper route for the smaller parameter values of the smaller towns.
+Its ratio of R time to GPU time is lower than for the London model because R runs it relatively fast, likely because the random variate generators in R can take a cheaper route for the smaller parameter values of the smaller towns.
 
 **S&P 500.**
 The stochastic volatility model of @Breto2014 has `{python} f"{spx_n_obs:,}"` daily log returns and takes one step of its process model per observation, with a single normal draw.
 Each step between resamples is very cheap, so fixed per-observation costs such as resampling dominate.
 
-@tbl-timing-full extends @tbl-timing with particle filter times and Pypomp on the same 36-core CPU node as R.
-Pypomp on the CPU is faster than R for every model.
+@tbl-timing-full extends @tbl-timing with particle filter times and Pypomp on the same 36-core CPU node as R, which splits the GPU's advantage into a software part and a hardware part.
+On the same CPU node, Pypomp is `{python} fmt_ratio(min(software_ratios))` to `{python} fmt_ratio(max(software_ratios))` times faster than R, and moving Pypomp to the GPU makes it another `{python} fmt_ratio(min(hardware_ratios))` to `{python} fmt_ratio(max(hardware_ratios))` times faster.
+These workloads are sized for R and too small to saturate the GPU, so the hardware and total ratios understate what the GPU can do.
+At its peak throughput in the scaling tests (Appendix -@sec-scaling), one GPU runs \ac{if2} `{python} f"{min(peak_r_cores.values()) / R_CORES:.0f}"` to `{python} f"{max(peak_r_cores.values()) / R_CORES:.0f}"` times as fast as R on the 36-core node.
 
+::: {#tbl-timing-full}
 ```{python}
-#| label: tbl-timing-full
-#| tbl-cap: "Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation of the IF2 estimates. Each IF2 row runs 36 searches from the same starting points on every platform, and Pypomp PF times include JIT compilation. Speedup is the R time divided by the Pypomp GPU time. Cores matched and Peak are as in @tbl-timing. The 4-town panel has no PF comparison because the quant scripts filter different numbers of parameter sets, and it has no Pypomp CPU run."
 #| echo: false
-
 
 def fmt_s(x):
     if x is None or pd.isna(x):
@@ -457,29 +477,39 @@ def fmt_s(x):
     return f"{x:,.0f}" if x >= 100 else f"{x:.1f}"
 
 
-rows = [
-    "| Model | Task | R (36 cores) | Pypomp (36 cores) | Pypomp (1 GPU) | Speedup | Cores matched | Peak |",
-    "|:----------------------|:-----|----------:|----------:|----------:|-------:|--------:|-------:|",
-]
+def fmt_x(x):
+    return "---" if x is None else fmt_ratio(x) + "$\\times$"
+
+
+rows = []
 for model, label in TIMING_MODELS.items():
     t = timing[model]
     cpu = t.get("cpu", {}).get("times")
     for task, get in [("IF2", lambda s: s["mif"]), ("PF", pf_time)]:
         r, gpu = get(t["R"]["times"]), get(t["gpu"]["times"])
+        py_cpu = None if cpu is None else get(cpu)
+        # The quant scripts filter different numbers of parameter sets for the panel.
         comparable = not (model == "panel_measles" and task == "PF")
-        speedup = f"{r / gpu:.0f}$\\times$" if comparable else "---"
-        per_core = f"{R_CORES * r / gpu:,.0f}" if comparable else "---"
-        peak = (
-            f"{peak_r_cores[model]:,.0f}"
-            if task == "IF2" and model in peak_r_cores else "---"
-        )
+        software = r / py_cpu if comparable and py_cpu is not None else None
+        hardware = py_cpu / gpu if py_cpu is not None else None
         rows.append(
-            f"| {label if task == 'IF2' else ''} | {task} | {fmt_s(r)} "
-            f"| {fmt_s(None if cpu is None else get(cpu))} | {fmt_s(gpu)} | {speedup} "
-            f"| {per_core} | {peak} |"
+            f"{label if task == 'IF2' else ''} & {task} & {fmt_s(r)} "
+            f"& {fmt_s(py_cpu)} & {fmt_s(gpu)} & {fmt_x(software)} "
+            f"& {fmt_x(hardware)} & {fmt_x(r / gpu if comparable else None)}"
         )
-Markdown("\n".join(rows))
+latex_table(
+    "llrrrrrr",
+    [
+        " & & \\texttt{pomp}$^*$ & \\multicolumn{2}{c}{Pypomp} & \\multicolumn{3}{c}{Ratio} \\\\",
+        "\\cmidrule(lr){4-5} \\cmidrule(lr){6-8}",
+        "Model & Task & 36 cores & 36 cores & 1 GPU & Software & Hardware & Total \\\\",
+    ],
+    rows,
+)
 ```
+
+Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation of the IF2 estimates. Each IF2 row runs 36 searches from the same starting points on every platform, and Pypomp PF times include JIT compilation. $^*$`panelPomp` for the 4-town panel. Software is the `pomp` time divided by the Pypomp time on the same 36 cores, hardware is the Pypomp CPU time divided by the Pypomp GPU time, and total is their product, the `pomp` time divided by the Pypomp GPU time. These workloads do not saturate the GPU, so the hardware and total ratios understate its throughput; peak cores matched in @tbl-timing gives the GPU's highest measured \ac{if2} throughput. The 4-town panel has no PF comparison because the quant scripts filter different numbers of parameter sets, and it has no Pypomp CPU run.
+:::
 
 # GPU scaling tests {#sec-scaling}
 
@@ -635,14 +665,14 @@ latex_table(
     [
         "& \\multicolumn{3}{c}{GPU} & \\multicolumn{3}{c}{CPU} & \\\\",
         "\\cmidrule(lr){2-4} \\cmidrule(lr){5-7}",
-        "Distribution & \\texttt{pypomp} & \\texttt{jax} & Speedup "
-        "& \\texttt{pypomp} & \\texttt{jax} & Speedup & Max $W_1/\\sigma$ \\\\",
+        "Distribution & \\texttt{pypomp} & \\texttt{jax} & Ratio "
+        "& \\texttt{pypomp} & \\texttt{jax} & Ratio & Max $W_1/\\sigma$ \\\\",
     ],
     rows,
 )
 ```
 
-Time in milliseconds for 1,000,000 draws from `pypomp.random` and `jax.random`, on one GPU and on one CPU core, with parameters spread across the values where the samplers switch algorithms. `jax.random` has no negative binomial sampler. Max $W_1/\sigma$ is the largest Wasserstein distance between `pypomp.random` draws and draws from `jax.random` (or `scipy.stats` for the negative binomial) over a grid of parameter values, relative to the standard deviation.
+Time in milliseconds for 1,000,000 draws from `pypomp.random` and `jax.random`, on one GPU and on one CPU core, with parameters spread across the values where the samplers switch algorithms. Ratio is the `jax.random` time divided by the `pypomp.random` time. `jax.random` has no negative binomial sampler. Max $W_1/\sigma$ is the largest Wasserstein distance between `pypomp.random` draws and draws from `jax.random` (or `scipy.stats` for the negative binomial) over a grid of parameter values, relative to the standard deviation.
 :::
 
 # England and Wales measles fit {#sec-big-measles-details}
