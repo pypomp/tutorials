@@ -325,10 +325,11 @@ Below, we detail the execution performance and results of a full **Level 4** pan
 Pending a fit using shared parameters, we show the results of this run, which use only unit-specific parameters.
 
 The search followed the same steps as the script `big_measles.py` in this directory. 
-The run directory `results/2026-09-04_233751_u1422_L4/` contains a copy of the exact script (`script_snapshot.py`), the locked Python environment (`uv.lock.gz`), and a record of the settings and software versions (`metadata.json`). 
+Its script also timed each stage, and it removed the six observations that @he2010 excluded through a separate data-cleaning module instead of `clean=True`, which has the same effect.
+The run directory `results/2026-10-04_161213_u1422_L4_d001/` contains a copy of the exact script (`script_snapshot.py`), the locked Python environment (`uv.lock.gz`), and a record of the settings and software versions (`metadata.json`). 
 
 ::: {.callout-note}
-These timings and the results in the next section come from a run with `pypomp` 1.0.0. 
+These timings and the results in the next section come from a run with `pypomp` 1.0.8. 
 :::
 
 ### Computation Details
@@ -343,13 +344,13 @@ The recorded execution times are as follows:
 
 | Stage | Algorithm | Config Details | Time (seconds) | Time (hours) |
 |---|---|---|---|---|
-| **Estimation** | MPIF | $J=10000, M=200, 12 \text{ chains}$ | $98,325.10 \text{ s}$ | **$27.31 \text{ hours}$** |
-| **Initial Eval** | PFilter | $J=5000, 36 \text{ replicates, } 12 \text{ chains}$ | $5,958.33 \text{ s}$ | **$1.66 \text{ hours}$** |
-| **Post-Pruning Eval** | PFilter | $J=5000, 36 \text{ replicates, } 1 \text{ chain (pruned)}$ | $598.38 \text{ s}$ | **$9.97 \text{ minutes}$** |
-| **Total** | | | $104,881.82 \text{ s}$ | **$29.13 \text{ hours}$** |
+| **Estimation** | MPIF | $J=10000, M=200, 12 \text{ chains}$ | $51,540.07 \text{ s}$ | **$14.32 \text{ hours}$** |
+| **Initial Eval** | PFilter | $J=5000, 36 \text{ replicates, } 12 \text{ chains}$ | $2,787.50 \text{ s}$ | **$46.46 \text{ minutes}$** |
+| **Post-Pruning Eval** | PFilter | $J=5000, 36 \text{ replicates, } 1 \text{ chain (pruned)}$ | $338.37 \text{ s}$ | **$5.64 \text{ minutes}$** |
+| **Total** | | | $54,665.94 \text{ s}$ | **$15.18 \text{ hours}$** |
 
-This computation would have taken about 4.7 months in the R package `pomp` using CPU cores! 
-By using a capable GPU, we completed the same computation about 116 times faster. 
+This computation would have taken about 4.5 months in the R package `panelPomp` on a 36-core CPU node! 
+By using a capable GPU, we completed the same computation about 219 times faster. 
 
 ## 6. Exploring the Level 4 Results
 
@@ -361,7 +362,7 @@ Note that the level 4 run treated all parameters as unit-specific.
 ```{python}
 #| label: load-results
 #| eval: true
-RESULTS_DIR = "results/2026-09-04_233751_u1422_L4/summary"
+RESULTS_DIR = "results/2026-10-04_161213_u1422_L4_d001/summary"
 panel_trace = pd.read_csv(f"{RESULTS_DIR}/panel_loglik_trace.csv")
 chain_evals = pd.read_csv(f"{RESULTS_DIR}/chain_evaluations.csv.gz")
 final_estimates = pd.read_csv(f"{RESULTS_DIR}/final_estimates.csv.gz")
@@ -456,9 +457,9 @@ unit_traces_long = town_traces.query("unit in ['London', 'Halesworth']").melt(
 )
 ```
 
-In London, the searches agree closely on the reporting rate `rho` and the reporting overdispersion `psi`. 
-Most searches estimate `R0` between 27 and 47, but two settle near 15. 
-Those two searches also have the lowest London log-likelihoods, 8 to 10 units below the best search, so they appear to be stuck near an inferior local maximum. 
+In London, all but one search agree closely on the reporting rate `rho` and the reporting overdispersion `psi`, and they estimate `R0` between 31 and 58. 
+Search 5 instead settles at an `R0` of about 1.4 and a reporting rate above 0.9. 
+Its London log-likelihood is 77 units below the best search, so it appears to be stuck near an inferior local maximum. 
 This is one reason to run several searches from different starting points. 
 The searches for Halesworth disagree more on every parameter, because the data from a small town carry less information.
 

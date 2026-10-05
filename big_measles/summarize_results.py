@@ -8,7 +8,7 @@ Write the small CSV summaries of a panel fit that the tutorial reads.
 Reads traces.parquet and results.parquet from a run directory and writes the
 summaries to <run_dir>/summary/. Run from this directory with:
 
-    uv run summarize_results.py results/2026-09-04_233751_u1422_L4
+    uv run summarize_results.py results/2026-10-04_161213_u1422_L4_d001
 """
 
 import sys

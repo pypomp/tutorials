@@ -258,15 +258,14 @@ max_w1_norm = max(
 )
 
 # England and Wales measles fit (all 1,422 towns) on one GPU.
-BIG = Path("../big_measles/results/2026-09-04_233751_u1422_L4")
+BIG = Path("../big_measles/results/2026-10-04_161213_u1422_L4_d001")
 big_meta = json.loads((BIG / "metadata.json").read_text())
 big_par = big_meta["parameters"]
-# elapsed_time is a printed data frame: two header lines, then one row per
-# method call (mif, pfilter before pruning, pfilter after pruning).
-big_mif_s, big_pf1_s, big_pf2_s = [
-    float(line.split()[-1])
-    for line in big_meta["summary_metrics"]["elapsed_time"].splitlines()[2:]
-]
+# Wall-clock seconds for each method call. The total leaves out building the
+# model and mixing and matching, which take about a minute together.
+big_mif_s = big_par["stage_wall_s"]["mif"]
+big_pf1_s = big_par["stage_wall_s"]["pfilter_eval1"]
+big_pf2_s = big_par["stage_wall_s"]["pfilter_final"]
 big_total_s = big_mif_s + big_pf1_s + big_pf2_s
 
 # R estimate, extrapolated from panelPomp's cost on the 4-town panel in quant,
