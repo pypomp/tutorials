@@ -608,7 +608,7 @@ JAX's memory preallocation was turned off, so the peak GPU memory is the memory 
 No scaling test used more than `{python} f"{max_vram['peak_vram_mb'] / 1024:.1f}"` GB of GPU memory, the peak for the cholera model with `{python} f"{max_vram['total_particles_mif'] / 1e6:.1f}"` million particles.
 
 @fig-scaling shows the results.
-For every model, throughput peaks at between `{python} f"{min(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` and `{python} f"{max(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` million particles and falls at larger sizes, where the time per iteration grows faster than the number of particles.
+For every model, throughput peaks at between `{python} f"{min(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` and `{python} f"{max(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` million particles and falls or plateaus at larger sizes.
 The peak is `{python} f"{peak_gain['dacca']:.1f}"` times the benchmark for the cholera model, `{python} f"{peak_gain['measles']:.1f}"` times for the London measles model, `{python} f"{peak_gain['panel_measles']:.1f}"` times for the 4-town panel, and `{python} f"{peak_gain['spx']:.1f}"` times for the S&P 500 model.
 The S&P 500 model gains the most because its benchmark, with cheap steps and few particles, leaves the GPU mostly idle.
 For this model, adding searches beats adding particles per search at a given total number of particles by an average of `{python} f"{(spx_chain_advantage - 1) * 100:.0f}"`%.
