@@ -258,7 +258,7 @@ max_w1_norm = max(
 )
 
 # England and Wales measles fit (all 1,422 towns) on one GPU.
-BIG = Path("../big_measles/results/2026-10-04_161213_u1422_L4_d001")
+BIG = Path("../big_measles/results/2026-10-05_134449_u1422_L4_d001_reps36")
 big_meta = json.loads((BIG / "metadata.json").read_text())
 big_par = big_meta["parameters"]
 # Wall-clock seconds for each method call. The total leaves out building the
@@ -676,8 +676,6 @@ Time in milliseconds for 1,000,000 draws from `pypomp.random` and `jax.random`, 
 :::
 
 # England and Wales measles fit {#sec-big-measles-details}
-
-<!-- TODO: iron out R timing; currently uses 36 cores against 12 MPIF reps but 36 pfilter reps, which is messy.-->
 
 We ran `{python} big_par["nreps_fitr"]` \ac{mpif} searches, each with `{python} f"{big_par['np_fitr']:,}"` particles for `{python} big_par["nfitr"]` iterations, and evaluated each endpoint with `{python} big_par["nreps_eval"]` particle filter replicates of `{python} f"{big_par['np_eval']:,}"` particles.
 We then combined the best estimate for each town across searches and evaluated the result with another `{python} big_par["nreps_eval"]` replicates.
