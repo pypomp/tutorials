@@ -324,9 +324,9 @@ Because `pypomp` is written in Python using JAX, it compiles down to highly para
 Below, we detail the execution performance and results of a full **Level 4** panel model search run on an NVIDIA RTX6000 Pro Blackwell GPU. 
 Pending a fit using shared parameters, we show the results of this run, which use only unit-specific parameters.
 
-The search followed the same steps as the script `big_measles.py` in this directory. 
-Its script also timed each stage, and it removed the six observations that @he2010 excluded through a separate data-cleaning module instead of `clean=True`, which has the same effect.
 The run directory `results/2026-10-05_134449_u1422_L4_d001_reps36/` contains a copy of the exact script (`script_snapshot.py`), the locked Python environment (`uv.lock.gz`), and a record of the settings and software versions (`metadata.json`). 
+That script relies on a helper package, `pymeasles`, which is not part of this repository. 
+The script `big_measles.py` in this directory runs the same search without it.
 
 ::: {.callout-note}
 These timings and the results in the next section come from a run with `pypomp` 1.0.8. 
@@ -351,6 +351,7 @@ The recorded execution times are as follows:
 
 This computation would have taken about 4.8 months in the R package `panelPomp` on a 36-core CPU node!
 By using a capable GPU, we completed the same computation about 91 times faster.
+We could complete it even faster by splitting the replications across additional GPUs. 
 
 ## 6. Exploring the Level 4 Results
 
