@@ -276,6 +276,15 @@ big_pf1_s = big_par["stage_wall_s"]["pfilter_eval1"]
 big_pf2_s = big_par["stage_wall_s"]["pfilter_final"]
 big_total_s = big_mif_s + big_pf1_s + big_pf2_s
 
+# An earlier run with the same settings but a third as many searches.
+BIG_SMALL = Path("../big_measles/results/2026-10-04_161213_u1422_L4_d001")
+big_small_par = json.loads((BIG_SMALL / "metadata.json").read_text())["parameters"]
+assert big_small_par["np_fitr"] == big_par["np_fitr"] and big_small_par["nfitr"] == big_par["nfitr"]
+big_small_s = sum(big_small_par["stage_wall_s"][k] for k in ["mif", "pfilter_eval1", "pfilter_final"])
+big_n_gpus = {2: "two", 3: "three", 4: "four"}[
+    big_par["nreps_fitr"] // big_small_par["nreps_fitr"]
+]
+
 # R estimate, extrapolated from panelPomp's cost on the 4-town panel in quant,
 # which covers the same 1950-1963 period with the same daily Euler steps. Cost
 # is assumed linear in particles, IF2 iterations and towns. In the quant run,
@@ -301,6 +310,7 @@ r_big_1core_s = big_par["nreps_fitr"] * r_big_mif_s + n_big_pf * r_one_pf_s
 
 HOUR, DAY = 3600, 86400
 big_hours = f"{big_total_s / HOUR:.0f}"
+big_small_hours = f"{big_small_s / HOUR:.0f}"
 r_big_months = f"{r_big_total_s / (30.44 * DAY):.1f}"
 big_speedup = f"{r_big_total_s / big_total_s:.0f}"
 r_big_1core_years = f"{r_big_1core_s / (365.25 * DAY):.1f}"
@@ -730,10 +740,10 @@ For comparison, we estimated how long the same computation would take with `pane
 We measured `panelPomp`'s cost per particle, per \ac{if2} iteration, and per town on the 4-town panel in @tbl-timing-full, which covers the same period with the same daily time step, and scaled it linearly to the full computation.
 We assume `panelPomp` fits the towns jointly with \ac{mpif}, as Pypomp did, so each search runs on one core and does not parallelize across units.
 By this estimate, R would need about `{python} r_big_months` months, `{python} big_speedup` times longer than the GPU, and about `{python} r_big_1core_years` years on a single core, so the GPU delivered the throughput of about `{python} big_core_ratio` CPU cores running R.
+The wall clock time can be reduced further by spreading the replication over multiple GPUs; for example, a run with the same settings but only `{python} big_small_par["nreps_fitr"]` searches took one GPU `{python} big_small_hours` hours, so `{python} big_n_gpus` GPUs running `{python} big_small_par["nreps_fitr"]` searches each would finish in about `{python} big_small_hours` hours instead of `{python} big_hours`.
 
+::: {#tbl-big-measles}
 ```{python}
-#| label: tbl-big-measles
-#| tbl-cap: "Wall-clock time for fitting the measles model to all towns in England and Wales. Pypomp times were measured on one GPU. R times are estimates for `panelPomp` on a 36-core CPU node, extrapolated from the 4-town panel in @tbl-timing-full."
 #| echo: false
 
 
@@ -749,12 +759,14 @@ stages = [
     ("IF2", big_mif_s, r_big_mif_s),
     ("PF, all search endpoints", big_pf1_s, r_big_pf1_s),
     ("PF, combined estimate", big_pf2_s, r_big_pf2_s),
-    ("**Total**", big_total_s, r_big_total_s),
+    ("\\textbf{Total}", big_total_s, r_big_total_s),
 ]
-rows = [
-    "| Stage | Pypomp (1 GPU) | R `panelPomp`, 36 cores (estimated) |",
-    "|:--|--:|--:|",
-]
-rows += [f"| {name} | {fmt_dur(g)} | {fmt_dur(r)} |" for name, g, r in stages]
-Markdown("\n".join(rows))
+latex_table(
+    "lrr",
+    ["Stage & Pypomp (1 GPU) & R \\texttt{panelPomp}, 36 cores (estimated) \\\\"],
+    [f"{name} & {fmt_dur(g)} & {fmt_dur(r)}" for name, g, r in stages],
+)
 ```
+
+Wall-clock time for fitting the measles model to all towns in England and Wales. Pypomp times were measured on one GPU. R times are estimates for `panelPomp` on a 36-core CPU node, extrapolated from the 4-town panel in @tbl-timing-full.
+:::
