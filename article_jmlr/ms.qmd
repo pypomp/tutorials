@@ -260,10 +260,20 @@ jax_sampler_slowdown = (
 jax_sampler_pf_slowdown = (
     pf_time(timing["measles"]["gpu_jax"]["times"]) / pf_time(timing["measles"]["gpu"]["times"])
 )
-max_w1_norm = max(
-    max(g["w_dist_norm"])
-    for g in json.loads((QUANT / "tests/samplers/benchmark_results.json").read_text())["grids"].values()
-)
+SAMPLERS = json.loads((QUANT / "tests/samplers/benchmark_results.json").read_text())
+SAMPLER_ROWS = {  # distribution: label, cached regime with parameters across the switches
+    "poisson": ("Poisson", "Mixed Rates (around switches)"),
+    "binomial": ("Binomial", "Mixed Grid (around switches)"),
+    "gamma": ("Gamma", "Mixed Shapes (around switch)"),
+    "nbinomial": ("Negative binomial", "Mixed Grid (around switches)"),
+}
+max_w1_norm = max(max(g["w_dist_norm"]) for g in SAMPLERS["grids"].values())
+# GPU speedup of pypomp.random over jax.random, for distributions jax.random has.
+sampler_gpu_speedups = [
+    t["t_jax_gpu"] / t["t_pp_gpu"]
+    for t in (SAMPLERS[d][regime] for d, (_, regime) in SAMPLER_ROWS.items())
+    if t.get("t_jax_gpu") is not None
+]
 
 # England and Wales measles fit (all 1,422 towns) on one GPU.
 BIG = Path("../big_measles/results/2026-10-05_134449_u1422_L4_d001_reps36")
@@ -328,6 +338,7 @@ While Pypomp inherits its software design from the R package `pomp` [@king2016],
 For example, it uses \ac{ad} to implement \ac{dmop}, the gradient function of a differentiable particle filter, which is used for likelihood maximization by gradient descent [@tan2024].
 Used as a local search to refine iterated filtering estimates, it reaches higher log-likelihoods than iterated filtering alone.
 Pypomp also includes optimized inverse transform sampling methods as alternatives to some `jax.random` samplers, as the rejection sampling methods used by `jax.random` are inefficient on GPUs [@giles2016; @giles2024; @temme1992].
+On a GPU, these samplers run `{python} f"{min(sampler_gpu_speedups):.0f}"` to `{python} f"{max(sampler_gpu_speedups):.0f}"` times faster than their `jax.random` counterparts on a benchmark, and although approximate, they stay close to the exact distributions: for every parameter value tested, quantiles of their draws differ from those of a reference sampler by at most `{python} f"{max_w1_norm * 100:.1f}"`% of a standard deviation on average, as measured by the Wasserstein-1 distance (Appendix -@sec-samplers).
 
 With enough particles and method replications to saturate it, one GPU runs iterated filtering as fast as `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores running `pomp` or `panelPomp` (Appendix -@sec-scaling).
 Such replications are routine in practice: likelihood maximization involves searching from many initial parameter vectors, and Monte Carlo adjusted profile (MCAP) confidence intervals [@ionides2017], which Pypomp computes with `mcap`, require many iterated filtering searches at each point of a likelihood profile.
@@ -689,15 +700,6 @@ In the London measles benchmark, the `jax.random` samplers made \ac{if2} `{pytho
 ::: {#tbl-samplers}
 ```{python}
 #| echo: false
-SAMPLERS = json.loads((QUANT / "tests/samplers/benchmark_results.json").read_text())
-SAMPLER_ROWS = {  # distribution: label, cached regime with parameters across the switches
-    "poisson": ("Poisson", "Mixed Rates (around switches)"),
-    "binomial": ("Binomial", "Mixed Grid (around switches)"),
-    "gamma": ("Gamma", "Mixed Shapes (around switch)"),
-    "nbinomial": ("Negative binomial", "Mixed Grid (around switches)"),
-}
-
-
 def fmt_ms(x):
     return "---" if x is None else (f"{x:,.0f}" if x >= 100 else f"{x:.2f}")
 
