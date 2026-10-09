@@ -360,10 +360,7 @@ Distinguishing features are: (i) $t$ is used to represent continuous time, allow
 A POMP model consists of an unobserved Markov process $\{X(t), t_0 \leq t \leq t_{N}\}$ and observations $Y_{1:N}$ made at times $t_{1:N}$, with observed values $y^*_{1:N}$.
 The initial state is defined at time $t_0$, $X_n := X(t_n)$, and $Y_n$ is independent of $Y_m, X_m$, $m \neq n$, conditional on $X_n$.
 Plug-and-play methods need only a simulator for the initial state, $X_0 \sim f_{X_0}(x_0 ; \theta)$, a simulator for the state transition, $X_{n+1} \sim f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)$, and the measurement density $f_{Y_n|X_n}(y_n| x_n; \theta)$, where $\theta$ denotes the model parameters. 
-In Pypomp, the user passes the data and programmatic descriptions of these functions to a `Pomp` object.
-
-Pypomp implements the particle filter (`pfilter`) for likelihood evaluation and state estimation, \ac{if2} (`mif`) for global maximum likelihood estimation, and the differentiable particle filter MOP-$\alpha$ (`mop`, @tan2024), whose gradients the `train` method uses for local optimization.
-These are methods of the `Pomp` class, and each model component is a JAX-compatible function.
+In Pypomp, the user passes the data and JAX-compatible programmatic descriptions of these functions to a `Pomp` object.
 For example, the S&P 500 model included in the package defines its state transition simulator as follows:
 
 ```{python}
@@ -389,7 +386,10 @@ def rproc(X_: StateDict, theta_: ParamDict, key: RNGKey,
 ``` 
 
 Pypomp vectorizes such a function over particles and over replicate runs, such as when starting searches from many values of $\theta$, and \ac{jit} compiles it so that the computation runs in parallel across GPU cores.
-The following example searches globally with \ac{if2}, refines the estimate by gradient descent, and evaluates the likelihood of the result:
+
+Given a `Pomp` object, one can run methods such as the particle filter (`pfilter`) for likelihood evaluation and state estimation, \ac{if2} (`mif`) for global maximum likelihood estimation, and the differentiable particle filter MOP-$\alpha$ (`mop`, @tan2024), whose gradients the `train` method uses for local optimization.
+Pypomp also includes Bayesian inference via particle Markov chain Monte Carlo (`pmcmc`) [@andrieu2010] and approximate Bayesian computation (`abc`) [@marjoram2003].
+The following example searches globally for the maximum likelihood estimate with \ac{if2}, refines the estimate by gradient descent, and evaluates the likelihood of the result:
 
 ```{python}
 # | label: spx-inference-workflow
