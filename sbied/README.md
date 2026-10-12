@@ -6,7 +6,7 @@ Aaron A. King, Edward L. Ionides and Kunyang He
 ## Overview
 
 This short course introduces statistical inference techniques and computational methods for dynamic models of epidemiological systems.
-The course explores deterministic and stochastic formulations of epidemiological dynamics and develop inference methods appropriate for a range of models.
+The course explores deterministic and stochastic formulations of epidemiological dynamics and develops inference methods appropriate for a range of models.
 Special emphasis will be on exact and approximate likelihood as the key elements in parameter estimation, hypothesis testing, and model selection.
 Specifically, the course emphasizes sequential Monte Carlo techniques.
 
@@ -41,7 +41,7 @@ This is a Python-Pypomp version of an [R-pomp short course](https://kingaa.githu
 
 ---------------
 
-Additional background on time series analysis and POMP models, following the notation and approach of this short course, is provided in a full-semester extension of this couurse, [Modeling and Analysis of Time Series Data](https://ionides.github.io/531w26/).
+Additional background on time series analysis and POMP models, following the notation and approach of this short course, is provided in a full-semester extension of this course, [Modeling and Analysis of Time Series Data](https://ionides.github.io/531w26/).
 
 
 

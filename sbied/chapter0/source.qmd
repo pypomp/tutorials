@@ -51,7 +51,7 @@ Additionally, the course emphasizes reproducible data analysis using Quarto
 
 To get started:
 
-- Python 3.10 or higher.
+- Python 3.12 or higher.
 
 - Basic familiarity with Python programming
 
@@ -73,7 +73,7 @@ or
 python3 --version
 ```
 
-You should have Python 3.10 or higher. If not, make a fresh installation. Various Python distributions exist, but we recommend using the official Python distribution:
+You should have Python 3.12 or higher. If not, make a fresh installation. Various Python distributions exist, but we recommend using the official Python distribution:
 
 1. Download Python from [https://www.python.org/downloads/](https://www.python.org/downloads/)
 2. Follow the installation instructions for your operating system
@@ -101,12 +101,13 @@ The main package we will use is `pypomp`. Install it using `pip`:
 pip install pypomp
 ```
 
-This will also install various dependencies, including `jax`, `numpy`, `pandas`, `scipy`, `matplotlib`.
+This will also install various dependencies, including `jax`, `numpy`, `pandas` and `scipy`.
 
-The following additional packages are commonly used in the course:
+The course also uses the following packages, for notebooks, plotting, maps and time series models:
 
 ```bash
-pip install jupyter
+pip install jupyter matplotlib statsmodels
+pip install geopandas cartopy
 ```
 
 ## An introduction to JAX for pypomp
@@ -126,7 +127,7 @@ import jax.numpy as jnp
 import numpy as np
 ```
 You can mix `np` with `jnp`. 
-Howver, JIT and AD require `jnp`. 
+However, JIT and AD require `jnp`. 
 Specifically, `np` variables are considered constants by JIT and AD.
 
 * For `pypomp`, it is usually better to use `jnp`.
@@ -286,7 +287,7 @@ If you encounter issues:
 
 By now, you should have:
 
-- ✓ Python 3.10+ installed
+- ✓ Python 3.12+ installed
 - ✓ A virtual environment created and activated
 - ✓ pypomp and required packages installed
 - ✓ Quarto and/or Jupyter set up 

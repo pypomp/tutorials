@@ -29,7 +29,7 @@ dhaka:
 big_measles:
 	$(MAKE) -C big_measles
 
-# SBIED Short Course (all chapters and polio case study)
+# SBIED Short Course (all chapters; the deprecated polio case study renders only via `make -C sbied polio`)
 sbied:
 	$(MAKE) -C sbied
 
