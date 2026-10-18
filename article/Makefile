@@ -13,24 +13,24 @@ RCMD = $(REXE) CMD
 RSCRIPT = Rscript --vanilla
 
 VENV_DIR = .venv
-PYTHON = python3.12
+PYTHON = python
 PIP = $(VENV_DIR)/bin/pip
 VENV_PYTHON = $(VENV_DIR)/bin/python
 SOURCE = source
 
 .PHONY: venv
 
+%.pdf: %.qmd
+	quarto render "$*.qmd" --to pdf
+
+%.tex: %.qmd
+	quarto render "$*.qmd" --to latex
+
 %.pdf: %.tex
 	$(PDFLATEX) $*
 	-$(BIBTEX) $*
 	$(PDFLATEX) $*
 	$(PDFLATEX) $*
-
-%.pdf: %.qmd
-	quarto render "$*.qmd" --to jss-pdf
-
-%.tex: %.qmd
-	quarto render "$*.qmd" --to latex
 
 %.so: %.c
 	$(RCMD) SHLIB -o $*.so $*.c

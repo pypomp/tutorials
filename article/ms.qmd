@@ -1,12 +1,12 @@
 ---
 title: "Pypomp: Inference for partially observed Markov process models in Python with JAX \\newline DRAFT IN PROGRESS"
 author: 
-  - name: "Aaron J. Abkemeier^$\\ast$^"
+  - name: "Aaron J. Abkemeier"
     affiliations:
       - name: University of Michigan
         department: Department of Statistics
     email: aaronabk@umich.edu   
-  - name: "Jun Chen^$\\ast$^"
+  - name: "Jun Chen"
     affiliations:
       - name: Duke University
         department: Department of Statistics
@@ -18,9 +18,9 @@ author:
     email: kevtan@wharton.upenn.edu
   - name: Jesse Wheeler
     affiliations:
-      - name: Idaho State University
-        department: Department of Mathematics
-    email: jessewheeler@isu.edu
+      - name: Utah State University
+        department: Department of Mathematics \& Statistics
+    email: jesse.wheeler@usu.edu
   - name: Bo Yang
     affiliations:
       - name: Columbia University 
@@ -37,12 +37,20 @@ author:
         department: Department of Statistics
     email: jonth@umich.edu   
   - name: Aaron A. King
+    affiliations:
+      - name: University of Michigan
+        department: Department of Ecology \& Evolutionary Biology
+    email: kingaa@umich.edu
+  - name: Giles Hooker
+    affiliations:
+      - name: University of Pennsylvania
+        department: Department of Statistics
+    email: ghooker@wharton.upenn.edu
   - name: Edward L. Ionides
     affiliations:
       - name: University of Michigan
         department: Department of Statistics
     email: ionides@umich.edu   
-  - "^$\\ast$^\\small These authors contributed equally"
 keywords: [pomp, JAX, GPU acceleration, likelihood-based inference]
 number-sections: true 
 format:
@@ -182,6 +190,7 @@ The following example demonstrates a possible inference workflow, expressed in j
 # | label: spx-inference-workflow
 # | echo: true
 # | cache: true
+# | eval: false
 import pypomp as pp
 spx_obj = pp.models.spx()
 key = jax.random.key(1)
