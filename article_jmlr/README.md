@@ -1,37 +1,19 @@
 
 # Setup for building ms.pdf
 
-For the quarto JSS style, see https://github.com/quarto-journals/jss
-```
-quarto add quarto-journals/jss
-```
-
-The Python environment can be rebuilt with
-```
+Install the project dependencies and build the manuscript from this directory:
+```bash
 make venv
-source .venv/bin/activate
+make -B ms.pdf
 ```
-Or it can be built from scratch as follows:
-```
-cd ~/git/tutorials/article
-python3.12 -m pip install virtualenv
-rm -rf .venv
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip==25.2
-pip install ~/git/pypomp
-# install jax without cuda support
-pip install -U jax
-# asking for cuda support on a mac leads to download of
-# an ancient jax version
-# pip install -U "jax[cuda12]"
 
-# for pypomp
-pip install tqdm xarray pandas pytest
-
-# for ms
-pip install jupyter seaborn
-
+`make venv` runs `uv sync --project ..`, creating the shared environment at
+`../.venv`. The Makefile sets `QUARTO_PYTHON` to that environment, so activating
+it is unnecessary. The PDF build also initializes the pinned `quant` submodule
+for benchmark data (requiring network access on the first build). To use another
+environment, set `QUARTO_PYTHON` explicitly:
+```bash
+make -B ms.pdf QUARTO_PYTHON=/absolute/path/to/bin/python
 ```
 
 ## Notes from May 21

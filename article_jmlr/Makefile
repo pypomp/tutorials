@@ -12,11 +12,14 @@ REXE = R --vanilla
 RCMD = $(REXE) CMD
 RSCRIPT = Rscript --vanilla
 
-VENV_DIR = .venv
-PYTHON = python3.12
+VENV_DIR = ../.venv
+PYTHON = python3.14
 PIP = $(VENV_DIR)/bin/pip
 VENV_PYTHON = $(VENV_DIR)/bin/python
 SOURCE = source
+
+# Use the environment managed by the parent uv project for Quarto execution.
+export QUARTO_PYTHON ?= $(abspath $(VENV_PYTHON))
 
 .PHONY: venv quant
 
@@ -25,6 +28,8 @@ SOURCE = source
 # commit the updated submodule pointer.
 quant:
 	git submodule update --init quant
+
+ms.pdf: | quant
 
 %.pdf: %.qmd
 	quarto render "$*.qmd" --to pdf
