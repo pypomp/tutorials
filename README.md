@@ -1,32 +1,23 @@
-# `pypomp` Tutorials & Courses
+# Pypomp Tutorials & Courses
 
-Welcome to the tutorials repository for `pypomp`, a Python/JAX library for modeling and simulation-based inference with partially observed Markov process (POMP) models. 
-
-This repository contains tutorials designed to help you build models and perform inference using sequential Monte Carlo techniques, GPU acceleration, and automatic differentiation with `pypomp`.
-
----
+Here, we collect instructional materials to help you build models and perform inference using Pypomp, a Python/JAX library for data analysis using partially observed Markov process (POMP) models.
+Pypomp emphasizes the use of sequential Monte Carlo "particle filter" techniques, GPU acceleration, and automatic differentiation.
 
 ### 🚀 Quick Links
 * 📖 **[Read the Documentation](https://pypomp.readthedocs.io/)** — Core library API reference and user guide.
-* 💻 **[Core Repository](https://github.com/pypomp/pypomp)** — Source code and issue tracker for the `pypomp` package.
-* 🎓 **[Tutorials Repository](https://github.com/pypomp/tutorials)** — Quarto notebooks and materials for learning `pypomp`.
-
+* 💻 **[Code Repository](https://github.com/pypomp/pypomp)** — Source code and issue tracker for the `pypomp` package.
+* 🎓 **[Tutorials Repository](https://github.com/pypomp/tutorials)** — Quarto notebooks and materials for learning Pypomp.
 
 ---
 
 ## 📚 Tutorial & Course Catalog
 
 ### 1. [Introduction to Pypomp](https://pypomp.github.io/tutorials/intro/intro_to_pypomp.html)
-A step-by-step introduction demonstrating how to construct a POMP model (specifically, an AR(1) process observed with noise) from scratch. It guides you through simulation, estimating log-likelihoods with the particle filter, and running iterated filtering (IF2) for parameter estimation, checking the results against the exact answers from the Kalman filter.
+A step-by-step introduction demonstrating how to construct a POMP model (specifically, an AR(1) process observed with noise) from scratch.
+It guides you through simulation, estimating log-likelihoods with the particle filter, and running iterated filtering (IF2) for parameter estimation, checking the results against the exact answers from the Kalman filter.
 
-### 2. [Inference for Cholera Dynamics in Dhaka using DMOP](https://pypomp.github.io/tutorials/dhaka/dhaka_tutorial.html)
-A tutorial demonstrating how to construct a POMP model for cholera dynamics in Dhaka from scratch and how to perform parameter estimation using the Differentiated Measurement Off-Parameter (DMOP) filter with the Adam optimizer.
-
-### 3. [Fitting a Large Panel Model for UK Measles](https://pypomp.github.io/tutorials/big_measles/big_measles_tutorial.html)
-A tutorial demonstrating how to construct and fit a large spatial panel model (with weekly case reports from 1,422 cities/towns in England and Wales) using Marginalized Panel Iterated Filtering (MPIF).
-
-### 4. [Simulation-based Inference for Epidemiological Dynamics (SBIED)](https://pypomp.github.io/tutorials/sbied)
-A short course designed for readers interested in POMP modeling, using epidemiological dynamics as an example. The course transfers concepts from the [R-pomp short course](https://kingaa.github.io/sbied/) to `pypomp`.
+### 2. [Simulation-based Inference for Epidemiological Dynamics (SBIED)](https://pypomp.github.io/tutorials/sbied)
+A short course designed for readers interested in POMP modeling, using epidemiological dynamics as an example. The course transfers concepts from the [R-pomp short course](https://kingaa.github.io/sbied/) to Pypomp.
 
 **Course Lessons:**
 
@@ -37,6 +28,15 @@ A short course designed for readers interested in POMP modeling, using epidemiol
 * [**Lesson 4:** Iterated filtering: theory and practice](https://pypomp.github.io/tutorials/sbied/chapter4)
 * [**Lesson 5:** Case study: Measles (recurrent epidemics, covariates)](https://pypomp.github.io/tutorials/sbied/chapter5)
 * [**Lesson 6:** Case study: Ebola (model diagnostics and forecasting)](https://pypomp.github.io/tutorials/sbied/chapter6)
+
+### 3. [Inference for Cholera Dynamics in Dhaka using DMOP](https://pypomp.github.io/tutorials/dhaka/dhaka_tutorial.html)
+A tutorial demonstrating how to construct a POMP model for cholera dynamics in Dhaka from scratch and how to perform parameter estimation using the Differentiated Measurement Off-Parameter (DMOP) filter with the Adam optimizer.
+
+### 4. [Fitting a Large Panel Model for UK Measles](https://pypomp.github.io/tutorials/big_measles/big_measles_tutorial.html)
+A tutorial demonstrating how to construct and fit a large spatial panel model (with weekly case reports from 1,422 cities/towns in England and Wales) using Marginalized Panel Iterated Filtering (MPIF).
+
+### 5. [Fitting a Four Species Ecological Model to Panel Data](https://pypomp.github.io/Daphnia-tutorial/Python-code/)
+A tutorial demonstrating how to construct and fit a panel model for a system of four interacting species, using Marginalized Panel Iterated Filtering (MPIF).
 
 ---
 
