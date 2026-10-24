@@ -60,7 +60,7 @@ format:
     cite-method: natbib
 bibliography: references.bib
 biblio-style: abbrvnat
-abstract: Particle filtering methods provide statistically efficient inference for nonlinear, non-Gaussian partially observed Markov process (POMP) models, which are widely used in areas such as epidemiology, ecology, and finance, but their computational demands limit their practical use. We introduce Pypomp, a Python library for inference on POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation to improve particle filtering estimates. On one GPU, iterated filtering can run with the throughput of more than 8,000 CPU cores running the R package pomp. These improvements enable likelihood-based inference for mechanistic models that were once prohibitively large.
+abstract: Particle filtering methods provide statistically efficient inference for nonlinear, non-Gaussian partially observed Markov process (POMP) models, which are widely used in areas such as epidemiology, ecology, and robotics. A weakness of particle filters is their high computational requirement. We introduce Pypomp, a Python library for inference on POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation to improve particle filtering estimates. On one GPU, iterated filtering can run with the throughput of more than 8,000 CPU cores running the widely used R package pomp. These improvements enable likelihood-based inference for mechanistic models that are prohibitively large for pomp.
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -334,12 +334,14 @@ big_core_ratio = f"{r_big_1core_s / big_total_s:,.0f}"
 ```
 
 # Introduction {#sec-intro}
-Partially observed Markov process (POMP) models, also known as state-space models or hidden Markov models, provide a flexible mechanistic framework for modeling dynamic systems whose underlying state is not directly observed.
-The particle filter [@arulampalam2002], also known as sequential Monte Carlo, estimates the likelihood of a POMP model, and iterated filtering [@ionides2006; @ionides2015] extends it to maximum likelihood estimation.
-These methods only need to simulate from the process model, not evaluate its transition probabilities, a property known as plug-and-play [@breto2009].
-Consequently, they apply to a wide range of models unconstrained by mathematical convenience, and they are used in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains where mechanistic modeling is desired.
-
+Partially observed Markov process (POMP) models provide a flexible framework for modeling dynamic systems whose underlying state is not directly observed.
+POMP models are also known as state-space models or hidden Markov models, though these alternative names are sometimes restricted to continuous and discrete states respectively.
 Pypomp is a Python library combining advances in hardware, software, and algorithms to provide novel capabilities for POMP models, with an emphasis on inference via particle filters.
+The particle filter (PF) [@arulampalam2002], also known as sequential Monte Carlo, provides an estimate of the likelihood of a POMP model.
+PF only needs to simulate from the process model, not evaluate its transition probabilities, a property known as plug-and-play [@breto2009].
+Pypomp focuses on plug-and-play methods because they facilitate scientific modeling, enabling applications in epidemiology [@Mietchen2024; @Fox2022; @Wen2024], ecology [@AugerMethe2021; @Marino2019; @Blackwood2013], finance [@Breto2014], and other domains where nonlinear mechanistic stochastic dynamic models are pertinent.
+Pypomp provides plug-and-play inference methods extending PF: maximum likelihood parameter estimation by iterated filtering [@ionides2006; @ionides2015]; Bayesian inference by particle Markov chain Monte Carlo [@andrieu2010]; stochastic gradient descent via the DMOP differentiable particle filter [@tan2024].
+
 Pypomp inherits its software design from the R package `pomp` [@king2016] and then improves on it by leveraging JAX [@bradbury2018], which provides \ac{jit} compilation, \ac{ad}, and access to massively parallel hardware such as GPUs.
 With enough particles and method replications to saturate it, one GPU runs iterated filtering as fast as `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores running `pomp` or `panelPomp` (Appendix -@sec-scaling).
 Such replications are routine in practice: likelihood maximization involves searching from many initial parameter vectors, and Monte Carlo adjusted profile (MCAP) confidence intervals [@ionides2017], which Pypomp computes with `mcap`, require many iterated filtering searches at each point of a likelihood profile.
