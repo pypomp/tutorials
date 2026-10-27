@@ -337,50 +337,44 @@ big_core_ratio = f"{r_big_1core_s / big_total_s:,.0f}"
 Partially observed Markov process (POMP) models provide a flexible framework for modeling dynamic systems whose underlying state is not directly observed.
 POMP models are also known as state-space models or hidden Markov models, though these alternative names are sometimes restricted to continuous and discrete states respectively.
 Pypomp is a Python library combining advances in hardware, software, and algorithms to provide novel capabilities for POMP models, with an emphasis on inference via particle filters.
-The particle filter (PF) [@arulampalam2002], also known as sequential Monte Carlo, provides an estimate of the likelihood of a POMP model.
-PF only needs to simulate from the process model, not evaluate its transition probabilities, a property known as plug-and-play (P&P) [@breto2009].
+The particle filter (PF), also known as sequential Monte Carlo, provides an estimate of the likelihood of a POMP model [@arulampalam2002].
+The basic PF algorithm only needs to simulate from the process model, not evaluate its transition probabilities, a property known as plug-and-play (P&P) [@breto2009].
 Pypomp focuses on P&P methods because they facilitate scientific modeling, enabling applications in epidemiology [@mietchen2024; @fox2022; @wen2024], ecology [@augermethe2021; @marino2019; @blackwood2013], finance [@breto2014], robotics [@jonschkowski2018] and other domains where nonlinear mechanistic stochastic dynamic models are pertinent.
-Pypomp provides P&P inference methods extending PF: maximum likelihood parameter estimation by iterated filtering [@ionides2006; @ionides2015], Bayesian inference by particle Markov chain Monte Carlo [@andrieu2010], and stochastic gradient descent via the differentiable measurement-off-parameter (DMOP) particle filter [@tan2024].
+Pypomp provides P&P inference methods extending PF: maximum likelihood parameter estimation by iterated filtering [@ionides2006; @ionides2015], Bayesian inference by particle Markov chain Monte Carlo [@andrieu2010], and stochastic gradient descent via a differentiable particle filter (DPF) algorithm called a measurement-off-parameter (MOP) particle filter [@tan2024].
 
 Pypomp follows the software design principles of the R package pomp [@king2016], providing a general framework for specifying models and inference methods, a range of pre-built models and methods, and various graphical and diagnostic tools to assist practical data analysis. 
-Pypomp gains computationally over pomp by leveraging JAX [@bradbury2018] which provides just-in-time (JIT) compilation, automatic differentiation (AD), and access to massively parallel hardware such as GPUs.
+Pypomp gains computationally over pomp by leveraging JAX [@bradbury2018] which provides just-in-time (JIT) compilation, automatic differentiation (AD), and capability to run on massively parallel hardware such as GPUs.
 When the state space is small and discrete, or the model is linear Gaussian or close enough for effective approximation using Gaussian-inspired filters such as the extended Kalman filter, the particle filter is unnecessary, and the Dynamax library [@linderman2025] provides JAX-based solutions.
-Other JAX-based libraries providing particle filter methods for POMP models include PFJAX [@lysy2022] and cuthbert [@duffield2026].
+Other JAX-based libraries providing PF and DPF methods for POMP models include PFJAX [@lysy2022] and cuthbert [@duffield2026].
 A related project in Pytorch is PyDPF [@brady2026], and the Python library particles [@chopin2020] provides a general framework for sequential Monte Carlo computation without AD.
-Pypomp distinguishes itself from these other packages by (i) an emphasis on P&P methods; (ii) following the design decisions of pomp; (iii) superior performance on our benchmark tests in Table ?????.
+Pypomp distinguishes itself from these other packages by (i) an emphasis on P&P methods; (ii) following the design decisions of pomp; (iii) superior performance on our benchmark tests in Table  @tbl-timing.
 By design, Pypomp is not limited to PF methods, for example, the approximate Bayesian computing (ABC) algorithm of @marjoram2003 has been implemented.
 However, PF has proved an effective tool for the development and analysis of POMP models in scientific contexts, and hence it is an important algorithm for Pypomp.
 Pypomp is also designed to permit the implementation of non-P&P algorithms; the computability of transition densities might in principle lead to superior algorithms, though theoretical obstacles arise that have limited the practical scope of such algorithms [@roberts2001, @karppinen2024].
 
-With enough particles and method replications to saturate it, one GPU runs iterated filtering as fast as `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores running pomp, or its panel extension panelPomp [@breto2025] (Appendix -@sec-scaling).
+With enough particles and method replications to saturate it, one GPU runs iterated filtering as fast as `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores running pomp (Appendix -@sec-scaling).
 Such replications are routine in practice: likelihood maximization involves searching from many initial parameter vectors, and Monte Carlo adjusted profile (MCAP) confidence intervals [@ionides2017], implemented in Pypomp as the `mcap` method, require many iterated filtering searches at each point of a likelihood profile.
 Profile confidence intervals can be superior to the widely used observed Fisher information construction, even in the case of linear Gaussian POMP models for which the likelihood and its gradients can be computed without Monte Carlo error [@wheeler25arma].
 MCAP algorithms can lead to efficient inference even in a limit where the Monte Carlo error grows as the amount of data increases [@ning21].
 GPU hardware makes P&P likelihood-based inference feasible at previously intractable scales: one GPU fits a panel POMP model to the England and Wales measles data of @korevaar2020, over one million observations from `{python} f"{n_big:,}"` towns and cities, in `{python} big_hours` hours, compared with an estimated `{python} r_big_months` months for `panelPomp` on a 36-core node (@sec-performance).
 
 Algorithms to take advantage of JIT, AD, and GPU are an area of active development.
-Pypomp implements the DMOP P&P differentiable particle filter of @tan2024, which was demonstrated to be competitive on benchmark problems when combined with Adam stochastic gradient descent and a warm start using iterated filtering [@ionides2015].
+Pypomp implements the MOP P&P DPF algorithm of @tan2024, with the resulting derivative being called DMOP and implemented as the `dmop` method.
+DMOP was demonstrated to be competitive on benchmark problems when combined with Adam stochastic gradient descent.
+A warm start using the iterated filtering (IF2) algorithm of @ionides2015 was found to be beneficial.
 Numerical random variable generation is a core operation for P&P methodology, and the development of sampling methods with favorable performance on GPU architectures is another current research topic.
 Pypomp includes optimized inverse transform sampling methods as alternatives to some `jax.random` samplers, as the rejection sampling methods used by `jax.random` are inefficient on GPUs [@giles2016; @giles2024; @temme1992].
 On a GPU, these samplers run `{python} f"{min(sampler_gpu_speedups):.0f}"` to `{python} f"{max(sampler_gpu_speedups):.0f}"` times faster than their `jax.random` counterparts on a benchmark, and although approximate, they stay close to the exact distributions: for every parameter value tested, quantiles of their draws differ from those of a reference sampler by at most `{python} f"{max_w1_norm * 100:.1f}"`% of a standard deviation on average, as measured by the Wasserstein-1 distance (Appendix -@sec-samplers).
 
-
-<!--
-Pypomp is aimed at more complex, nonlinear models such as those common in ecology and epidemiology, although its plug-and-play property also makes it convenient for rapid model development even when alternative methods apply.
--->
-
 # POMP Modeling in Pypomp {#sec-pomp}
-<!-- # POMP Modeling: The Michigan notation {#sec-pomp} -->
-
-<!-- Diverse terminologies and notations have evolved for POMP models in different communities. 
-Pypomp uses the Michigan notation that arose from the program to build a unifying software environment to represent a wide range of proposed statistical methodologies in the R pomp package. 
-Distinguishing features are: (i) $t$ is used to represent continuous time, allowing proper handling of scientific units and situations where the latent variable is defined not just at times it is observed; (ii) $\{t_n, n=1,\dots,N\}$ is a discrete sequence of $N$ measurement times; (iii) ranges are upper-case Roman letters with the corresponding lower-case often used as an index; (iv) joint and conditional densities are defined using appropriate subscripts and avoiding overloading, for example, $f_{Y_n|X_n}(y_n|x_n;\theta)$ denotes the conditional density of $Y_n$ given $X_n$; (v) sequences are denoted by colons, for example, $\{t_n, n=1,\dots,N\}$ is written as $t_{1:N}$. \EInote{TO BE CONTINUED, IF WE GO THIS ROUTE}. -->
 
 A POMP model consists of an unobserved Markov process $\{X(t), t_0 \leq t \leq t_{N}\}$ and observations $Y_{1:N}$ made at times $t_{1:N}$, with observed values $y^*_{1:N}$.
 The initial state is defined at time $t_0$, $X_n := X(t_n)$, and $Y_n$ is independent of $Y_m, X_m$, $m \neq n$, conditional on $X_n$.
 Plug-and-play methods need only a simulator for the initial state, $X_0 \sim f_{X_0}(x_0 ; \theta)$, a simulator for the state transition, $X_{n+1} \sim f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)$, and the measurement density $f_{Y_n|X_n}(y_n| x_n; \theta)$, where $\theta$ denotes the model parameters. 
 In Pypomp, the user passes the data and JAX-compatible programmatic descriptions of these functions to a `Pomp` object.
 For example, the S&P 500 model included in the package defines its state transition simulator as follows:
+
+\EInote{IT IS HARD TO INCLUDE MODEL DEFINITION EXAMPLES THAT ARE FULLY EXPLAINED ENOUGH TO BE READABLE TO A NEWCOMER. THE APPROACH OF KING16 IS TO START WITH A FEW MANIPULATIONS OF AN EXISTING MODEL. GIVEN THE SPACE RESTRICTIONS, THAT IS AS FAR AS ONE WOULD GET.}
 
 ```{python}
 # | label: spx-rproc
@@ -406,7 +400,7 @@ def rproc(X_: StateDict, theta_: ParamDict, key: RNGKey,
 
 Pypomp vectorizes such a function over particles and over replicate runs, such as when starting searches from many values of $\theta$, and JIT compiles it so that the computation runs in parallel across GPU cores.
 
-Given a `Pomp` object, one can run methods such as the particle filter (`pfilter`) for likelihood evaluation and state estimation, IF2 (`mif`) for global maximum likelihood estimation, and the differentiable particle filter MOP-$\alpha$ (`dmop`, @tan2024), whose gradients the `train` method uses for local optimization.
+Given a `Pomp` object, one can run methods such as the particle filter (`pfilter`) for likelihood evaluation and state estimation, IF2 (`mif`) for global maximum likelihood estimation, and the DPF algorithm DMOP-$\alpha$ (`dmop`, @tan2024) used within the `train` method uses for stochastic gradient descent optimization.
 The following example searches globally for the maximum likelihood estimate with IF2, refines the estimate by gradient descent, and evaluates the likelihood of the result:
 
 ```{python}
@@ -481,8 +475,18 @@ Wall-clock time in seconds for IF2, running 36 searches from the same starting p
 
 # Conclusion {#sec-conclusion}
 
-The computational cost of particle filtering has limited both the size of datasets that practitioners can fit and how many models and likelihood profiles they can afford to evaluate.
-We expect Pypomp's speed will allow practitioners to iterate more quickly on model structure, fit models to datasets as large as the England and Wales measles data, and develop and evaluate more realistic models of the systems they study.
+\EInote{SOMEWHERE, WE SHOULD CONSIDER TALKING ABOUT (I) THE PYPOMP ORGANIZATION AND ITS GOVERNANCE; (II) OTHER RESOURCES, E.G. TUTORIALS AND PUBLISHED CASE STUDIES.}
+
+The computational cost of PF has hindered likelihood evaluation and statistical inference for POMP models and therefore obstructed scientific investigations.
+Pypomp's flexibility in model specification, its speed at PF, and the availability of DPF, will allow practitioners to fit new models more quickly, facilitating investigations of model structure.
+Some models and datasets that were previously considered impractical for likelihood-based inference [@becker2017] will become feasible, as demonstrated in Appendix -@sec-big-measles-details.
+Although Pypomp can run on CPU hardware, it gains capability from access to GPUs that are becoming increasingly widely available.
+
+<!--
+ fit models to datasets as large as the England and Wales measles data, and develop and evaluate more realistic models of the systems they study.
+-->
+
+\EInote{WE CAN DECIDE WHETHER TO INCLUDE THE DOI IN THE REFERENCE. IN THIS FORMAT, IT MAY BE UNNECESSARY.}
 
 # References {.unnumbered}
 
@@ -508,7 +512,7 @@ It has the most expensive process model of the four, so it isolates how the GPU 
 The panel model fits the same measles model to `{python} ", ".join(panel_cfg["units"][:-1])`, and `{python} panel_cfg["units"][-1]` jointly, with some parameters shared across towns and the rest specific to each town.
 MPIF [@wheeler2025] filters the towns sequentially within each iteration, so an iteration costs about four single-town iterations with the same number of particles in flight.
 This model tests the panel methods used in Appendix -@sec-big-measles-details.
-Its ratio of R time to GPU time is lower than for the London model because R runs it relatively fast, likely because the random variate generators in R can take a cheaper route for the smaller parameter values of the smaller towns.
+Its ratio of R \EInote{HERE AND ELSEWEHRE: THIS IS CONFUSING, BECAUSE R TIME IS pomp AND GPU TIME IS Pypomp. MAYBE JUST SAY pomp OR DEFINE AND USE R-pomp?} time to GPU time is lower than for the London model because R runs it relatively fast, likely because the random variate generators in R can take a cheaper route for the smaller parameter values of the smaller towns.
 
 **S&P 500.**
 The stochastic volatility model of @breto2014 has `{python} f"{spx_n_obs:,}"` daily log returns and takes one step of its process model per observation, with a single normal draw.
