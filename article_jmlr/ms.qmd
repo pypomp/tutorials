@@ -1,5 +1,5 @@
 ---
-title: "Pypomp: Inference for partially observed Markov process models in Python with JAX \\newline DRAFT IN PROGRESS"
+title: 'Pypomp: Inference for partially observed Markov process models in Python with JAX \textcolor{red}{[DRAFT]}'
 author: 
   - name: Aaron J. Abkemeier
     affiliations:
@@ -60,7 +60,7 @@ format:
     cite-method: natbib
 bibliography: references.bib
 biblio-style: abbrvnat
-abstract: "Nonlinear, non-Gaussian partially observed Markov process (POMP) models arise in various areas including epidemiology, ecology, and robotics. Model-based inferences typically involve computationally intensive Monte Carlo methods.  We introduce Pypomp, a Python library for data analysis via POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. Pypomp follows the structural principles of the widely used R package pomp, while obtaining considerably higher performance: Pypomp running on one GPU can obtain the throughput of 8,000 CPU cores running pomp. A central algorithm for Pypomp is the particle filter, and Pypomp is faster on our benchmark tests than other GPU-compatible particle filter libraries. The particle filter is differentiable, with a tunable bias-variance tradeoff."
+abstract: "Nonlinear, non-Gaussian partially observed Markov process (POMP) models arise in various areas including epidemiology, ecology, and robotics. Model-based inferences typically involve computationally intensive Monte Carlo methods.  We introduce Pypomp, a Python library for data analysis via POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. Pypomp follows the design principles of the widely used R package pomp, while obtaining considerably higher performance: Pypomp running on one GPU can obtain the throughput of 8,000 CPU cores running pomp. A central algorithm for Pypomp is the particle filter, and Pypomp is faster on our benchmark tests than other GPU-compatible particle filter libraries. The particle filter is differentiable, with a tunable bias-variance tradeoff."
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -340,17 +340,22 @@ Pypomp is a Python library combining advances in hardware, software, and algorit
 The particle filter (PF), also known as sequential Monte Carlo, provides an estimate of the likelihood of a POMP model [@arulampalam2002].
 The basic PF algorithm only needs to simulate from the process model, not evaluate its transition probabilities, a property known as plug-and-play (P&P) [@breto2009].
 Pypomp focuses on P&P methods because they facilitate scientific modeling, enabling applications in epidemiology [@mietchen2024; @fox2022; @wen2024], ecology [@augermethe2021; @marino2019; @blackwood2013], finance [@breto2014], robotics [@jonschkowski2018] and other domains where nonlinear mechanistic stochastic dynamic models are pertinent.
-Pypomp provides P&P inference methods extending PF: maximum likelihood parameter estimation by iterated filtering [@ionides2006; @ionides2015], Bayesian inference by particle Markov chain Monte Carlo [@andrieu2010], and stochastic gradient descent via a differentiable particle filter (DPF) algorithm called a measurement-off-parameter (MOP) particle filter [@tan2024].
+Pypomp provides P&P inference methods extending PF: maximum likelihood parameter estimation by iterated filtering (IF2) [@ionides2015], Bayesian inference by particle Markov chain Monte Carlo [@andrieu2010], and stochastic gradient descent via a differentiable particle filter (DPF) algorithm called a measurement-off-parameter (MOP) particle filter [@tan2024].
 
-Pypomp follows the software design principles of the R package pomp [@king2016], providing a general framework for specifying models and inference methods, a range of pre-built models and methods, and various graphical and diagnostic tools to assist practical data analysis. 
+Pypomp follows the design principles of the R package pomp [@king2016], providing a general framework for specifying models and inference methods, a range of pre-built models and methods, and various graphical and diagnostic tools to assist practical data analysis.
+Thus, Pypomp supports complete data analysis workflows, facilitating the evaluation of a range of models and statistical methods for the data under investigation.
+Models and methods have an interface designed so that new models can readily be tested on a range of pre-existing methods, and new methods can be tested on a range of pre-existing models.
+Although the method interface of Pypomp (and pomp) is not limited to P&P algorithms, prior experience with pomp has shown that P&P approaches are convenient for scientific data analysis.
+The computability of transition densities might in principle lead to non-P&P methods that are superior to P&P alternatives, though theoretical obstacles arise that have limited the practical scope of such algorithms [@roberts2001; @karppinen2024].
+
 Pypomp gains computationally over pomp by leveraging JAX [@bradbury2018] which provides just-in-time (JIT) compilation, automatic differentiation (AD), and capability to run on massively parallel hardware such as GPUs.
 When the state space is small and discrete, or the model is linear Gaussian or close enough for effective approximation using Gaussian-inspired filters such as the extended Kalman filter, the particle filter is unnecessary, and the Dynamax library [@linderman2025] provides JAX-based solutions.
 Other JAX-based libraries providing PF and DPF methods for POMP models include PFJAX [@lysy2022] and cuthbert [@duffield2026].
-A related project in Pytorch is PyDPF [@brady2026], and the Python library particles [@chopin2020] provides a general framework for sequential Monte Carlo computation without AD.
-Pypomp distinguishes itself from these other packages by (i) an emphasis on P&P methods; (ii) following the design decisions of pomp; (iii) superior performance on our benchmark tests in Table  @tbl-timing.
-By design, Pypomp is not limited to PF methods, for example, the approximate Bayesian computing (ABC) algorithm of @marjoram2003 has been implemented.
+PyDPF [@brady2026] provides a DPF using Pytorch and focused on POMP models parameterized using neural networks.
+The Python library particles [@chopin2020] provides a general framework for sequential Monte Carlo computation without AD.
+Pypomp distinguishes itself from these other packages by (ii) following the design decisions of pomp that support a full data analysis workflow; (iii) superior performance on our benchmark tests in Table  @tbl-timing.
+By design, Pypomp is not limited to PF methods, for example, the approximate Bayesian computing (ABC) P&P algorithm of @marjoram2003 has been implemented.
 However, PF has proved an effective tool for the development and analysis of POMP models in scientific contexts, and hence it is an important algorithm for Pypomp.
-Pypomp is also designed to permit the implementation of non-P&P algorithms; the computability of transition densities might in principle lead to superior algorithms, though theoretical obstacles arise that have limited the practical scope of such algorithms [@roberts2001, @karppinen2024].
 
 With enough particles and method replications to saturate it, one GPU runs iterated filtering as fast as `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores running pomp (Appendix -@sec-scaling).
 Such replications are routine in practice: likelihood maximization involves searching from many initial parameter vectors, and Monte Carlo adjusted profile (MCAP) confidence intervals [@ionides2017], implemented in Pypomp as the `mcap` method, require many iterated filtering searches at each point of a likelihood profile.
@@ -361,7 +366,7 @@ GPU hardware makes P&P likelihood-based inference feasible at previously intract
 Algorithms to take advantage of JIT, AD, and GPU are an area of active development.
 Pypomp implements the MOP P&P DPF algorithm of @tan2024, with the resulting derivative being called DMOP and implemented as the `dmop` method.
 DMOP was demonstrated to be competitive on benchmark problems when combined with Adam stochastic gradient descent.
-A warm start using the iterated filtering (IF2) algorithm of @ionides2015 was found to be beneficial.
+A warm start using IF2 was found to be beneficial.
 Numerical random variable generation is a core operation for P&P methodology, and the development of sampling methods with favorable performance on GPU architectures is another current research topic.
 Pypomp includes optimized inverse transform sampling methods as alternatives to some `jax.random` samplers, as the rejection sampling methods used by `jax.random` are inefficient on GPUs [@giles2016; @giles2024; @temme1992].
 On a GPU, these samplers run `{python} f"{min(sampler_gpu_speedups):.0f}"` to `{python} f"{max(sampler_gpu_speedups):.0f}"` times faster than their `jax.random` counterparts on a benchmark, and although approximate, they stay close to the exact distributions: for every parameter value tested, quantiles of their draws differ from those of a reference sampler by at most `{python} f"{max_w1_norm * 100:.1f}"`% of a standard deviation on average, as measured by the Wasserstein-1 distance (Appendix -@sec-samplers).
@@ -371,34 +376,13 @@ On a GPU, these samplers run `{python} f"{min(sampler_gpu_speedups):.0f}"` to `{
 A POMP model consists of an unobserved Markov process $\{X(t), t_0 \leq t \leq t_{N}\}$ and observations $Y_{1:N}$ made at times $t_{1:N}$, with observed values $y^*_{1:N}$.
 The initial state is defined at time $t_0$, $X_n := X(t_n)$, and $Y_n$ is independent of $Y_m, X_m$, $m \neq n$, conditional on $X_n$.
 Plug-and-play methods need only a simulator for the initial state, $X_0 \sim f_{X_0}(x_0 ; \theta)$, a simulator for the state transition, $X_{n+1} \sim f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)$, and the measurement density $f_{Y_n|X_n}(y_n| x_n; \theta)$, where $\theta$ denotes the model parameters. 
-In Pypomp, the user passes the data and JAX-compatible programmatic descriptions of these functions to a `Pomp` object.
-For example, the S&P 500 model included in the package defines its state transition simulator as follows:
+In Pypomp, the user passes the data and JAX-compatible programmatic descriptions of these functions to build a model which is a `Pomp` class object.
+For P&P methods, it suffices to specify an initial value for the latent dynamic system (known as `rinit`), a latent process simulator (`rproc`), a measurement density simulator (`rmeas`) and a measurement density evaluator (`dmeas`).
+These basic model components are user-specified, and when supplied as arguments in a call to the constructor function, `Pomp`, they become accessible to methods defined for the `Pomp` class.
+Tutorials at [https://github.com/pypomp/tutorials](https://github.com/pypomp/tutorials) provide guidance on building user-specifed models.
+Demonstration models already included in Pypomp include a model for historical monthly cholera mortality in Dhaka, Bangladesh (`pypomp.models.dacca`), historical weekly measles cases in London, UK (`pypomp.models.??????`), daily closing price for the S&P 500 index (`pypomp.models.spx`), and a panel model for measles cases in up to ????? towns and rural districts in England and Wales.
 
-\EInote{IT IS HARD TO INCLUDE MODEL DEFINITION EXAMPLES THAT ARE FULLY EXPLAINED ENOUGH TO BE READABLE TO A NEWCOMER. THE APPROACH OF KING16 IS TO START WITH A FEW MANIPULATIONS OF AN EXISTING MODEL. GIVEN THE SPACE RESTRICTIONS, THAT IS AS FAR AS ONE WOULD GET.}
-
-```{python}
-# | label: spx-rproc
-# | echo: true
-import jax
-import jax.numpy as jnp
-from pypomp.types import (StateDict, ParamDict, CovarDict, 
-                          TimeFloat, StepSizeFloat, RNGKey)
-
-def rproc(X_: StateDict, theta_: ParamDict, key: RNGKey,
-          covars: CovarDict, t: TimeFloat, dt: StepSizeFloat):
-    V, S = X_["V"], X_["S"]
-    mu, kappa, theta = theta_["mu"], theta_["kappa"], theta_["theta"]
-    xi, rho, y_prev = theta_["xi"], theta_["rho"], covars["y_prev"]
-    dZ = jax.random.normal(key)
-    dWs = (y_prev - mu + 0.5 * V) / jnp.sqrt(V)
-    dWv = rho * dWs + jnp.sqrt(1 - rho**2) * dZ
-    S = S + S * (mu + jnp.sqrt(jnp.maximum(V, 1e-32)) * dWs)
-    V = V + kappa * (theta - V) + xi * jnp.sqrt(V) * dWv
-    V = jnp.maximum(V, 1e-32)
-    return {"V": V, "S": S}
-``` 
-
-Pypomp vectorizes such a function over particles and over replicate runs, such as when starting searches from many values of $\theta$, and JIT compiles it so that the computation runs in parallel across GPU cores.
+Pypomp vectorizes the user-supplied basic model components over particles and over replicate runs, such as when starting searches from many values of $\theta$, and JIT compiles it so that the computation runs in parallel across GPU cores.
 
 Given a `Pomp` object, one can run methods such as the particle filter (`pfilter`) for likelihood evaluation and state estimation, IF2 (`mif`) for global maximum likelihood estimation, and the DPF algorithm DMOP-$\alpha$ (`dmop`, @tan2024) used within the `train` method uses for stochastic gradient descent optimization.
 The following example searches globally for the maximum likelihood estimate with IF2, refines the estimate by gradient descent, and evaluates the likelihood of the result:
@@ -426,13 +410,19 @@ Each method call stores its log-likelihood estimates, parameter traces, executio
 The JIT-compiled functions behind these methods are available in `pypomp.functional` for building custom inference procedures.
 The source code is available at [https://github.com/pypomp/pypomp](https://github.com/pypomp/pypomp), documentation at [https://pypomp.readthedocs.io](https://pypomp.readthedocs.io), and tutorials that build complete models at [https://pypomp.github.io/tutorials](https://pypomp.github.io/tutorials). 
 The quantitative tests that validate the correctness and speed of Pypomp's main methods are available at [https://github.com/pypomp/quant](https://github.com/pypomp/quant).
+\EInote{MAYBE PUT THESE LINKS SOMEPLACE ELSE? CURRENTLY, THERE'S REDUNDANCY ABOUT THAT.}
 
-A collection of POMP models (each referred to as a _unit_) with some parameters shared between units is called a PanelPOMP [@breto2020].
-Pypomp supports the marginalized panel iterated filtering (MPIF) algorithm [@wheeler2025], and DMOP extends trivially to PanelPOMP models.
+A collection of POMP models (each referred to as a _unit_) is called a PanelPOMP [@breto2020].
+Typically, some parameters are shared between units and others are unit-specific.
+Pypomp supports the marginalized panel iterated filtering (MPIF) algorithm [@wheeler2025] for models of class `PanelPomp`, and DMOP extends trivially to PanelPOMP models.
 
 # Performance {#sec-performance}
 
-We benchmarked Pypomp `{python} pypomp_bench_version` against `pomp` `{python} pomp_bench_version` and `panelPomp` `{python} panelpomp_bench_version` on four models using the quantitative test suite (commit `{python} quant_sha`).
+\EInote{THIS IS PERHAPS MORE DETAIL THAN NEEDED IN THE MS. FULL DETAILS CAN GO IN THE APPENDIX OR THE QUANT REPO?}
+
+We benchmarked Pypomp `{python} pypomp_bench_version` against `pomp` `{python} pomp_bench_version` and `panelPomp` `{python} panelpomp_bench_version` on four models.
+The full code for the benchmark test is in the quantitative test suite at [https://github.com/pypomp/quant](https://github.com/pypomp/quant).
+We report the results for commit `{python} quant_sha`) in this repository.
 Below, R refers to `pomp`, or `panelPomp` for the panel model, running in R `{python} r_bench_version` on a 36-core CPU node.
 The models differ in the cost of the process model, the number of process model steps between resampling, and whether they are panels, so together they show where the GPU helps most and least (Appendix -@sec-benchmarks).
 @tbl-timing compares IF2 wall-clock times for the same workloads with R and with Pypomp on one `{python} gpu_name` GPU.
