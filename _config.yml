@@ -1,3 +1,4 @@
 exclude:
+  - onboarding/ms.qmd
   - article/ms.qmd
-
+  
