@@ -12,22 +12,33 @@ REXE = R --vanilla
 RCMD = $(REXE) CMD
 RSCRIPT = Rscript --vanilla
 
-VENV_DIR = .venv
-PYTHON = python3.12
+VENV_DIR = ../.venv
+PYTHON = python3.14
 PIP = $(VENV_DIR)/bin/pip
 VENV_PYTHON = $(VENV_DIR)/bin/python
 SOURCE = source
 
-.PHONY: venv
+# Use the environment managed by the parent uv project for Quarto execution.
+export QUARTO_PYTHON ?= $(abspath $(VENV_PYTHON))
+
+.PHONY: venv quant
+
+# Fetch the pypomp/quant benchmark results at the commit pinned by the
+# submodule. To use newer results, check out a new commit in quant/ and
+# commit the updated submodule pointer.
+quant:
+	git submodule update --init quant
+
+ms.pdf: | quant
+
+%.pdf: %.qmd
+	quarto render "$*.qmd" --to pdf
 
 %.pdf: %.tex
 	$(PDFLATEX) $*
 	-$(BIBTEX) $*
 	$(PDFLATEX) $*
 	$(PDFLATEX) $*
-
-%.pdf: %.qmd
-	quarto render "$*.qmd" --to jss-pdf
 
 %.tex: %.qmd
 	quarto render "$*.qmd" --to latex
@@ -63,17 +74,14 @@ fresh: clean
 	$(RM) -r cache/* figure/*
 
 skip_code:
-	quarto render ms.qmd --to jss-pdf --no-execute
+	quarto render ms.qmd --to pdf --no-execute
 
-# Create a virtual Python environment
+# Create or sync virtual Python environment
 venv:
-	@echo "Creating virtual environment in $(VENV_DIR)..."
-	$(PYTHON) -m venv $(VENV_DIR)
-	@echo "Virtual environment created."
-	@echo "Installing dependencies..."
-	$(PIP) install --upgrade pip
-	$(PIP) install -r requirements.txt
+	@echo "Synchronizing virtual environment with uv..."
+	uv sync --project ..
 	@echo "Dependencies installed."
+
 
 
 
