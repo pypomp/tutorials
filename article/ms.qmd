@@ -90,7 +90,7 @@ import jax
 ```{python}
 #| label: load-results
 #| echo: false
-# Benchmark results come from the pypomp/quant submodule (article_jmlr/quant),
+# Benchmark results come from the pypomp/quant submodule (article/quant),
 # and the England and Wales measles fit from ../big_measles. Every number
 # quoted in the text is computed here, so rerunning quant updates the paper.
 import json
@@ -102,6 +102,7 @@ import numpy as np
 import pandas as pd
 import pypomp as pp
 from IPython.display import Markdown
+from packaging.version import Version
 
 QUANT = Path("quant")
 TIMING_MODELS = {
@@ -155,7 +156,7 @@ quant_sha = subprocess.run(
 # The timing runs were not all made with the same Pypomp release.
 _bench_versions = sorted(
     {r["meta"]["pypomp_version"] for t in timing.values() for b, r in t.items() if b != "R"},
-    key=lambda v: tuple(map(int, v.split("."))),
+    key=Version,  # handles release candidates such as 1.3.0rc1
 )
 pypomp_bench_version = (
     _bench_versions[0] if len(_bench_versions) == 1
@@ -324,6 +325,45 @@ r_big_total_s = r_big_mif_s + r_big_pf1_s + r_big_pf2_s
 n_big_pf = big_par["nreps_fitr"] * big_par["nreps_eval"] + big_par["nreps_eval"]
 r_big_1core_s = big_par["nreps_fitr"] * r_big_mif_s + n_big_pf * r_one_pf_s
 
+# The particle filter workloads of @tbl-timing-full in other Python libraries
+# (quant tests/library_comparison). first_s is the first call, including JIT
+# compilation; status "timeout" means the run was stopped at first_s seconds,
+# and "projected" means one CPU filter's time times the number of filters,
+# divided by 36 cores. The pypomp column is release 1.2.0; pypomp_flat is the
+# development version, which runs the replicates of a parameter set in parallel.
+lib_times = pd.read_csv(QUANT / "tests/library_comparison/table.csv").set_index(["model", "column"])
+lib_version = lib_times["version"].dropna().groupby(level="column").first()
+GPU_LIBS = ["pfjax", "cuthbert", "pydpf"]
+CPU_LIBS = ["particles", "pypfilt"]
+
+
+def lib_s(model, lib):
+    return lib_times.loc[(model, lib), "first_s"]
+
+
+def lib_ratio(model, lib):
+    """The other library's time divided by Pypomp's (release) time."""
+    return lib_s(model, lib) / lib_s(model, "pypomp")
+
+
+def lib_finished(model, lib):
+    return lib_times.loc[(model, lib), "status"] != "timeout"
+
+
+# jax.random-based libraries on the London measles model, relative to Pypomp.
+lib_measles_jax = [lib_ratio("measles", l) for l in ["pfjax", "cuthbert"]]
+lib_pydpf = [lib_ratio(m, "pydpf") for m in ["dacca", "measles", "panel_measles"]]
+lib_dacca_jax = [lib_ratio("dacca", l) for l in ["pfjax", "cuthbert"]]
+# The text names cuthbert as the fastest GPU library on the S&P 500 model.
+assert min(GPU_LIBS, key=lambda l: lib_s("spx", l)) == "cuthbert"
+assert all(lib_s("spx", "pypomp") > lib_s("spx", l) for l in GPU_LIBS)
+assert all(lib_s("spx", "pypomp_flat") < lib_s("spx", l) for l in GPU_LIBS)
+# CPU-only libraries relative to the measured pomp (or panelPomp) time.
+lib_cpu_vs_r = {
+    l: [lib_s(m, l) / pf_time(timing[m]["R"]["times"]) for m in TIMING_MODELS]
+    for l in CPU_LIBS
+}
+
 HOUR, DAY = 3600, 86400
 big_hours = f"{big_total_s / HOUR:.0f}"
 big_small_hours = f"{big_small_s / HOUR:.0f}"
@@ -423,7 +463,8 @@ Results are shown in @tbl-timing on four models with different characteristics.
 Additional details are in Appendix -@sec-benchmarks and <https://github.com/pypomp/quant>.
 Relative efficiency varies with the number of particles, with the highest efficiency occurring when the GPU cores are saturated (Appendix -@sec-scaling).
 The GPU times for the measles models use the GPU-adapted samplers in `pypomp.random`: with standard algorithms, such as `jax.random` samplers, IF2 for the London measles model took `{python} f"{jax_sampler_slowdown:.0f}"` times longer (Appendix -@sec-samplers).
-A comparison to address (ii) is given in Appendix\EInote{???? TODO. I SUPPOSE WE WANT THIS IN AN APPENDIX FOR SPACE REASONS.}
+To address (ii), Appendix -@sec-libraries runs the same particle filter workloads in five other Python libraries.
+On the London measles model, `pfjax` and `cuthbert` took `{python} f"{min(lib_measles_jax):.0f}"` to `{python} f"{max(lib_measles_jax):.0f}"` times as long as Pypomp on a GPU.
 
 ::: {#tbl-timing}
 ```{python}
@@ -580,6 +621,59 @@ latex_table(
 ```
 
 Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation, with the workloads described above. Pypomp IF2 and PF times include JIT compilation. Software ratio is the pomp (or panelPomp) time divided by the Pypomp time on the same 36 cores, hardware ratio is the Pypomp CPU time divided by the Pypomp GPU time, and total is their product, the pomp time divided by the Pypomp GPU time. These workloads do not saturate the GPU, so the hardware and total ratios understate its throughput; peak cores matched in @tbl-timing gives the GPU's highest measured IF2 throughput. The 4-town panel has no Pypomp CPU run.
+:::
+
+# Comparison with other particle filter libraries {#sec-libraries}
+
+@tbl-libraries times the particle filter workloads of @tbl-timing-full in other Python particle filter libraries, with each model written as a user of that library would write it.
+Every library runs the bootstrap particle filter with the same number of filters and particles as in @tbl-timing-full.
+The GPU libraries ran on one RTX 3090, a slower GPU than the one used in @tbl-timing, and with a different Pypomp release, so the Pypomp times in @tbl-libraries are not comparable with those in @tbl-timing-full.
+We left out Dynamax [@linderman25], since its only particle filter is a Rao--Blackwellized filter for switching linear Gaussian models.
+
+On the cholera model, `pfjax` and `cuthbert` took `{python} f"{min(lib_dacca_jax):.1f}"` to `{python} f"{max(lib_dacca_jax):.1f}"` times as long as Pypomp, so the three JAX libraries performed about the same.
+On the measles models, `pfjax` and `cuthbert` were `{python} f"{min(lib_measles_jax):.0f}"` to `{python} f"{max(lib_measles_jax):.0f}"` times slower than Pypomp for London, and neither finished the 4-town panel within an hour.
+Most of this gap comes from the `jax.random` rejection samplers, which these libraries use for the binomial, gamma, and Poisson draws of the measles model (Appendix -@sec-samplers).
+The PyTorch library `pydpf` took `{python} f"{min(lib_pydpf):.1f}"` to `{python} f"{max(lib_pydpf):.1f}"` times as long as Pypomp on the cholera and measles models.
+
+The S&P 500 model is the exception.
+Its steps are cheap, so the cost of running each parameter set's replicate filters one after another dominates, and Pypomp `{python} lib_version["pypomp"]` was the slowest of the GPU libraries, taking `{python} f"{lib_s('spx', 'pypomp'):.1f}"` seconds against `{python} f"{lib_s('spx', 'cuthbert'):.1f}"` seconds for `cuthbert`.
+The development version of Pypomp runs these replicates in parallel and takes `{python} f"{lib_s('spx', 'pypomp_flat'):.1f}"` seconds, faster than every other GPU library.
+
+The CPU-only libraries `particles` and `pypfilt` were timed on one core, and we scaled each time to 36 cores assuming perfect scaling, which flatters them.
+Under this assumption, `particles` took `{python} f"{min(lib_cpu_vs_r['particles']):.1f}"` to `{python} f"{max(lib_cpu_vs_r['particles']):.1f}"` times the measured pomp time, and `pypfilt` took `{python} f"{min(lib_cpu_vs_r['pypfilt']):.1f}"` to `{python} f"{max(lib_cpu_vs_r['pypfilt']):.1f}"` times the pomp time.
+
+::: {#tbl-libraries}
+```{python}
+#| echo: false
+
+
+def fmt_lib(model, column):
+    row = lib_times.loc[(model, column)]
+    if row["status"] == "timeout":
+        return f"$>${row['first_s']:,.0f}"
+    return fmt_s(row["first_s"])
+
+
+rows = []
+for model, label in TIMING_MODELS.items():
+    libs = [fmt_lib(model, c) for c in ["pypomp", *GPU_LIBS, *CPU_LIBS]]
+    r = fmt_s(pf_time(timing[model]["R"]["times"]))
+    rows.append(f"{label} & " + " & ".join(libs) + f" & {r}")
+tbl = latex_table(
+    "lrrrrrrr",
+    [
+        " & \\multicolumn{4}{c}{1 GPU} & \\multicolumn{3}{c}{36 CPU cores} \\\\",
+        "\\cmidrule(lr){2-5} \\cmidrule(lr){6-8}",
+        "Model & Pypomp & \\texttt{pfjax} & \\texttt{cuthbert} & \\texttt{pydpf} "
+        "& \\texttt{particles}$^\\dagger$ & \\texttt{pypfilt}$^\\dagger$ & \\texttt{pomp}$^*$ \\\\",
+    ],
+    rows,
+)
+# Eight columns fit the text width only with slightly tighter column spacing.
+Markdown(tbl.data.replace("\\setlength{\\tabcolsep}{4pt}", "\\setlength{\\tabcolsep}{3pt}"))
+```
+
+Wall-clock time in seconds for the particle filter benchmarks of @tbl-timing-full in Pypomp `{python} lib_version["pypomp"]`, `pfjax` `{python} lib_version["pfjax"]` and `cuthbert` `{python} lib_version["cuthbert"]` (JAX), `pydpf` `{python} lib_version["pydpf"]` (PyTorch), and `particles` `{python} lib_version["particles"]` and `pypfilt` `{python} lib_version["pypfilt"]` (NumPy). GPU times are from one RTX 3090 and include JIT compilation. For the measles models, `pfjax` and `cuthbert` draw with the `jax.random` samplers (Appendix -@sec-samplers). $^\dagger$`particles` and `pypfilt` run only on CPUs; their times are the time for one filter on one core, multiplied by the number of filters and divided by 36. $^*$`panelPomp` for the 4-town panel, as in @tbl-timing-full.
 :::
 
 
