@@ -329,7 +329,10 @@ That script relies on a helper package, `pymeasles`, which is not part of this r
 The script `big_measles.py` in this directory runs the same search without it.
 
 ::: {.callout-note}
-These timings and the results in the next section come from a run with `pypomp` 1.0.8. 
+This run used `pypomp` 1.0.8 and the default XLA backend. 
+We later reran the same search with `pypomp` 1.4.0 and its CuTe backend with the Philox random number generator, set with `set_backend("cute", rng="philox")`, in the [quant](https://github.com/pypomp/quant) test `tests/panel_measles/big_timing`. 
+The table below gives the times of both runs. 
+The results in the next section come from the original run, because the rerun saved only its final estimates. 
 :::
 
 ### Computation Details
@@ -340,17 +343,18 @@ These timings and the results in the next section come from a run with `pypomp` 
 
 ### Execution Time Breakdown
 
-The recorded execution times are as follows:
+The recorded execution times on one GPU are as follows, for the original run on the XLA backend and the rerun on the CuTe backend:
 
-| Stage | Algorithm | Config Details | Time (seconds) | Time (hours) |
-|---|---|---|---|---|
-| **Estimation** | MPIF | $J=10000, M=200, 36 \text{ chains}$ | $127,866.61 \text{ s}$ | **$35.52 \text{ hours}$** |
-| **Initial Eval** | PFilter | $J=5000, 36 \text{ replicates, } 36 \text{ chains}$ | $8,933.12 \text{ s}$ | **$2.48 \text{ hours}$** |
-| **Post-Pruning Eval** | PFilter | $J=5000, 36 \text{ replicates, } 1 \text{ chain (pruned)}$ | $338.17 \text{ s}$ | **$5.64 \text{ minutes}$** |
-| **Total** | | | $137,137.90 \text{ s}$ | **$38.09 \text{ hours}$** |
+| Stage | Algorithm | Config Details | XLA (`pypomp` 1.0.8) | CuTe (`pypomp` 1.4.0) | Speedup |
+|---|---|---|---|---|---|
+| **Estimation** | MPIF | $J=10000, M=200, 36 \text{ chains}$ | $35.52 \text{ hours}$ | $14.56 \text{ hours}$ | $2.4\times$ |
+| **Initial Eval** | PFilter | $J=5000, 36 \text{ replicates, } 36 \text{ chains}$ | $2.48 \text{ hours}$ | $50.19 \text{ minutes}$ | $3.0\times$ |
+| **Post-Pruning Eval** | PFilter | $J=5000, 36 \text{ replicates, } 1 \text{ chain (pruned)}$ | $5.64 \text{ minutes}$ | $2.73 \text{ minutes}$ | $2.1\times$ |
+| **Total** | | | **$38.09 \text{ hours}$** | **$15.45 \text{ hours}$** | $2.5\times$ |
 
+At this scale, the CuTe backend saves almost 23 hours of GPU time.
 This computation would have taken about 4.8 months in the R package `panelPomp` on a 36-core CPU node!
-By using a capable GPU, we completed the same computation about 91 times faster.
+By using a capable GPU, we completed the same computation about 92 times faster with the XLA backend and about 226 times faster with the CuTe backend.
 We could complete it even faster by splitting the replications across additional GPUs. 
 
 ## 6. Exploring the Level 4 Results
