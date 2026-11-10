@@ -392,7 +392,7 @@ These design features are inherited from the R package pomp [@king16].
 Although the method interface of Pypomp (and pomp) is not limited to P&P algorithms, experience has shown that P&P approaches are convenient for scientific data analysis.
 Theoretical obstacles have limited the practical scope of non-P&P algorithms [@roberts01; @karppinen24].
 
-Pypomp leverages JAX [@bradbury18] to provide just-in-time (JIT) compilation, automatic differentiation (AD), and capability to run on massively parallel hardware such as GPUs.
+Pypomp leverages JAX [@bradbury18] to provide just-in-time (JIT) compilation, automatic differentiation (AD), and the capability to run on massively parallel hardware such as GPUs.
 When the state space is small and discrete, or the model is linear Gaussian or close enough for effective approximation using Gaussian-inspired filters such as the extended Kalman filter, the particle filter is unnecessary, and the Dynamax library [@linderman25] provides JAX-based solutions.
 Other JAX-based libraries providing PF and DPF methods for POMP models include PFJAX [@lysy22], Cuthbert [@duffield26] and pypfilt [@moss24].
 PyDPF [@brady26] provides a DPF using Pytorch and focused on POMP models parameterized using neural networks.
@@ -401,7 +401,7 @@ Pypomp distinguishes itself from these other packages by (i) following the desig
 <!--
  in @tbl-timing.
 -->
-Pypomp is not limited to PF methods, for example, the approximate Bayesian computing (ABC) P&P algorithm of @marjoram03 has been implemented.
+Pypomp is not limited to PF methods, and includes for example, the approximate Bayesian computing (ABC) P&P algorithm of @marjoram03.
 However, PF has proved an effective tool for the development and analysis of POMP models in scientific contexts.
 
 With enough particles and method replications to saturate it, one GPU runs iterated filtering as fast as `{python} f"{min(peak_r_cores.values()):,.0f}"` to `{python} f"{max(peak_r_cores.values()):,.0f}"` CPU cores running pomp (Appendix -@sec-scaling).
