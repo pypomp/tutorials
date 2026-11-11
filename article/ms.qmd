@@ -493,11 +493,12 @@ Quantiles of inverse and rejection sampling draws differ by at most `{python} f"
 
 # POMP Modeling in Pypomp {#sec-pomp}
 
-A POMP model consists of an unobserved Markov process $\{X(t), t_0 \leq t \leq t_{N}\}$ and observable $Y_{1:N}$ at times $t_{1:N}$ with observed value $y^*_{1:N}$.
-The initial state is $X(t_0)$, $X_n := X(t_n)$, and $Y_n$ is independent of $Y_m, X_m$, $m \neq n$, conditional on $X_n$.
-P&P methods need only a simulator for the initial state, $X_0 \sim f_{X_0}(x_0 ; \theta)$, a simulator for the state transition, $X_{n+1} \sim f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)$, and the measurement density $f_{Y_n|X_n}(y_n| x_n; \theta)$, where $\theta$ denotes the model parameters. 
-The user passes data and JAX-compatible code for these functions to build a `Pomp` class model object using the `Pomp` consctructor function.
-For P&P methods, it suffices to specify an initial value for the latent dynamic system (known as `rinit`), a latent process simulator (`rproc`), a measurement density simulator (`rmeas`) and a measurement density evaluator (`dmeas`).
+Let $\{X(t), t_0 \leq t \leq t_{N}\}$ denote the latent process, and write $Y_{1:N}$ for the measurement process at times $t_{1:N}$.
+We suppose $Y_n$ is conditionally independent of the other latent states and measurements given $X_n=X(t_n)$.
+The data are observed values, $y^*_{1:N}$.
+A POMP model is specified by its initial state distribution, $f_{X_0}(x_0 ; \theta)$, state transition density $f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)$, and measurement density $f_{Y_n|X_n}(y_n| x_n; \theta)$, where $\theta$ denotes a vector of model parameters.
+For P\&P methods, it suffices to specify a simulator for $f_{X_0}(x_0 ; \theta)$ known as \texttt{rinit}, a simulator $f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)$ known as \texttt{rproc}, a simulator for $f_{Y_n|X_n}(y_n| x_n; \theta)$ known as \texttt{rmeas}, and an evaluator for $f_{Y_n|X_n}(y_n| x_n; \theta)$ known as \texttt{dmeas}.
+The user passes JAX-compatible code for these functions, together with the data, to build a \texttt{Pomp} class model object using the \texttt{Pomp} constructor function.
 Tutorials are available at [https://github.com/pypomp/tutorials](https://github.com/pypomp/tutorials).
 Models included in Pypomp include a model for historical monthly cholera mortality in Dhaka, Bangladesh (`pypomp.models.dacca`), historical weekly measles cases in London, UK (`pypomp.models.measles.pomp`), daily closing price for the S&P 500 index (`pypomp.models.spx`), and a panel model for measles cases in up to 1422 urban and rural districts in England and Wales (`pypomp.models.measles.panel_pomp`).
 
