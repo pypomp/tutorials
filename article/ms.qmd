@@ -485,7 +485,7 @@ Profile likelihood have been found preferable to Fisher information for confiden
 MCAP algorithms can lead to efficient inference even in a limit where the Monte Carlo error grows with the amount of data [@ning21].
 
 Algorithms to take advantage of JIT, AD, and GPU are an area of active development.
-Pypomp implements the MOP P&P DPF algorithm of @tan24, with the resulting derivative being called DMOP and implemented as the `dmop` method.
+Pypomp implements the MOP P&P DPF algorithm of @tan24, with the resulting derivative being called DMOP implemented within the `train` method.
 DMOP is competitive on benchmark problems when combined with Adam SGD, especially when using IF2 for a warm start [@tan24].
 Pypomp provides inverse transform sampling methods for use in `rproc` and `rmeas` since the rejection sampling used in some `jax.random` samplers is inefficient on GPUs [@giles16; @giles24; @temme92].
 These samplers run `{python} f"{min(sampler_gpu_speedups):.0f}"` to `{python} f"{max(sampler_gpu_speedups):.0f}"` times faster than `jax.random` on a GPU.
