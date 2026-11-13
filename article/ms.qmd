@@ -60,7 +60,7 @@ format:
     cite-method: natbib
 bibliography: references.bib
 biblio-style: abbrvnat
-abstract: "Nonlinear, non-Gaussian partially observed Markov process (POMP) models arise in various areas including epidemiology, ecology, and robotics. Model-based inferences typically involve computationally intensive Monte Carlo methods.  We introduce Pypomp, a Python library for data analysis via POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. By design, Pypomp supports model development and data analysis as well as method development, following the approach of the pomp R package. However, Pypomp obtains considerably higher performance: Pypomp running on one GPU can obtain the throughput of 12,000 CPU cores running pomp. A central algorithm for Pypomp is the particle filter, and Pypomp is faster on our benchmark tests than other GPU-compatible particle filter libraries. The particle filter in Pypomp is differentiable, with a tunable bias-variance tradeoff."
+abstract: "Nonlinear, non-Gaussian partially observed Markov process (POMP) models arise in various areas including epidemiology, ecology, and robotics. Model-based inferences typically involve computationally intensive Monte Carlo methods.  We introduce Pypomp, a Python library for data analysis via POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. By design, Pypomp supports model development and data analysis as well as method development, following the approach of the pomp R package. However, Pypomp obtains considerably higher performance: Pypomp running on one GPU can obtain the throughput of 16,000 CPU cores running pomp. A central algorithm for Pypomp is the particle filter, and Pypomp is faster on our benchmark tests than other GPU-compatible particle filter libraries. The particle filter in Pypomp is differentiable, with a tunable bias-variance tradeoff."
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -316,13 +316,27 @@ tbl_timing_version = pypomp_version("tbl-timing", timing_jobs(["gpu", "gpu_cute"
 fig_scaling_version = pypomp_version("fig-scaling", scaling_jobs + timing_jobs(["gpu"]))
 scaling_cute = {m: scaling_r_cores(m, "gpu_cute") for m in SCALING_MODELS}
 peak_r_cores_cute = {m: s["r_cores"].max() for m, s in scaling_cute.items()}
-# The text says CuTe's throughput was still rising at the largest configuration
-# of every scaling branch, so its peaks are lower bounds.
+# The text says CuTe's throughput for the S&P 500 model peaked before the
+# largest configuration of each scaling branch and then fell, and that for the
+# other models it changed by less than CUTE_TAIL over the last doubling of
+# particles, so their peaks are close to what these configurations can reach.
+CUTE_TAIL = 0.03
 for m, s in scaling_cute.items():
     for kind, g in s.groupby("scaling_type"):
-        assert g["r_cores"].idxmax() == g["total_particles_mif"].idxmax(), (m, kind)
-# The abstract, which can't run code, quotes the CuTe peak as 12,000 cores.
-assert math.floor(max(peak_r_cores_cute.values()) / 1000) == 12, peak_r_cores_cute
+        g = g.sort_values("total_particles_mif")
+        if m == "spx":
+            assert g["r_cores"].idxmax() != g.index[-1], (m, kind)
+            continue
+        last, prev = g.iloc[-1], g.iloc[-2]
+        assert last["total_particles_mif"] == 2 * prev["total_particles_mif"], (m, kind)
+        assert abs(last["r_cores"] / prev["r_cores"] - 1) < CUTE_TAIL, (m, kind)
+spx_cute = scaling_cute["spx"]
+spx_cute_peak_at = {  # millions of particles at the CuTe peak of each branch
+    kind: g.loc[g["r_cores"].idxmax(), "total_particles_mif"] / 1e6
+    for kind, g in spx_cute.groupby("scaling_type")
+}
+# The abstract, which can't run code, quotes the CuTe peak as 16,000 cores.
+assert math.floor(max(peak_r_cores_cute.values()) / 1000) == 16, peak_r_cores_cute
 
 
 def compile_range(scalings):
@@ -365,9 +379,17 @@ spx_chain_advantage = np.mean(
     spx_throughput_at("chains", spx_overlap) / spx_throughput_at("particles", spx_overlap)
 )
 
-# The configuration that used the most GPU memory across all scaling tests.
-max_vram_model = max(scaling, key=lambda m: scaling[m]["peak_vram_mb"].max())
-max_vram = scaling[max_vram_model].loc[scaling[max_vram_model]["peak_vram_mb"].idxmax()]
+# The configuration that used the most GPU memory across the scaling tests of
+# each backend, and the model it was for.
+def max_vram_of(scalings):
+    model = max(scalings, key=lambda m: scalings[m]["peak_vram_mb"].max())
+    return model, scalings[model].loc[scalings[model]["peak_vram_mb"].idxmax()]
+
+
+max_vram_model, max_vram = max_vram_of(scaling)
+max_vram_cute_model, max_vram_cute = max_vram_of(scaling_cute)
+# The text names the cholera model for both peaks.
+assert max_vram_model == max_vram_cute_model == "dacca", (max_vram_model, max_vram_cute_model)
 
 jax_sampler_slowdown = (
     timing["measles"]["gpu_jax"]["times"]["mif"] / timing["measles"]["gpu"]["times"]["mif"]
@@ -552,7 +574,7 @@ Pypomp is not limited to PF methods, and includes, for example, the approximate 
 However, PF has proved an effective tool for the development and analysis of POMP models in scientific contexts.
 
 Pypomp compiles models with JAX's XLA compiler by default; on NVIDIA GPUs, an optional CuTe backend translates them into CUDA kernels [@thakkar23; @cecka26].
-With enough particles and method replications, one GPU running the CuTe backend runs iterated filtering at least as fast as `{python} f"{min(peak_r_cores_cute.values()):,.0f}"` to `{python} f"{max(peak_r_cores_cute.values()):,.0f}"` CPU cores running pomp (Appendix -@sec-scaling).
+With enough particles and method replications, one GPU running the CuTe backend runs iterated filtering as fast as `{python} f"{min(peak_r_cores_cute.values()):,.0f}"` to `{python} f"{max(peak_r_cores_cute.values()):,.0f}"` CPU cores running pomp (Appendix -@sec-scaling).
 Such replications are routine in practice: practical likelihood maximization involves searching from many initial parameter vectors, and Monte Carlo adjusted profile (MCAP) confidence intervals [@ionides17], implemented in Pypomp as `mcap`, require maximizations.
 Profile likelihood approaches have been found preferable to Fisher information for confidence interval construction for linear Gaussian POMP models [@wheeler25arma].
 MCAP algorithms can lead to efficient inference even in a limit where the Monte Carlo error grows with the amount of data [@ning21].
@@ -637,7 +659,7 @@ latex_table(
 ```
 
 Wall-clock time in seconds for 36 IF2 searches, with pomp on 36 CPU cores and Pypomp `{python} tbl_timing_version` on one `{python} gpu_name.removesuffix(" Server Edition")` GPU.
-Cores, the CPU cores running pomp that the GPU matched, is 36 times the pomp time divided by the Pypomp time; Peak is its highest value in scaling tests (Appendix -@sec-scaling), a lower bound for CuTe. `{python} version_warning("tbl-timing")`
+Cores, the CPU cores running pomp that the GPU matched, is 36 times the pomp time divided by the Pypomp time; Peak is its highest value in scaling tests (Appendix -@sec-scaling). `{python} version_warning("tbl-timing")`
 :::
 
 # Governance and Acknowledgments {#sec-conclusion}
@@ -723,7 +745,7 @@ Thus, Pypomp enables a scientific analysis that was previously considered infeas
 Pypomp on CPU was `{python} fmt_ratio(min(software_ratios))` to `{python} fmt_ratio(max(software_ratios))` times faster than R pomp, and moving Pypomp to the GPU with the default XLA backend makes it another `{python} fmt_ratio(min(hardware_ratios))` to `{python} fmt_ratio(max(hardware_ratios))` times faster.
 These workloads are sized for R and too small to saturate the GPU, so the GPU ratios understate what the GPU can do.
 At these sizes, the CuTe backend's longer compilation outweighs its faster iterations: its IF2 was slower than XLA's for every model except the S&P 500.
-At its peak throughput in the scaling tests (Appendix -@sec-scaling), one GPU runs IF2 `{python} f"{min(peak_r_cores.values()) / R_CORES:.0f}"` to `{python} f"{max(peak_r_cores.values()) / R_CORES:.0f}"` times as fast as R on the 36-core node with the default XLA backend, and at least `{python} f"{min(peak_r_cores_cute.values()) / R_CORES:.0f}"` to `{python} f"{max(peak_r_cores_cute.values()) / R_CORES:.0f}"` times as fast with the CuTe backend.
+At its peak throughput in the scaling tests (Appendix -@sec-scaling), one GPU runs IF2 `{python} f"{min(peak_r_cores.values()) / R_CORES:.0f}"` to `{python} f"{max(peak_r_cores.values()) / R_CORES:.0f}"` times as fast as R on the 36-core node with the default XLA backend, and `{python} f"{min(peak_r_cores_cute.values()) / R_CORES:.0f}"` to `{python} f"{max(peak_r_cores_cute.values()) / R_CORES:.0f}"` times as fast with the CuTe backend.
 
 ::: {#tbl-timing-full}
 ```{python}
@@ -909,7 +931,7 @@ def plot_scaling():
         millions = pd.concat(all_millions)
         bench_x, bench_y = bench_point(model)
         ax.plot(bench_x, bench_y, marker="D", markersize=4, color=INK, linestyle="none")
-        log_axis(ax.xaxis, [0.03, 0.1, 0.3, 1, 3],
+        log_axis(ax.xaxis, [0.03, 0.1, 0.3, 1, 3, 10, 30],
                  min(millions.min(), bench_x) / 1.3, millions.max() * 1.3)
         ax.set_ylim(0, max(top, bench_y) * 1.1)
         ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f"{y:,.0f}"))
@@ -956,7 +978,7 @@ Each core in the pomp benchmark ran one search, so the GPU's throughput divided 
 At the benchmark's workload this is the Cores column of @tbl-timing, and its highest value over the scaling tests is the XLA Peak column.
 This assumes that pomp's time per particle per iteration does not depend on the number of particles or searches.
 JAX's memory preallocation was turned off, so the peak GPU memory is the memory each configuration used.
-No scaling test used more than `{python} f"{max_vram['peak_vram_mb'] / 1024:.1f}"` GB of GPU memory, the peak for the cholera model with `{python} f"{max_vram['total_particles_mif'] / 1e6:.1f}"` million particles.
+No scaling test with the default XLA backend used more than `{python} f"{max_vram['peak_vram_mb'] / 1024:.1f}"` GB of GPU memory, the peak for the cholera model with `{python} f"{max_vram['total_particles_mif'] / 1e6:.1f}"` million particles.
 
 @fig-scaling shows the results.
 With the default XLA backend, for every model, throughput peaks at between `{python} f"{min(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` and `{python} f"{max(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` million particles and falls or plateaus at larger sizes.
@@ -967,9 +989,12 @@ Consequently, there is not a large difference in speed between adding searches o
 
 The results above use JAX's default XLA compiler, which runs each Euler step of the process model as a sequence of GPU kernels that pass intermediate values through GPU memory.
 Pypomp `{python} fig_scaling_version` also has an optional CuTe backend, which uses the CuTe DSL of NVIDIA's CUTLASS library [@thakkar23; @cecka26] to translate the process and measurement models into CUDA kernels that keep each particle's state on the chip between observations, and draws random numbers with Pypomp's implementation of the Philox4x32-10 generator of @salmon11.
-We reran the same scaling tests with this backend.
+We reran the same scaling tests with this backend, extended to as many as `{python} f"{max(s['total_particles_mif'].max() for s in scaling_cute.values()) / 1e6:.1f}"` million particles.
 Its compilation takes longer, `{python} f"{cute_compile_s[0]:.0f}"` to `{python} f"{cute_compile_s[1]:.0f}"` seconds per configuration against `{python} f"{xla_compile_s[0]:.0f}"` to `{python} f"{xla_compile_s[1]:.0f}"` seconds for XLA, but its IF2 iterations are faster, and its highest throughput matches `{python} f"{min(peak_r_cores_cute.values()):,.0f}"` to `{python} f"{max(peak_r_cores_cute.values()):,.0f}"` CPU cores running R, the CuTe peak column of @tbl-timing.
-Unlike XLA's, CuTe's throughput was still rising at the largest configuration of every test (@fig-scaling), so these peaks are lower bounds, and larger configurations may match more cores.
+CuTe's throughput keeps rising to much larger sizes than XLA's (@fig-scaling).
+For the S&P 500 model, it peaks at `{python} f"{spx_cute_peak_at['chains']:.1f}"` million particles when adding searches and `{python} f"{spx_cute_peak_at['particles']:.1f}"` million when adding particles per search, and then falls.
+For the other models, it changed by less than `{python} f"{CUTE_TAIL:.0%}"` over the last doubling of particles, so larger configurations are unlikely to match many more cores.
+The largest CuTe configurations used up to `{python} f"{max_vram_cute['peak_vram_mb'] / 1024:.1f}"` GB of GPU memory, for the cholera model with `{python} f"{max_vram_cute['total_particles_mif'] / 1e6:.1f}"` million particles.
 
 ::: {#fig-scaling}
 ```{python}
