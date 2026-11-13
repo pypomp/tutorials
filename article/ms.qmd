@@ -90,12 +90,14 @@ import jax
 ```{python}
 #| label: load-results
 #| echo: false
+#| warning: false  # pypomp_version's warnings go to the terminal, not the PDF
 # Benchmark results come from the pypomp/quant submodule (article/quant),
 # and the England and Wales measles fit from ../big_measles. Every number
 # quoted in the text is computed here, so rerunning quant updates the paper.
 import json
 import math
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -153,14 +155,64 @@ quant_sha = subprocess.run(
     ["git", "-C", str(QUANT), "rev-parse", "--short", "HEAD"],
     capture_output=True, text=True, check=True,
 ).stdout.strip()
-# The timing runs were not all made with the same Pypomp release.
-_bench_versions = sorted(
-    {r["meta"]["pypomp_version"] for t in timing.values() for b, r in t.items() if b != "R"},
-    key=Version,  # handles release candidates such as 1.3.0rc1
-)
-pypomp_bench_version = (
-    _bench_versions[0] if len(_bench_versions) == 1
-    else f"{_bench_versions[0]}--{_bench_versions[-1]}"
+
+# Each table and figure states the Pypomp release behind it, which is checked
+# across every quant job that went into it, so a partial rerun of quant can't
+# silently mix releases. A mismatch, or a job with no recorded version,
+# doesn't stop the render: it adds a red note to the caption (version_warning)
+# and prints a warning to the terminal.
+VERSION_WARNINGS = {}
+
+
+def pypomp_version(item, jobs):
+    """The Pypomp version for one table or figure, checked across its jobs.
+
+    jobs is a list of (job, version) pairs, one for each quant run behind
+    item, with version None if the run recorded none. If they all agree,
+    return that version; otherwise, record a warning and return the range.
+    """
+    by_version = {}
+    for job, v in jobs:
+        by_version.setdefault(v, []).append(job)
+    # Version handles release candidates such as 1.3.0rc1.
+    recorded = sorted((v for v in by_version if v is not None), key=Version)
+    if len(by_version) > 1 or not recorded:
+        problem = "versions differ" if len(recorded) > 1 else "version not recorded"
+        groups = "; ".join(
+            f"{v or 'none'} for {', '.join(dict.fromkeys(by_version[v]))}"
+            for v in [*recorded, None] if v in by_version
+        ).removeprefix("none ")
+        VERSION_WARNINGS[item] = f"Pypomp {problem}", groups
+        # sys.__stderr__ reaches the terminal, and the chunk's warning: false
+        # keeps it out of the PDF.
+        print(f"WARNING: {item}: Pypomp {problem}: {groups}", file=sys.__stderr__)
+    if not recorded:
+        return "(version not recorded)"
+    return recorded[0] if len(recorded) == 1 else f"{recorded[0]}--{recorded[-1]}"
+
+
+def version_warning(item):
+    """A red note for item's caption if its Pypomp version check failed."""
+    if item not in VERSION_WARNINGS:
+        return Markdown("<!-- -->")  # an empty result would print the inline code
+    problem, groups = VERSION_WARNINGS[item]
+    groups = groups.replace("_", "\\_")
+    return Markdown(f"\\textcolor{{red}}{{\\textbf{{{problem}:}} {groups}.}}")
+
+
+def timing_jobs(backends):
+    """(job, Pypomp version) for each quant timing run with these backends."""
+    return [
+        (f"{m}/timing/{b}", t[b]["meta"].get("pypomp_version"))
+        for m, t in timing.items() for b in backends if b in t
+    ]
+
+
+tbl_timing_full_version = pypomp_version("tbl-timing-full", timing_jobs(["cpu", "gpu", "gpu_cute"]))
+# Appendix -@sec-samplers compares IF2 and PF for the London measles model
+# with jax.random and pypomp.random samplers; only the warning is used.
+pypomp_version(
+    "jax-samplers", [j for j in timing_jobs(["gpu", "gpu_jax"]) if j[0].startswith("measles/")]
 )
 pomp_bench_version = timing["dacca"]["R"]["meta"]["pomp_version"]
 panelpomp_bench_version = timing["dacca"]["R"]["meta"]["panelPomp_version"]
@@ -172,11 +224,11 @@ cpu_models = sorted({
     for t in timing.values() for b, r in t.items() if b in ("R", "cpu")
 })
 # The tables put the default (XLA) and CuTe GPU runs side by side, so check
-# that they used the same release and GPU model, and that CuTe used Philox.
+# that they used the same GPU model, and that CuTe used Philox. (Their Pypomp
+# versions are checked by pypomp_version.)
 for m, t in timing.items():
     xla, cute = t["gpu"]["meta"], t["gpu_cute"]["meta"]
     assert xla["backend"] == "default" and (cute["backend"], cute["cute_rng"]) == ("cute", "philox"), m
-    assert xla["pypomp_version"] == cute["pypomp_version"], m
     assert {d["slurm"]["gpu_type"] for d in [xla, cute]} == {"NVIDIA " + gpu_name}, m
 
 # The R scripts run one doParallel worker per core on a 36-core node, and each
@@ -247,16 +299,21 @@ peak_gain = {m: peak_r_cores[m] / c for m, c in zip(timing, mif_core_ratios)}
 
 # The same scaling grids with Pypomp's optional CuTe backend and its Philox
 # random number generator (quant's gpu_cute jobs), on the same GPU model.
-cute_meta = {
-    m: json.loads((QUANT / "tests" / m / "scaling/results/gpu_cute/latest.json").read_text())
-    for m in SCALING_MODELS
+scaling_meta = {
+    (m, b): json.loads((QUANT / "tests" / m / "scaling/results" / b / "latest.json").read_text())
+    for m in SCALING_MODELS for b in ["gpu", "gpu_cute"]
 }
+cute_meta = {m: scaling_meta[m, "gpu_cute"] for m in SCALING_MODELS}
 assert all(
     d["backend"] == "cute" and d["cute_rng"] == "philox"
-    and d["pypomp_version"] == pypomp_bench_version
     and d["slurm"]["gpu_type"].replace("NVIDIA ", "") == gpu_name
     for d in cute_meta.values()
 ), cute_meta
+scaling_jobs = [(f"{m}/scaling/{b}", d.get("pypomp_version")) for (m, b), d in scaling_meta.items()]
+# The peak columns of @tbl-timing come from the scaling tests, and
+# @fig-scaling marks the XLA benchmark of @tbl-timing.
+tbl_timing_version = pypomp_version("tbl-timing", timing_jobs(["gpu", "gpu_cute"]) + scaling_jobs)
+fig_scaling_version = pypomp_version("fig-scaling", scaling_jobs + timing_jobs(["gpu"]))
 scaling_cute = {m: scaling_r_cores(m, "gpu_cute") for m in SCALING_MODELS}
 peak_r_cores_cute = {m: s["r_cores"].max() for m, s in scaling_cute.items()}
 # The text says CuTe's throughput was still rising at the largest configuration
@@ -332,31 +389,31 @@ sampler_gpu_speedups = [
     for t in (SAMPLERS[d][regime] for d, (_, regime) in SAMPLER_ROWS.items())
     if t.get("t_jax_gpu") is not None
 ]
+# benchmark_results.json gathers the GPU and CPU timing jobs and the W1 grids.
+# quant's sampler test doesn't record their Pypomp versions yet; the ms reads
+# them from "pypomp_versions": {"gpu": ..., "cpu": ..., "grids": ...}.
+tbl_samplers_version = pypomp_version("tbl-samplers", [
+    (f"samplers/{job}", SAMPLERS.get("pypomp_versions", {}).get(job))
+    for job in ["gpu", "cpu", "grids"]
+])
 
 # England and Wales measles fit (all 1,422 towns) on one GPU with the CuTe
 # backend and its Philox random number generator (quant
-# tests/panel_measles/big_timing). It reruns the search in
-# ../big_measles/results/2026-10-05_134449_u1422_L4_d001_reps36, which used
-# Pypomp 1.0.8 on XLA, and records that run's stage times as its reference.
+# tests/panel_measles/big_timing).
 BIG = QUANT / "tests/panel_measles/big_timing/results/gpu_cute"
 big_meta = json.loads((BIG / "latest_rl4.json").read_text())
 assert big_meta["backend"] == "cute" and big_meta["cute_rng"] == "philox", big_meta
 big_par = {k.lower(): v for k, v in big_meta["run_config"].items()}
 assert big_par["run_level"] == 4, big_par
+tbl_big_measles_version = pypomp_version(
+    "tbl-big-measles", [("panel_measles/big_timing/gpu_cute", big_meta.get("pypomp_version"))]
+)
 # Wall-clock seconds for each method call. The total leaves out building the
 # model and mixing and matching, which take a few minutes together.
 big_mif_s = big_meta["stage_wall_s"]["mif"]
 big_pf1_s = big_meta["stage_wall_s"]["pfilter_eval1"]
 big_pf2_s = big_meta["stage_wall_s"]["pfilter_final"]
 big_total_s = big_mif_s + big_pf1_s + big_pf2_s
-big_xla = big_meta["reference"]
-big_xla_stage = big_xla["stage_wall_s"]
-big_xla_s = big_xla_stage["mif"] + big_xla_stage["pfilter_eval1"] + big_xla_stage["pfilter_final"]
-# The text says the earlier run used XLA on the same model of GPU.
-assert big_xla["backend"] == "xla", big_xla
-assert all(
-    "RTX PRO 6000 Blackwell" in g for g in [big_xla["gpu"], big_meta["slurm"]["gpu_type"]]
-), big_meta
 
 # R estimate, extrapolated from panelPomp's cost on the 4-town panel in quant,
 # which covers the same 1950-1963 period with the same daily Euler steps. Cost
@@ -407,8 +464,20 @@ lib_cute_gain = [
     lib_times.loc[(m, "pypomp"), "warm_s"] / lib_times.loc[(m, "pypomp_cute"), "warm_s"]
     for m in TIMING_MODELS
 ]
-# The text says the library comparison used the release benchmarked in @tbl-timing.
-assert lib_version["pypomp"] == pypomp_bench_version, (lib_version["pypomp"], pypomp_bench_version)
+# Check the version of every Pypomp run in the GPU results directories, not
+# the single version per library that make_tables.py writes to the table.
+tbl_libraries_version = pypomp_version("tbl-libraries", [
+    (f"library_comparison/{m}/{r['backend']}", r.get("versions", {}).get("pypomp"))
+    for m in TIMING_MODELS
+    for f in ["results.jsonl", "results_pypomp_cute.jsonl"]
+    for r in map(json.loads, (LIB_DIR / m / "results/gpu_rtxpro6000" / f).open())
+    if r.get("lib") == "pypomp"  # records of failed runs have no "lib"
+])
+# The text says whether the library comparison used the release in @tbl-timing-full.
+lib_release_text = (
+    "the same Pypomp release" if tbl_libraries_version == tbl_timing_full_version
+    else f"Pypomp {tbl_libraries_version} rather than {tbl_timing_full_version}"
+)
 
 
 def lib_s(model, lib, col="first_s"):
@@ -451,7 +520,6 @@ HOUR, DAY = 3600, 86400
 big_hours = f"{big_total_s / HOUR:.0f}"
 r_big_months = f"{r_big_total_s / (30.44 * DAY):.1f}"
 big_speedup = f"{r_big_total_s / big_total_s:.0f}"
-big_cute_gain = f"{big_xla_s / big_total_s:.1f}"
 r_big_1core_years = f"{r_big_1core_s / (365.25 * DAY):.1f}"
 big_core_ratio = f"{r_big_1core_s / big_total_s:,.0f}"
 ```
@@ -568,8 +636,8 @@ latex_table(
 )
 ```
 
-Wall-clock time in seconds for 36 IF2 searches, with pomp on 36 CPU cores and Pypomp on one `{python} gpu_name.removesuffix(" Server Edition")` GPU.
-Cores, the CPU cores running pomp that the GPU matched, is 36 times the pomp time divided by the Pypomp time; Peak is its highest value in scaling tests (Appendix -@sec-scaling), a lower bound for CuTe.
+Wall-clock time in seconds for 36 IF2 searches, with pomp on 36 CPU cores and Pypomp `{python} tbl_timing_version` on one `{python} gpu_name.removesuffix(" Server Edition")` GPU.
+Cores, the CPU cores running pomp that the GPU matched, is 36 times the pomp time divided by the Pypomp time; Peak is its highest value in scaling tests (Appendix -@sec-scaling), a lower bound for CuTe. `{python} version_warning("tbl-timing")`
 :::
 
 # Governance and Acknowledgments {#sec-conclusion}
@@ -642,7 +710,7 @@ wl_np, wl_nfitr, wl_nstarts, wl_nreps = workload["dacca"]
 spx_np, spx_nfitr, _, spx_nreps = workload["spx"]
 ```
 
-@tbl-timing benchmarks Pypomp `{python} pypomp_bench_version` against pomp `{python} pomp_bench_version` and panelPomp `{python} panelpomp_bench_version`.
+@tbl-timing benchmarks Pypomp `{python} tbl_timing_full_version` against pomp `{python} pomp_bench_version` and panelPomp `{python} panelpomp_bench_version`.
 R pomp and Pypomp run the same workload in a given benchmark.
 CPU runs used 36-core nodes with Intel Xeon `{python} " or ".join(cpu_models)` processors, and GPU runs used one NVIDIA `{python} gpu_name`.
 Each benchmark runs `{python} wl_nstarts` IF2 searches from the same starting points and then runs replicate particle filters at each search's IF2 estimate, with as many particles per filter as per search.
@@ -697,14 +765,14 @@ latex_table(
 )
 ```
 
-Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation, with the workloads described above. Pypomp IF2 and PF times include JIT compilation. Pypomp GPU times are with its default XLA backend and with its CuTe backend. Software ratio is the pomp (or panelPomp) time divided by the Pypomp time on a 36-core node, and total ratio is the pomp time divided by the Pypomp GPU time with each backend. These workloads do not saturate the GPU, so the total ratios understate its throughput; the peak columns of @tbl-timing give the GPU's highest measured IF2 throughput. The 4-town panel has no Pypomp CPU run.
+Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation, with the workloads described above, and with Pypomp `{python} tbl_timing_full_version`. Pypomp IF2 and PF times include JIT compilation. Pypomp GPU times are with its default XLA backend and with its CuTe backend. Software ratio is the pomp (or panelPomp) time divided by the Pypomp time on a 36-core node, and total ratio is the pomp time divided by the Pypomp GPU time with each backend. These workloads do not saturate the GPU, so the total ratios understate its throughput; the peak columns of @tbl-timing give the GPU's highest measured IF2 throughput. The 4-town panel has no Pypomp CPU run. `{python} version_warning("tbl-timing-full")`
 :::
 
 # Comparison with other particle filter libraries {#sec-libraries}
 
 @tbl-libraries times the particle filter workloads of @tbl-timing-full in other Python particle filter libraries, with each model written as a user of that library would write it.
 Every library runs the bootstrap particle filter with the same number of filters and particles as in @tbl-timing-full.
-The GPU libraries ran on one `{python} gpu_name`, the GPU model used in @tbl-timing, with the same Pypomp release, but each library's timing script ran separately from the benchmarks in @tbl-timing-full, so the Pypomp times in the two tables differ somewhat.
+The GPU libraries ran on one `{python} gpu_name`, the GPU model used in @tbl-timing, with `{python} lib_release_text`, but each library's timing script ran separately from the benchmarks in @tbl-timing-full, so the Pypomp times in the two tables differ somewhat.
 We left out Dynamax [@linderman25], since its only particle filter is a Rao--Blackwellized filter for switching linear Gaussian models.
 
 @tbl-libraries gives two times for each GPU library: a call with the filter already compiled, and the first call, which includes JIT compilation.
@@ -764,7 +832,7 @@ tbl = latex_table(
 Markdown(tbl.data.replace("\\setlength{\\tabcolsep}{4pt}", "\\setlength{\\tabcolsep}{2pt}"))
 ```
 
-Wall-clock time in seconds for the particle filter benchmarks of @tbl-timing-full in Pypomp `{python} lib_version["pypomp"]` with its default XLA backend and with its CuTe backend and Philox generator, `pfjax` `{python} lib_version["pfjax"]` and `cuthbert` `{python} lib_version["cuthbert"]` (JAX), `pydpf` `{python} lib_version["pydpf"]` (PyTorch), and `particles` `{python} lib_version["particles"]` and `pypfilt` `{python} lib_version["pypfilt"]` (NumPy). GPU times are from one `{python} gpu_name`; for each model, the first row is the time for a call with the filter already compiled, and the second row, in parentheses, is the first call, which includes JIT compilation. ($>3{,}600$) means the first call did not finish within an hour, so there is no compiled time. For the measles models, `pfjax` and `cuthbert` draw with the `jax.random` samplers (Appendix -@sec-samplers). $^\dagger$`particles` and `pypfilt` run only on CPUs; their times are the time for one filter on one core, multiplied by the number of filters and divided by 36. $^*$`panelPomp` for the 4-town panel, as in @tbl-timing-full.
+Wall-clock time in seconds for the particle filter benchmarks of @tbl-timing-full in Pypomp `{python} tbl_libraries_version` with its default XLA backend and with its CuTe backend and Philox generator, `pfjax` `{python} lib_version["pfjax"]` and `cuthbert` `{python} lib_version["cuthbert"]` (JAX), `pydpf` `{python} lib_version["pydpf"]` (PyTorch), and `particles` `{python} lib_version["particles"]` and `pypfilt` `{python} lib_version["pypfilt"]` (NumPy). GPU times are from one `{python} gpu_name`; for each model, the first row is the time for a call with the filter already compiled, and the second row, in parentheses, is the first call, which includes JIT compilation. ($>3{,}600$) means the first call did not finish within an hour, so there is no compiled time. For the measles models, `pfjax` and `cuthbert` draw with the `jax.random` samplers (Appendix -@sec-samplers). $^\dagger$`particles` and `pypfilt` run only on CPUs; their times are the time for one filter on one core, multiplied by the number of filters and divided by 36. $^*$`panelPomp` for the 4-town panel, as in @tbl-timing-full. `{python} version_warning("tbl-libraries")`
 :::
 
 
@@ -898,7 +966,7 @@ For this model, adding searches beats adding particles per search at a given tot
 Consequently, there is not a large difference in speed between adding searches or particles per search on the GPU in terms of scaling with total particles.
 
 The results above use JAX's default XLA compiler, which runs each Euler step of the process model as a sequence of GPU kernels that pass intermediate values through GPU memory.
-Pypomp `{python} pypomp_bench_version` also has an optional CuTe backend, which uses the CuTe DSL of NVIDIA's CUTLASS library [@thakkar23; @cecka26] to translate the process and measurement models into CUDA kernels that keep each particle's state on the chip between observations, and draws random numbers with Pypomp's implementation of the Philox4x32-10 generator of @salmon11.
+Pypomp `{python} fig_scaling_version` also has an optional CuTe backend, which uses the CuTe DSL of NVIDIA's CUTLASS library [@thakkar23; @cecka26] to translate the process and measurement models into CUDA kernels that keep each particle's state on the chip between observations, and draws random numbers with Pypomp's implementation of the Philox4x32-10 generator of @salmon11.
 We reran the same scaling tests with this backend.
 Its compilation takes longer, `{python} f"{cute_compile_s[0]:.0f}"` to `{python} f"{cute_compile_s[1]:.0f}"` seconds per configuration against `{python} f"{xla_compile_s[0]:.0f}"` to `{python} f"{xla_compile_s[1]:.0f}"` seconds for XLA, but its IF2 iterations are faster, and its highest throughput matches `{python} f"{min(peak_r_cores_cute.values()):,.0f}"` to `{python} f"{max(peak_r_cores_cute.values()):,.0f}"` CPU cores running R, the CuTe peak column of @tbl-timing.
 Unlike XLA's, CuTe's throughput was still rising at the largest configuration of every test (@fig-scaling), so these peaks are lower bounds, and larger configurations may match more cores.
@@ -909,7 +977,7 @@ Unlike XLA's, CuTe's throughput was still rising at the largest configuration of
 plot_scaling()
 ```
 
-IF2 throughput on one GPU, as the number of CPU cores running R that the GPU matches, against the total number of particles in flight. Blue adds searches of 1,000 particles each; orange adds particles to each of `{python} " or ".join(map(str, fixed_chains))` searches. Solid lines with filled markers use Pypomp's default XLA backend, and dashed lines with hollow markers use its CuTe backend. Each configuration ran `{python} " or ".join(map(str, scaling_m))` IF2 iterations, projected to the benchmark's number. The x-axes use a log scale.
+IF2 throughput on one GPU, as the number of CPU cores running R that the GPU matches, against the total number of particles in flight. Blue adds searches of 1,000 particles each; orange adds particles to each of `{python} " or ".join(map(str, fixed_chains))` searches. Solid lines with filled markers use the default XLA backend of Pypomp `{python} fig_scaling_version`, and dashed lines with hollow markers use its CuTe backend. Each configuration ran `{python} " or ".join(map(str, scaling_m))` IF2 iterations, projected to the benchmark's number. The x-axes use a log scale. `{python} version_warning("fig-scaling")`
 :::
 
 # Random variable samplers {#sec-samplers}
@@ -919,7 +987,7 @@ This suits GPUs poorly, since threads that run together wait for the slowest one
 `pypomp.random` instead provides approximate inverse-CDF samplers, which avoid rejection loops.
 @tbl-samplers compares the two on 1,000,000 draws per call, with parameters spread across the values where each sampler switches algorithms, averaged over 20 calls.
 The approximation error is small: over a grid of parameter values, the Wasserstein distance between 1,000,000 draws from each `pypomp.random` sampler and from a reference sampler is at most `{python} f"{max_w1_norm * 100:.1f}"`% of the reference standard deviation.
-In the London measles benchmark, the `jax.random` samplers made IF2 `{python} f"{jax_sampler_slowdown:.0f}"` times slower and particle filtering `{python} f"{jax_sampler_pf_slowdown:.0f}"` times slower on the GPU.
+In the London measles benchmark, the `jax.random` samplers made IF2 `{python} f"{jax_sampler_slowdown:.0f}"` times slower and particle filtering `{python} f"{jax_sampler_pf_slowdown:.0f}"` times slower on the GPU. `{python} version_warning("jax-samplers")`
 
 ::: {#tbl-samplers}
 ```{python}
@@ -953,17 +1021,14 @@ latex_table(
 )
 ```
 
-Time in milliseconds for 1,000,000 draws from `pypomp.random` and `jax.random`, on one GPU and on one CPU core, with parameters spread across the values where the samplers switch algorithms. Ratio is the `jax.random` time divided by the `pypomp.random` time. `jax.random` has no negative binomial sampler. Max $W_1/\sigma$ is the largest Wasserstein distance between `pypomp.random` draws and draws from `jax.random` (or `scipy.stats` for the negative binomial) over a grid of parameter values, relative to the standard deviation.
+Time in milliseconds for 1,000,000 draws from `pypomp.random` in Pypomp `{python} tbl_samplers_version` and `jax.random`, on one GPU and on one CPU core, with parameters spread across the values where the samplers switch algorithms. Ratio is the `jax.random` time divided by the `pypomp.random` time. `jax.random` has no negative binomial sampler. Max $W_1/\sigma$ is the largest Wasserstein distance between `pypomp.random` draws and draws from `jax.random` (or `scipy.stats` for the negative binomial) over a grid of parameter values, relative to the standard deviation. `{python} version_warning("tbl-samplers")`
 :::
 
 # England and Wales measles fit {#sec-big-measles-details}
 
 We ran `{python} big_par["nreps_fitr"]` MPIF searches, each with `{python} f"{big_par['np_fitr']:,}"` particles for `{python} big_par["nfitr"]` iterations, and evaluated each endpoint with `{python} big_par["nreps_eval"]` particle filter replicates of `{python} f"{big_par['np_eval']:,}"` particles.
 We then combined the best estimate for each town across searches and evaluated the result with another `{python} big_par["nreps_eval"]` replicates.
-@tbl-big-measles gives the time for each stage on one GPU with Pypomp `{python} big_meta["pypomp_version"]` and its CuTe backend.
-For reference, it also gives the times of an earlier run of the same search, on the same model of GPU, with Pypomp `{python} big_xla["pypomp_version"]` and its default XLA backend, which took `{python} big_cute_gain` times as long.
-This ratio reflects a few more changes than the backend: between the two releases, Pypomp also changed its particle filter, improving how it batches replicates and resamples.
-That said, the majority of the runtime is taken up by IF2, which was not affected as much between versions.
+@tbl-big-measles gives the time for each stage on one GPU with Pypomp `{python} tbl_big_measles_version` and its CuTe backend.
 
 For comparison, we estimated how long the same computation would take with panelPomp on a 36-core CPU node.
 We measured panelPomp's cost per particle, per IF2 iteration, and per town on the 4-town panel in @tbl-timing-full, which covers the same period with the same daily time step, and scaled it linearly to the full computation.
@@ -975,7 +1040,6 @@ The wall clock time can be reduced further by spreading the searches over multip
 ```{python}
 #| echo: false
 
-
 def fmt_dur(s):
     if s >= 2 * DAY:
         return f"{s / DAY:.1f} days"
@@ -985,24 +1049,22 @@ def fmt_dur(s):
 
 
 stages = [
-    ("IF2", big_xla_stage["mif"], big_mif_s, r_big_mif_s),
-    ("PF, all search endpoints", big_xla_stage["pfilter_eval1"], big_pf1_s, r_big_pf1_s),
-    ("PF, combined estimate", big_xla_stage["pfilter_final"], big_pf2_s, r_big_pf2_s),
-    ("\\textbf{Total}", big_xla_s, big_total_s, r_big_total_s),
+    ("IF2", big_mif_s, r_big_mif_s),
+    ("PF, all search endpoints", big_pf1_s, r_big_pf1_s),
+    ("PF, combined estimate", big_pf2_s, r_big_pf2_s),
+    ("\\textbf{Total}", big_total_s, r_big_total_s),
 ]
 latex_table(
-    "lrrr",
+    "lrr",
     [
-        " & \\multicolumn{2}{c}{Pypomp (1 GPU)} & R \\texttt{panelPomp} \\\\",
-        "\\cmidrule(lr){2-3}",
-        f"Stage & {big_xla['pypomp_version']}, XLA & {big_meta['pypomp_version']}, CuTe "
-        "& 36 cores (estimated) \\\\",
+        " & Pypomp (1 GPU) & R \\texttt{panelPomp} \\\\",
+        f"Stage & CuTe & 36 cores (estimated) \\\\",
     ],
-    [f"{name} & {fmt_dur(x)} & {fmt_dur(g)} & {fmt_dur(r)}" for name, x, g, r in stages],
+    [f"{name} & {fmt_dur(g)} & {fmt_dur(r)}" for name, g, r in stages],
 )
 ```
 
-Wall-clock time for fitting the measles model to all towns in England and Wales. Pypomp times were measured on one GPU, with Pypomp `{python} big_meta["pypomp_version"]` and its CuTe backend and, for reference, with Pypomp `{python} big_xla["pypomp_version"]` and its default XLA backend, whose particle filter differs in more than the backend. R panelPomp times are estimates for a 36-core CPU node, extrapolated from the 4-town panel in @tbl-timing-full$\hspace{0.4mm}.$
+Wall-clock time for fitting the measles model to all towns in England and Wales. Pypomp times were measured on one GPU, with Pypomp `{python} tbl_big_measles_version` and its CuTe backend. R panelPomp times are estimates for a 36-core CPU node, extrapolated from the 4-town panel in @tbl-timing-full$\hspace{0.4mm}.$ `{python} version_warning("tbl-big-measles")`
 <!-- 
 In the caption, \hspace is needed because the table number has a white box around it for the hyperlink. 
 This deletes the period if there's no space. 
