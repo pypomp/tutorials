@@ -379,17 +379,30 @@ spx_chain_advantage = np.mean(
     spx_throughput_at("chains", spx_overlap) / spx_throughput_at("particles", spx_overlap)
 )
 
-# The configuration that used the most GPU memory across the scaling tests of
-# each backend, and the model it was for.
-def max_vram_of(scalings):
-    model = max(scalings, key=lambda m: scalings[m]["peak_vram_mb"].max())
-    return model, scalings[model].loc[scalings[model]["peak_vram_mb"].idxmax()]
+# GPU memory per particle: the slope of peak memory against total particles,
+# in MB per million particles (bytes per particle). Small configurations sit on
+# the allocator's 64-256 MB steps, so fit each model's CuTe configurations with
+# at least VRAM_FIT_MIN million particles, pooling both ways of adding
+# particles. XLA's grids stop at a few million particles, too few for a slope.
+VRAM_FIT_MIN = 4
 
 
-max_vram_model, max_vram = max_vram_of(scaling)
-max_vram_cute_model, max_vram_cute = max_vram_of(scaling_cute)
-# The text names the cholera model for both peaks.
-assert max_vram_model == max_vram_cute_model == "dacca", (max_vram_model, max_vram_cute_model)
+def vram_slope(s):
+    s = s[s["total_particles_mif"] >= VRAM_FIT_MIN * 1e6]
+    return np.polyfit(s["total_particles_mif"] / 1e6, s["peak_vram_mb"], 1)[0]
+
+
+vram_per_m = {m: vram_slope(scaling_cute[m]) for m in SCALING_MODELS}
+# The text says memory per particle doesn't depend on how particles were added
+# (each branch's slope is within 10% of the pooled one), and that at the largest
+# XLA configuration of each branch, XLA used within 10% of CuTe's memory.
+for m in SCALING_MODELS:
+    for kind, g in scaling_cute[m].groupby("scaling_type"):
+        assert abs(vram_slope(g) / vram_per_m[m] - 1) < 0.1, (m, kind, vram_slope(g))
+        x = scaling[m][scaling[m]["scaling_type"] == kind]
+        x = x.loc[x["total_particles_mif"].idxmax()]
+        c = g[g["total_particles_mif"] == x["total_particles_mif"]]["peak_vram_mb"]
+        assert len(c) == 1 and abs(x["peak_vram_mb"] / c.iloc[0] - 1) < 0.1, (m, kind)
 
 jax_sampler_slowdown = (
     timing["measles"]["gpu_jax"]["times"]["mif"] / timing["measles"]["gpu"]["times"]["mif"]
@@ -978,7 +991,9 @@ Each core in the pomp benchmark ran one search, so the GPU's throughput divided 
 At the benchmark's workload this is the Cores column of @tbl-timing, and its highest value over the scaling tests is the XLA Peak column.
 This assumes that pomp's time per particle per iteration does not depend on the number of particles or searches.
 JAX's memory preallocation was turned off, so the peak GPU memory is the memory each configuration used.
-No scaling test with the default XLA backend used more than `{python} f"{max_vram['peak_vram_mb'] / 1024:.1f}"` GB of GPU memory, the peak for the cholera model with `{python} f"{max_vram['total_particles_mif'] / 1e6:.1f}"` million particles.
+It grew in proportion to the number of particles.
+With the CuTe backend described below, which ran the largest configurations, each million particles used about `{python} f"{vram_per_m['spx']:.0f}"` MB for the S&P 500 model, `{python} f"{vram_per_m['panel_measles']:.0f}"` MB for the 4-town panel, `{python} f"{vram_per_m['measles']:.0f}"` MB for the London measles model, and `{python} f"{vram_per_m['dacca']:.0f}"` MB for the cholera model, whether particles were added as searches or per search.
+At the largest configurations it ran, the default XLA backend used about as much memory as CuTe.
 
 @fig-scaling shows the results.
 With the default XLA backend, for every model, throughput peaks at between `{python} f"{min(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` and `{python} f"{max(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` million particles and falls or plateaus at larger sizes.
@@ -994,7 +1009,6 @@ Its compilation takes longer, `{python} f"{cute_compile_s[0]:.0f}"` to `{python}
 CuTe's throughput keeps rising to much larger sizes than XLA's (@fig-scaling).
 For the S&P 500 model, it peaks at `{python} f"{spx_cute_peak_at['chains']:.1f}"` million particles when adding searches and `{python} f"{spx_cute_peak_at['particles']:.1f}"` million when adding particles per search, and then falls.
 For the other models, it changed by less than `{python} f"{CUTE_TAIL:.0%}"` over the last doubling of particles, so larger configurations are unlikely to match many more cores.
-The largest CuTe configurations used up to `{python} f"{max_vram_cute['peak_vram_mb'] / 1024:.1f}"` GB of GPU memory, for the cholera model with `{python} f"{max_vram_cute['total_particles_mif'] / 1e6:.1f}"` million particles.
 
 ::: {#fig-scaling}
 ```{python}
