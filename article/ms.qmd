@@ -60,7 +60,7 @@ format:
     cite-method: natbib
 bibliography: references.bib
 biblio-style: abbrvnat
-abstract: "Nonlinear, non-Gaussian partially observed Markov process (POMP) models arise in various areas including epidemiology, ecology, and robotics. Model-based inferences typically involve computationally intensive Monte Carlo methods.  We introduce Pypomp, a Python library for data analysis via POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. By design, Pypomp supports model development and data analysis as well as method development, following the approach of the pomp R package. However, Pypomp obtains considerably higher performance: Pypomp running on one GPU can obtain the throughput of 16,000 CPU cores running pomp. A central algorithm for Pypomp is the particle filter, and Pypomp is faster on our benchmark tests than other GPU-compatible particle filter libraries. The particle filter in Pypomp is differentiable, with a tunable bias-variance tradeoff."
+abstract: "Nonlinear, non-Gaussian partially observed Markov process (POMP) models arise in various areas including epidemiology, ecology, and robotics. Model-based inferences typically involve computationally intensive Monte Carlo methods.  We introduce Pypomp, a Python library for data analysis via POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. By design, Pypomp supports model development and data analysis as well as method development, following the approach of the pomp R package. However, Pypomp obtains considerably higher performance: Pypomp running on one GPU can filter as many particles per second as 16,000 CPU cores running pomp. A central algorithm for Pypomp is the particle filter, and Pypomp is faster on our benchmark tests than other GPU-compatible particle filter libraries. The particle filter in Pypomp is differentiable, with a tunable bias-variance tradeoff."
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -985,15 +985,14 @@ fixed_chains = sorted({
 
 The benchmarks in @tbl-timing and @tbl-timing-full use the R configuration, which does not give the GPU enough work to reach its highest throughput for every model.
 The scaling tests in quant ran IF2 on one `{python} gpu_name` GPU with more particles in flight, added in two ways: more searches of 1,000 particles each, or more particles for each of a fixed number of searches.
-Each configuration ran in its own process and ran a short IF2 twice, so that the second run excludes JIT compilation.
-We compare throughput, the number of particles filtered per second, projecting each configuration's time to the benchmark's number of IF2 iterations with compilation included.
-Each core in the pomp benchmark ran one search, so the GPU's throughput divided by that of one such core is the number of CPU cores running pomp that the GPU matches.
-At the benchmark's workload this is the Cores column of @tbl-timing, and its highest value over the scaling tests is the XLA Peak column.
-This assumes that pomp's time per particle per iteration does not depend on the number of particles or searches.
-JAX's memory preallocation was turned off, so the peak GPU memory is the memory each configuration used.
-It grew in proportion to the number of particles.
-With the CuTe backend described below, which ran the largest configurations, each million particles used about `{python} f"{vram_per_m['spx']:.0f}"` MB for the S&P 500 model, `{python} f"{vram_per_m['panel_measles']:.0f}"` MB for the 4-town panel, `{python} f"{vram_per_m['measles']:.0f}"` MB for the London measles model, and `{python} f"{vram_per_m['dacca']:.0f}"` MB for the cholera model, whether particles were added as searches or per search.
-At the largest configurations it ran, the default XLA backend used about as much memory as CuTe.
+Each configuration, with $K$ searches of $J$ particles each ($KJ$ total particles in flight), ran in its own process and ran a short IF2 search of $m$ iterations twice, taking $t_{\mathrm{cold}}$ seconds on the first run and $t_{\mathrm{warm}}$ seconds on the second (excluding JIT compilation).
+Projecting to the benchmark's $M$ IF2 iterations with compilation included gives the throughput, in particles filtered per second,
+$$
+\frac{K J M}{(t_{\mathrm{cold}} - t_{\mathrm{warm}}) + M \, t_{\mathrm{warm}} / m}.
+$$
+Each core in the pomp benchmark ran one search of $J_{\mathrm{R}}$ particles for $M$ iterations in $t_{\mathrm{R}}$ seconds, giving a single-core throughput of $J_{\mathrm{R}} M / t_{\mathrm{R}}$; dividing the GPU throughput by this rate gives the number of CPU cores running pomp that the GPU matches.
+The highest value of this ratio over the scaling tests is the XLA Peak column of @tbl-timing, compared there and in @fig-scaling against the Cores column measured directly in the full-length timing benchmark, where $K = 36$, $J = J_{\mathrm{R}}$, and $t_{\mathrm{GPU}}$ includes compilation over all $M$ iterations without projection, reducing the ratio to $36 \, t_{\mathrm{R}} / t_{\mathrm{GPU}}$.
+The scaling comparisons assume that pomp's time per particle per iteration does not depend on the number of particles or searches.
 
 @fig-scaling shows the results.
 With the default XLA backend, for every model, throughput peaks at between `{python} f"{min(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` and `{python} f"{max(best(m)['total_particles_mif'] for m in scaling) / 1e6:.1f}"` million particles and falls or plateaus at larger sizes.
@@ -1009,6 +1008,9 @@ Its compilation takes longer, `{python} f"{cute_compile_s[0]:.0f}"` to `{python}
 CuTe's throughput keeps rising to much larger sizes than XLA's (@fig-scaling).
 For the S&P 500 model, it peaks at `{python} f"{spx_cute_peak_at['chains']:.1f}"` million particles when adding searches and `{python} f"{spx_cute_peak_at['particles']:.1f}"` million when adding particles per search, and then falls.
 For the other models, it changed by less than `{python} f"{CUTE_TAIL:.0%}"` over the last doubling of particles, so larger configurations are unlikely to match many more cores.
+
+With the CuTe backend, each million particles used about `{python} f"{vram_per_m['spx']:.0f}"` MB for the S&P 500 model, `{python} f"{vram_per_m['panel_measles']:.0f}"` MB for the 4-town panel, `{python} f"{vram_per_m['measles']:.0f}"` MB for the London measles model, and `{python} f"{vram_per_m['dacca']:.0f}"` MB for the cholera model, whether particles were added as searches or per search.
+At the largest configurations it ran, the default XLA backend used about as much memory as CuTe.
 
 ::: {#fig-scaling}
 ```{python}
