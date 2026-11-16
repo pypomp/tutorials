@@ -133,6 +133,10 @@ We would like to call attention to the transition process function for this mode
 
 ```{python}
 #| label: rproc
+from pypomp.models.measles import _samplers as smp
+
+
+@pp.vectorized
 def rproc(
     X_: StateDict,
     theta_: ParamDict,
@@ -141,7 +145,8 @@ def rproc(
     t: TimeFloat,
     dt: StepSizeFloat,
 ):
-    S, E, I, R, W, C = X_["S"], X_["E"], X_["I"], X_["R"], X_["W"], X_["C"]
+    S, E, I, W, C = X_["S"], X_["E"], X_["I"], X_["W"], X_["C"]
+    J = jnp.asarray(S).shape[0]
     R0 = theta_["R0"]
     sigma = theta_["sigma"]
     gamma = theta_["gamma"]
@@ -177,48 +182,52 @@ def rproc(
     # expected force of infection
     foi = beta * (I + iota) / pop
 
-    # white noise (extrademographic stochasticity)
-    keys = jax.random.split(key, 3)
-    dw = pp.random.fast_gamma(keys[0], dt / sigmaSE**2) * sigmaSE**2
+    # 1 gamma draw, 1 Poisson, 2 binomials for each of 3 classes
+    u = jax.random.uniform(key, (smp.N_GAMMA_UNIFORMS + 7, J))
+    u_gamma, u = u[: smp.N_GAMMA_UNIFORMS], u[smp.N_GAMMA_UNIFORMS :]
 
-    rate = jnp.array([foi * dw / dt, mu, sigma, mu, gamma, mu])
+    # white noise (extrademographic stochasticity)
+    dw = smp.gamma(u_gamma, dt / sigmaSE**2) * sigmaSE**2
 
     # Poisson births
-    births = pp.random.fast_poisson(keys[1], br * dt)
+    births = smp.poisson(u[0], br * dt)
 
     # transitions between classes
-    rt_final = jnp.zeros((3, 3))
+    trans_S0, trans_S1 = smp.euler_exits(u[1], u[2], S, foi * dw / dt, mu, dt)
+    trans_E0, trans_E1 = smp.euler_exits(u[3], u[4], E, sigma, mu, dt)
+    trans_I0, trans_I1 = smp.euler_exits(u[5], u[6], I, gamma, mu, dt)
 
-    rate_pairs = jnp.array([[rate[0], rate[1]], [rate[2], rate[3]], [rate[4], rate[5]]])
-    populations = jnp.array([S, E, I])
-
-    rate_sums = jnp.sum(rate_pairs, axis=1)
-    p0_values = jnp.exp(-rate_sums * dt)
-
-    rt_final = (
-        rt_final.at[:, 0:2]
-        .set(jnp.einsum("ij,i,i->ij", rate_pairs, 1 / rate_sums, 1 - p0_values))
-        .at[:, 2]
-        .set(p0_values)
-    )
-
-    transitions = pp.random.fast_multinomial(keys[2], populations, rt_final)
-
-    trans_S = transitions[0]
-    trans_E = transitions[1]
-    trans_I = transitions[2]
-
-    S = S + births - trans_S[0] - trans_S[1]
-    E = E + trans_S[0] - trans_E[0] - trans_E[1]
-    I = I + trans_E[0] - trans_I[0] - trans_I[1]
+    S = S + births - trans_S0 - trans_S1
+    E = E + trans_S0 - trans_E0 - trans_E1
+    I = I + trans_E0 - trans_I0 - trans_I1
     R = pop - S - E - I
     W = W + (dw - dt) / sigmaSE
-    C = C + trans_I[0]
+    C = C + trans_I0
     return {"S": S, "E": E, "I": I, "R": R, "W": W, "C": C}
 ```
 
-Note that this function draws from the gamma, Poisson, and multinomial distributions, and that it does not use the corresponding `jax.random` functions. 
-This is because these `jax.random` functions, among others, use sampling algorithms with extensive branching logic, which must be executed sequentially on GPUs, severely impacting performance. 
+```{python}
+#| label: smoke-test-rproc
+#| echo: false
+# Hidden on purpose: call the rproc defined above once, on 4 particles, to check that it runs.
+_X = {k: jnp.full(4, v) for k, v in dict(S=1e5, E=10.0, I=10.0, R=9e5, W=0.0, C=0.0).items()}
+_theta = {k: (lo + hi) / 2 for k, (lo, hi) in measles_box.items()}
+_covars = {"pop": 1e6, "birthrate": 20.0}
+_out = rproc(_X, _theta, jax.random.key(0), _covars, 1948.5, 1 / 365.25)
+assert all(v.shape == (4,) and bool(jnp.all(jnp.isfinite(v))) for v in _out.values())
+```
+
+Two things differ from a process function written for a single particle.
+First, `@pp.vectorized` tells `pypomp` not to apply `jax.vmap` to the function.
+Instead, it is called once per Euler step with every state variable as an array with one entry per particle, and with a single random key for the whole step.
+This is optional, and it mainly speeds up CPU runs.
+
+Second, the function draws all of the step's random numbers with a single call to `jax.random.uniform` and turns them into gamma, Poisson, and binomial draws with the helpers in `smp`.
+The helpers are the measles model's own, and they are built on the inverse-CDF samplers `gammainv`, `poissoninv`, and `binominv` in `pypomp.random`.
+Each class loses individuals through two exits, and the helper `euler_exits` draws the number leaving through each as two binomial draws, which gives the Euler-multinomial transition.
+
+The standard `jax.random` samplers for these distributions are not used.
+They use sampling algorithms with extensive branching logic, which must be executed sequentially on GPUs, severely impacting performance.
 In contrast, the samplers in `pypomp.random` utilize approximate inverse cumulative distribution functions (CDFs) that avoid most of this branching logic [@giles2016; @giles2024; @temme1992]. 
 Using the standard JAX samplers can result in execution speeds up to 25 times slower, potentially making the code slower than its R `pomp` counterpart.
 The functions `jax.random.normal` and `jax.random.uniform` are among the exceptions that are highly optimized; they are perfectly fine to use.
