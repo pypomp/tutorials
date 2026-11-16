@@ -587,13 +587,13 @@ Pypomp is not limited to PF methods, and includes, for example, the approximate 
 However, PF has proved an effective tool for the development and analysis of POMP models in scientific contexts.
 
 Pypomp compiles models with JAX's XLA compiler by default; on NVIDIA GPUs, an optional CuTe backend translates them into CUDA kernels [@thakkar23; @cecka26].
-With enough particles and method replications, one GPU running the CuTe backend runs iterated filtering as fast as `{python} f"{min(peak_r_cores_cute.values()):,.0f}"` to `{python} f"{max(peak_r_cores_cute.values()):,.0f}"` CPU cores running pomp (Appendix -@sec-scaling).
-Such replications are routine in practice: practical likelihood maximization involves searching from many initial parameter vectors, and Monte Carlo adjusted profile (MCAP) confidence intervals [@ionides17], implemented in Pypomp as `mcap`, require maximizations.
+With enough particles and independent replications of an inference method, one GPU running the CuTe backend runs iterated filtering as fast as `{python} f"{min(peak_r_cores_cute.values()):,.0f}"` to `{python} f"{max(peak_r_cores_cute.values()):,.0f}"` CPU cores running pomp (Appendix -@sec-scaling).
+Such replications are routine in practice: practical likelihood maximization involves searching from many initial parameter vectors, and Monte Carlo adjusted profile (MCAP) confidence intervals [@ionides17], implemented in Pypomp as `mcap`, require maximizing the likelihood function over a grid of parameter values.
 Profile likelihood approaches have been found preferable to Fisher information for confidence interval construction for linear Gaussian POMP models [@wheeler25arma].
 MCAP algorithms can lead to efficient inference even in a limit where the Monte Carlo error grows with the amount of data [@ning21].
 
-Algorithms to take advantage of JIT, AD, and GPU are an area of active development.
-Pypomp implements the MOP P&P DPF algorithm of @tan24, with the resulting derivative being called DMOP implemented within the `train` method.
+Algorithms to take advantage of JIT compilation, AD, and GPUs are an area of active development.
+Pypomp implements the MOP P&P DPF algorithm of @tan24, with the resulting derivative being called DMOP, implemented within the `train` method.
 DMOP is competitive on benchmark problems when combined with Adam SGD, especially when using IF2 for a warm start [@tan24].
 Pypomp provides inverse transform sampling methods for use in `rproc` and `rmeas` since the rejection sampling used in some `jax.random` samplers is inefficient on GPUs [@giles16; @giles24; @temme92].
 These samplers run `{python} f"{min(sampler_gpu_speedups):.0f}"` to `{python} f"{max(sampler_gpu_speedups):.0f}"` times faster than `jax.random` on a GPU.
