@@ -8,7 +8,7 @@ format:
 jupyter: python3
 execute:
   daemon: false
-  eval: false # Change to true + reduce number of panel units to make sure the code runs
+  eval: true # The slow chunks (mif and pfilter) set eval: false individually
 bibliography: ../bib.bib
 ---
 
@@ -91,6 +91,14 @@ In `pypomp`, you have complete control over which parameters are shared and whic
 
 We will configure the model such that `R0`, `sigma`, `gamma`, `sigmaSE`, `cohort`, and `amplitude` have shared values across units. 
 The `shared_names` parameter in `pp.PanelPomp.sample_params()` allows us to specify which parameters should be shared globally across all units in the resulting `PanelParameters` object. 
+
+```{python}
+#| label: smoke-test-units
+#| echo: false
+# Hidden on purpose: build a 2-unit panel so rendering checks that the model
+# code runs without the cost of 1,422 units. Delete this chunk for the full panel.
+UNITS = UNITS[:2]
+```
 
 ```{python}
 #| label: sample-params
@@ -283,6 +291,7 @@ We are now ready to fit the panel model. We run the IF2 estimation algorithm fir
 
 ```{python}
 #| label: fit-mif
+#| eval: false
 key, subkey = jax.random.split(key)
 
 panel_measles_obj.mif(
@@ -299,6 +308,7 @@ After running the estimation, we run a particle filter on our parameter sets to 
 
 ```{python}
 #| label: evaluate-pfilter
+#| eval: false
 panel_measles_obj.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
 ```
 
@@ -311,6 +321,7 @@ Choosing the best of several noisy estimates biases the resulting log-likelihood
 
 ```{python}
 #| label: mix-and-match
+#| eval: false
 panel_measles_obj.mix_and_match()
 panel_measles_obj.prune(n=1, refill=False)
 panel_measles_obj.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
