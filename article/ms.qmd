@@ -410,26 +410,48 @@ jax_sampler_slowdown = (
 jax_sampler_pf_slowdown = (
     pf_time(timing["measles"]["gpu_jax"]["times"]) / pf_time(timing["measles"]["gpu"]["times"])
 )
-SAMPLERS = json.loads((QUANT / "tests/samplers/benchmark_results.json").read_text())
-SAMPLER_ROWS = {  # distribution: label, cached regime with parameters across the switches
-    "poisson": ("Poisson", "Mixed Rates (around switches)"),
-    "binomial": ("Binomial", "Mixed Grid (around switches)"),
-    "gamma": ("Gamma", "Mixed Shapes (around switch)"),
-    "nbinomial": ("Negative binomial", "Mixed Grid (around switches)"),
+# quant tests/samplers writes one file per job: GPU speed, CPU speed, and
+# accuracy (Wasserstein distances W1 on a grid of parameter values).
+SAMPLER_DIR = QUANT / "tests/samplers/results"
+SAMPLER_FILES = {
+    job: json.loads((SAMPLER_DIR / f"{job}_rl3.json").read_text())
+    for job in ["speed_gpu", "speed_cpu", "accuracy"]
 }
-max_w1_norm = max(max(g["w_dist_norm"]) for g in SAMPLERS["grids"].values())
+SAMPLER_ROWS = {  # distribution: label (parameters across the switches: regime "mixed")
+    "poisson": "Poisson",
+    "binomial": "Binomial",
+    "gamma": "Gamma",
+    "nbinomial": "Negative binomial",
+}
+SAMPLER_N = 1_000_000
+
+
+def sampler_ms(job, dist, sampler):
+    """Milliseconds for SAMPLER_N mixed-regime draws, or None if not benchmarked."""
+    r = [
+        r["seconds"] * 1000
+        for r in SAMPLER_FILES[job]["rows"]
+        if (r["dist"], r["regime"], r["n"], r["sampler"]) == (dist, "mixed", SAMPLER_N, sampler)
+    ]
+    assert len(r) <= 1, (job, dist, sampler)
+    return r[0] if r else None
+
+
+# Largest W1 over each grid, relative to the reference standard deviation.
+sampler_w1 = {
+    d: max(r["w_pp"] / r["sd"] for r in g["rows"])
+    for d, g in SAMPLER_FILES["accuracy"]["wasserstein"].items()
+}
+max_w1_norm = max(sampler_w1.values())
 # GPU speedup of pypomp.random over jax.random, for distributions jax.random has.
 sampler_gpu_speedups = [
-    t["t_jax_gpu"] / t["t_pp_gpu"]
-    for t in (SAMPLERS[d][regime] for d, (_, regime) in SAMPLER_ROWS.items())
-    if t.get("t_jax_gpu") is not None
+    sampler_ms("speed_gpu", d, "jax") / sampler_ms("speed_gpu", d, "pypomp")
+    for d in SAMPLER_ROWS
+    if sampler_ms("speed_gpu", d, "jax") is not None
 ]
-# benchmark_results.json gathers the GPU and CPU timing jobs and the W1 grids.
-# quant's sampler test doesn't record their Pypomp versions yet; the ms reads
-# them from "pypomp_versions": {"gpu": ..., "cpu": ..., "grids": ...}.
 tbl_samplers_version = pypomp_version("tbl-samplers", [
-    (f"samplers/{job}", SAMPLERS.get("pypomp_versions", {}).get(job))
-    for job in ["gpu", "cpu", "grids"]
+    (f"samplers/{job}", SAMPLER_FILES[job]["meta"].get("pypomp_version"))
+    for job in SAMPLER_FILES
 ])
 
 # England and Wales measles fit (all 1,422 towns) on one GPU with the CuTe
@@ -1026,7 +1048,7 @@ IF2 throughput on one GPU, as the number of CPU cores running R that the GPU mat
 `jax.random` draws Poisson, binomial, and gamma random variables with rejection samplers, which loop a random number of times per draw.
 This suits GPUs poorly, since threads that run together wait for the slowest one.
 `pypomp.random` instead provides approximate inverse-CDF samplers, which avoid rejection loops.
-@tbl-samplers compares the two on 1,000,000 draws per call, with parameters spread across the values where each sampler switches algorithms, averaged over 20 calls.
+@tbl-samplers compares the two on 1,000,000 draws per call, with parameters spread across the values where each sampler switches algorithms.
 The approximation error is small: over a grid of parameter values, the Wasserstein distance between 1,000,000 draws from each `pypomp.random` sampler and from a reference sampler is at most `{python} f"{max_w1_norm * 100:.1f}"`% of the reference standard deviation.
 In the London measles benchmark, the `jax.random` samplers made IF2 `{python} f"{jax_sampler_slowdown:.0f}"` times slower and particle filtering `{python} f"{jax_sampler_pf_slowdown:.0f}"` times slower on the GPU. `{python} version_warning("jax-samplers")`
 
@@ -1042,13 +1064,12 @@ def ratio(num, den):
 
 
 rows = []
-for dist, (label, regime) in SAMPLER_ROWS.items():
-    t = SAMPLERS[dist][regime]
-    jax_gpu, jax_cpu = t.get("t_jax_gpu"), t.get("t_jax_cpu")
-    w1 = max(SAMPLERS["grids"][dist]["w_dist_norm"])
+for dist, label in SAMPLER_ROWS.items():
+    t = {(j, k): sampler_ms(f"speed_{j}", dist, k) for j in ["gpu", "cpu"] for k in ["pypomp", "jax"]}
     rows.append(
-        f"{label} & {fmt_ms(t['t_pp_gpu'])} & {fmt_ms(jax_gpu)} & {ratio(jax_gpu, t['t_pp_gpu'])} "
-        f"& {fmt_ms(t['t_pp_cpu'])} & {fmt_ms(jax_cpu)} & {ratio(jax_cpu, t['t_pp_cpu'])} & {w1:.3f}"
+        f"{label} & {fmt_ms(t['gpu', 'pypomp'])} & {fmt_ms(t['gpu', 'jax'])} & {ratio(t['gpu', 'jax'], t['gpu', 'pypomp'])} "
+        f"& {fmt_ms(t['cpu', 'pypomp'])} & {fmt_ms(t['cpu', 'jax'])} & {ratio(t['cpu', 'jax'], t['cpu', 'pypomp'])} "
+        f"& {sampler_w1[dist]:.3f}"
     )
 latex_table(
     "lrrrrrrr",
