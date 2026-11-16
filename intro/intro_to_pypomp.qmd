@@ -28,10 +28,9 @@ from scipy import optimize, stats
 
 import pypomp as pp
 from pypomp.types import *
-
-print(f"pypomp version: {pp.__version__}")
-print(f"JAX version: {jax.__version__}")
 ```
+
+This page was rendered with `pypomp` `{python} pp.__version__` and JAX `{python} jax.__version__`.
 
 ## The Model
 

@@ -1794,7 +1794,7 @@ wheels = [
 
 [[package]]
 name = "pypomp"
-version = "1.0.8"
+version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cloudpickle" },
@@ -1802,13 +1802,11 @@ dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "scipy" },
-    { name = "tqdm" },
-    { name = "typing-extensions" },
     { name = "xarray" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c4/59/92057174c10ae54f04e07bb555b7d08cf1b348a65005b710f6236fba362f/pypomp-1.0.8.tar.gz", hash = "sha256:c0816a741003fbce5a126e2321f66385445511afde276bc838477be634b85e17", size = 7399717, upload-time = "2026-10-04T15:06:47.377Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/1a/484ef45d80b486b6cea29651cfc16ce1b876e909eedb9b9ee42e6b1c0ab7/pypomp-1.4.0.tar.gz", hash = "sha256:7c677087260e2f7d19c2d2793986a35ab33b6e95644a262cea6643bdaebed50e", size = 7518955, upload-time = "2026-11-06T20:10:30.325Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2d/54/4c5ef0ac8b4f229e63cb2a347318967526f67b0dea8d078dbfebee7d1d31/pypomp-1.0.8-py3-none-any.whl", hash = "sha256:c8348cd072913b9809b912fc5d07be0cbe735af69fffe9c8fd718aff145b9510", size = 6408433, upload-time = "2026-10-04T15:06:45.022Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/23/f5f0a76ab450b8a9af05b1ff76d6836724db8371dcd524e8c836cbbd10ff/pypomp-1.4.0-py3-none-any.whl", hash = "sha256:c7659f03d7b5a73f10d22ee2457d7ec327ab144c919d31f2e88dc034b0c29897", size = 6482019, upload-time = "2026-11-06T20:10:28.158Z" },
 ]
 
 [[package]]
@@ -1854,7 +1852,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "pandas", specifier = ">=2.2.0" },
     { name = "plotnine", specifier = ">=0.14.0" },
-    { name = "pypomp", specifier = ">=1.0.2" },
+    { name = "pypomp", specifier = ">=1.4.0" },
     { name = "scipy", specifier = ">=1.14.0" },
     { name = "seaborn", specifier = ">=0.13.0" },
     { name = "statsmodels", specifier = ">=0.14.0" },

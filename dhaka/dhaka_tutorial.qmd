@@ -40,10 +40,9 @@ import jax.numpy as jnp
 import jax.scipy.special as jspecial
 import pypomp as pp
 from pypomp.types import *
-
-print("JAX version:", jax.__version__)
-print("pypomp version:", pp.__version__)
 ```
+
+This page was rendered with `pypomp` `{python} pp.__version__` and JAX `{python} jax.__version__`.
 
 ## 2. Data Loading and Visualisation
 

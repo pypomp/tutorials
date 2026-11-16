@@ -41,10 +41,10 @@ from pypomp.types import *
 # The 1,422 units (cities and towns) in the dataset
 UNITS = pp.models.UKMeasles.units()
 
-print("JAX version:", jax.__version__)
-print("pypomp version:", pp.__version__)
 print("Total available units:", len(UNITS))
 ```
+
+This page was rendered with `pypomp` `{python} pp.__version__` and JAX `{python} jax.__version__`.
 
 ## 2. Setting Up the Panel Model
 
@@ -333,6 +333,8 @@ This run used `pypomp` 1.0.8 and the default XLA backend.
 We later reran the same search with `pypomp` 1.4.0 and its CuTe backend with the Philox random number generator, set with `set_backend("cute", rng="philox")`, in the [quant](https://github.com/pypomp/quant) test `tests/panel_measles/big_timing`. 
 The table below gives the times of both runs. 
 The results in the next section come from the original run, because the rerun saved only its final estimates. 
+We keep the original run's traces because their purpose is to show what the traces of such a search look like. 
+The exact numbers would differ in a rerun with a different `pypomp` version, random number generator, or seed. 
 :::
 
 ### Computation Details
