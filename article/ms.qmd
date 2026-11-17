@@ -576,11 +576,15 @@ for m in TIMING_MODELS:
     faster = [l for l in GPU_LIBS if lib_s(m, l) < lib_s(m, "pypomp")]
     assert faster == (["pydpf"] if m == "spx" else []), (m, faster)
 assert all(lib_s("spx", l) < 2 for l in ["pypomp", *GPU_LIBS])
-# CPU-only libraries relative to the measured pomp (or panelPomp) time.
-lib_cpu_vs_r = {
-    l: [lib_s(m, l) / pf_time(timing[m]["R"]["times"]) for m in TIMING_MODELS]
+# CPU-only libraries relative to Pypomp's compiled filter on a 36-core node
+# (the pfilter_warm time of the CPU timing run, which the first-call time of
+# the library table does not include for the CPU libraries either).
+lib_cpu_vs_pypomp = {
+    l: [lib_s(m, l) / timing[m]["cpu"]["times"]["pfilter_warm"] for m in TIMING_MODELS]
     for l in CPU_LIBS
 }
+# The text says Pypomp on CPU was faster than both CPU-only libraries on every model.
+assert all(x > 1 for xs in lib_cpu_vs_pypomp.values() for x in xs), lib_cpu_vs_pypomp
 
 HOUR, DAY = 3600, 86400
 big_hours = f"{big_total_s / HOUR:.0f}"
@@ -854,7 +858,8 @@ Once compiled, Pypomp was the fastest GPU library on all four models, and its Cu
 Notably, compilation time makes up a smaller fraction of the total runtime for parameter estimation methods which require repeated particle filtering, giving Pypomp a stronger edge in such applications. 
 
 The CPU-only libraries `particles` and `pypfilt` were timed on one core, and we scaled each time to 36 cores assuming perfect scaling, which flatters them.
-Under this assumption, `particles` took `{python} f"{min(lib_cpu_vs_r['particles']):.1f}"` to `{python} f"{max(lib_cpu_vs_r['particles']):.1f}"` times the measured pomp time, and `pypfilt` took `{python} f"{min(lib_cpu_vs_r['pypfilt']):.1f}"` to `{python} f"{max(lib_cpu_vs_r['pypfilt']):.1f}"` times the pomp time.
+The last column gives Pypomp on a 36-core CPU node like those in @tbl-timing-full, measured rather than projected.
+Even under the perfect-scaling assumption, `particles` took `{python} fmt_range(lib_cpu_vs_pypomp['particles'], 1)` times as long as Pypomp on CPU, and `pypfilt` took `{python} fmt_range(lib_cpu_vs_pypomp['pypfilt'], 1)` times as long.
 
 ::: {#tbl-libraries}
 ```{python}
@@ -869,21 +874,27 @@ def fmt_lib(model, column):
     """Compiled time, and the first call in parentheses, for one library."""
     row = lib_times.loc[(model, column)]
     if row["status"] == "timeout":  # never compiled, so no compiled time
-        return "---", f"($>${row['first_s']:,.0f})"
+        return "---", f"($>${row['first_s'] / 3600:.0f}\\,h)"
     if column in CPU_LIBS:  # projected from CPU runs, with no compilation
         return fmt_s(row["first_s"]), ""
     return fmt_lib_s(row["warm_s"]), f"({fmt_lib_s(row['first_s'])})"
+
+
+def fmt_pypomp_cpu(model):
+    """Pypomp on the 36-core CPU node, like fmt_lib: compiled time, then first call."""
+    t = timing[model]["cpu"]["times"]
+    return fmt_s(t["pfilter_warm"]), f"({fmt_s(t['pfilter_cold'])})"
 
 
 # Each model takes two rows: compiled times, then first calls in parentheses.
 rows = []
 for model, label in TIMING_MODELS.items():
     compiled, first = zip(
-        *(fmt_lib(model, c) for c in ["pypomp", "pypomp_cute", *GPU_LIBS, *CPU_LIBS])
+        *(fmt_lib(model, c) for c in ["pypomp", "pypomp_cute", *GPU_LIBS, *CPU_LIBS]),
+        fmt_pypomp_cpu(model),
     )
-    r = fmt_s(pf_time(timing[model]["R"]["times"]))
-    rows.append(f"{label} & " + " & ".join(compiled) + f" & {r}")
-    rows.append(" & " + " & ".join(first) + " & ")
+    rows.append(f"{label} & " + " & ".join(compiled))
+    rows.append(" & " + " & ".join(first))
 tbl = latex_table(
     "lrrrrrrrr",
     [
@@ -892,15 +903,16 @@ tbl = latex_table(
         " & \\multicolumn{2}{c}{Pypomp} & & & & & & \\\\",
         "\\cmidrule(lr){2-3}",
         "Model & XLA & CuTe & \\texttt{pfjax} & \\texttt{cuthbert} & \\texttt{pydpf} "
-        "& \\texttt{particles}$^\\dagger$ & \\texttt{pypfilt}$^\\dagger$ & \\texttt{pomp}$^*$ \\\\",
+        "& \\texttt{particles}$^\\dagger$ & \\texttt{pypfilt}$^\\dagger$ & Pypomp \\\\",
     ],
     rows,
 )
-# Nine columns fit the text width only with slightly tighter column spacing.
-Markdown(tbl.data.replace("\\setlength{\\tabcolsep}{4pt}", "\\setlength{\\tabcolsep}{2pt}"))
+# Nine columns with one-line model names fit the text width only in a smaller
+# font and with slightly tighter column spacing.
+Markdown(tbl.data.replace("\\setlength{\\tabcolsep}{4pt}", "\\small\\setlength{\\tabcolsep}{3.5pt}"))
 ```
 
-Wall-clock time in seconds for the particle filter benchmarks of @tbl-timing-full in Pypomp `{python} tbl_libraries_version` with its default XLA backend and with its CuTe backend and Philox generator, `pfjax` `{python} lib_version["pfjax"]` and `cuthbert` `{python} lib_version["cuthbert"]` (JAX), `pydpf` `{python} lib_version["pydpf"]` (PyTorch), and `particles` `{python} lib_version["particles"]` and `pypfilt` `{python} lib_version["pypfilt"]` (NumPy). GPU times are from one `{python} gpu_name`; for each model, the first row is the time for a call with the filter already compiled, and the second row, in parentheses, is the first call, which includes JIT compilation. ($>3{,}600$) means the first call did not finish within an hour, so there is no compiled time. For the measles models, `pfjax` and `cuthbert` draw with the `jax.random` samplers (Appendix -@sec-samplers). $^\dagger$`particles` and `pypfilt` run only on CPUs; their times are the time for one filter on one core, multiplied by the number of filters and divided by 36. $^*$`panelPomp` for the 4-town panel, as in @tbl-timing-full. `{python} version_warning("tbl-libraries")`
+Wall-clock time in seconds for the particle filter benchmarks of @tbl-timing-full in Pypomp `{python} tbl_libraries_version` with its default XLA backend and with its CuTe backend and Philox generator, `pfjax` `{python} lib_version["pfjax"]` and `cuthbert` `{python} lib_version["cuthbert"]` (JAX), `pydpf` `{python} lib_version["pydpf"]` (PyTorch), and `particles` `{python} lib_version["particles"]` and `pypfilt` `{python} lib_version["pypfilt"]` (NumPy). GPU times are from one `{python} gpu_name`; for each model, the first row is the time for a call with the filter already compiled, and the second row, in parentheses, is the first call, which includes JIT compilation. (${>}1\,$h) means the first call did not finish within an hour, so there is no compiled time. For the measles models, `pfjax` and `cuthbert` draw with the `jax.random` samplers (Appendix -@sec-samplers). $^\dagger$`particles` and `pypfilt` run only on CPUs; their times are the time for one filter on one core, multiplied by the number of filters and divided by 36. The last column is Pypomp (default XLA backend) on a 36-core CPU node, measured in the benchmarks of @tbl-timing-full. `{python} version_warning("tbl-libraries")`
 :::
 
 
