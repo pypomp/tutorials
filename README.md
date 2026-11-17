@@ -35,8 +35,8 @@ A tutorial demonstrating how to construct a POMP model for cholera dynamics in D
 ### 4. [Fitting a Large Panel Model for UK Measles](https://pypomp.github.io/tutorials/big_measles/big_measles_tutorial.html)
 A tutorial demonstrating how to construct and fit a large spatial panel model (with weekly case reports from 1,422 cities/towns in England and Wales) using Marginalized Panel Iterated Filtering (MPIF).
 
-### 5. [Fitting a Four Species Ecological Model to Panel Data](https://pypomp.github.io/Daphnia-tutorial/Python-code/)
-A tutorial demonstrating how to construct and fit a panel model for a system of four interacting species, using Marginalized Panel Iterated Filtering (MPIF).
+<!-- ### 5. [Fitting a Four Species Ecological Model to Panel Data](https://pypomp.github.io/Daphnia-tutorial/Python-code/)
+A tutorial demonstrating how to construct and fit a panel model for a system of four interacting species, using Marginalized Panel Iterated Filtering (MPIF). -->
 
 ---
 
