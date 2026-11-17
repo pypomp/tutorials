@@ -60,7 +60,7 @@ format:
     cite-method: natbib
 bibliography: references.bib
 biblio-style: abbrvnat
-abstract: "Nonlinear, non-Gaussian partially observed Markov process (POMP) models arise in various areas including epidemiology, ecology, and robotics. Model-based inferences typically involve computationally intensive Monte Carlo methods.  We introduce Pypomp, a Python library for data analysis via POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. By design, Pypomp supports model development and data analysis as well as method development, following the approach of the pomp R package. However, Pypomp obtains considerably higher performance: Pypomp running on one GPU can filter as many particles per second as 16,000 CPU cores running pomp. A central algorithm for Pypomp is the particle filter, and Pypomp is faster on our benchmark tests than other GPU-compatible particle filter libraries. The particle filter in Pypomp is differentiable, with a tunable bias-variance tradeoff."
+abstract: "Nonlinear, non-Gaussian partially observed Markov process (POMP) models arise in various areas including epidemiology, ecology, and robotics. Model-based inferences typically involve computationally intensive Monte Carlo methods.  We introduce Pypomp, a Python library for data analysis via POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. By design, Pypomp supports model development and data analysis as well as method development, following the approach of the extensively used pomp R package. However, Pypomp obtains considerably higher performance: Pypomp running on one GPU can filter as many particles per second as 16,000 CPU cores running compiled pomp. A central algorithm for Pypomp is the particle filter, and Pypomp is faster on our benchmark tests than other GPU-compatible particle filter libraries. The particle filter in Pypomp is differentiable, with a tunable bias-variance tradeoff."
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -595,9 +595,9 @@ big_core_ratio = f"{r_big_1core_s / big_total_s:,.0f}"
 ```
 
 # Introduction {#sec-intro}
-Partially observed Markov process (POMP) models provide a flexible framework for modeling dynamic systems whose underlying state is not directly observed.
-POMP models, also known as state-space models or hidden Markov models, consist of a latent Markov process and incomplete or noisy observations.
-The task of evaluating the likelihood function and estimating latent states for a POMP model is called the filtering problem. 
+Partially observed Markov process (POMP) models provide a flexible framework for modeling dynamic systems.
+POMP models, also known as state-space models or hidden Markov models, consist of a latent Markov process observed via incomplete or noisy measurements.
+The task of tracking latent states for a POMP model is called the filtering problem, and filtering is closely related to the task of numerical evaluation of the likelihood function.
 
 Pypomp is a Python library combining advances in hardware, software, and algorithms for POMP models, with an emphasis on inference via the particle filter (PF).
 PF, also known as sequential Monte Carlo, provides an estimate of the likelihood of a POMP model [@arulampalam02].
@@ -668,13 +668,14 @@ spx_obj.pfilter(J=1000, reps=10)
 ```
 
 
-Two performance questions are: (i) what is the benefit of using GPU hardware versus CPU? (ii) how does Pypomp compare in speed to alternative GPU-based particle filter libraries? 
-To address (i), we compare Pypomp on a GPU with pomp on a CPU because that informs a natural decision for scientists considering Pypomp as a data analysis tool. 
+To investigate the benefit of using GPU hardware versus CPU, we compared Pypomp on a GPU with pomp on a CPU because that informs a natural decision for scientists considering Pypomp as a data analysis tool. 
 With model code in compiled C snippets, pomp has comparable speed to other high-performance CPU-based packages for POMP models [@fitzjohn20]. 
 @tbl-timing shows four models with different performance bottlenecks that can be encountered in practice (details in Appendix -@sec-benchmarks and <https://github.com/pypomp/quant>).
 Efficiency peaks when the GPU is saturated, and for small tasks CuTe's longer compilation can outweigh its faster iterations (Appendix -@sec-scaling).
 With `jax.random` samplers instead of `pypomp.random`, IF2 for the London measles model took `{python} f"{jax_sampler_slowdown:.0f}"` times longer (Appendix -@sec-samplers).
-To address (ii), Appendix -@sec-libraries runs the same particle filter workloads in five other Python libraries; on the London measles model, once compiled, `pfjax` and `cuthbert` took `{python} fmt_range(lib_measles_jax, 0)` times as long as Pypomp.
+
+To assess the speed of Pypomp compared to other GPU-based particle filter libraries , we ran  the same particle filter workloads in five other Python libraries (Appendix -@sec-libraries).
+On the London measles model, once compiled, `pfjax` and `cuthbert` took `{python} fmt_range(lib_measles_jax, 0)` times as long as Pypomp.
 
 ::: {#tbl-timing}
 ```{python}
