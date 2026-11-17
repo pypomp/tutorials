@@ -255,6 +255,35 @@ def rproc(
 ```
 
 ```{python}
+#| label: smoke-test-rproc
+#| echo: false
+# Hidden on purpose: call the rproc defined above once, on 4 particles, to check that it runs.
+_X = {k: jnp.full(4, v) for k, v in dict(S=1e5, E=10.0, I=10.0, R=9e5, W=0.0, C=0.0).items()}
+_theta = {k: (lo + hi) / 2 for k, (lo, hi) in measles_box.items()}
+_covars = {"pop": 1e6, "birthrate": 20.0}
+_out = rproc(_X, _theta, jax.random.key(0), _covars, 1948.5, 1 / 365.25)
+assert all(v.shape == (4,) and bool(jnp.all(jnp.isfinite(v))) for v in _out.values())
+
+# Drift check: the rproc shown above must match the package's model 001b, which is
+# the one used in this tutorial. Comparing syntax trees ignores comments and formatting.
+import ast
+import inspect
+import textwrap
+from pypomp.models.measles import model_001b
+
+
+def _body_ast(fn):
+    node = ast.parse(textwrap.dedent(inspect.getsource(fn))).body[0]
+    return ast.dump(node.args), [ast.dump(stmt) for stmt in node.body]
+
+
+assert _body_ast(rproc) == _body_ast(model_001b.rproc), (
+    "The rproc shown in the tutorial differs from pypomp.models.measles.model_001b.rproc; "
+    "update the code and the prose around it."
+)
+```
+
+```{python}
 #| label: check-samplers
 #| echo: false
 # Drift check: the helpers shown above must match pypomp.models.measles._samplers,
@@ -293,62 +322,92 @@ assert all(
 )
 ```
 
-```{python}
-#| label: smoke-test-rproc
-#| echo: false
-# Hidden on purpose: call the rproc defined above once, on 4 particles, to check that it runs.
-_X = {k: jnp.full(4, v) for k, v in dict(S=1e5, E=10.0, I=10.0, R=9e5, W=0.0, C=0.0).items()}
-_theta = {k: (lo + hi) / 2 for k, (lo, hi) in measles_box.items()}
-_covars = {"pop": 1e6, "birthrate": 20.0}
-_out = rproc(_X, _theta, jax.random.key(0), _covars, 1948.5, 1 / 365.25)
-assert all(v.shape == (4,) and bool(jnp.all(jnp.isfinite(v))) for v in _out.values())
-
-# Drift check: the rproc shown above must match the package's model 001b, which is
-# the one used in this tutorial. Comparing syntax trees ignores comments and formatting.
-import ast
-import inspect
-import textwrap
-from pypomp.models.measles import model_001b
-
-
-def _body_ast(fn):
-    node = ast.parse(textwrap.dedent(inspect.getsource(fn))).body[0]
-    return ast.dump(node.args), [ast.dump(stmt) for stmt in node.body]
-
-
-assert _body_ast(rproc) == _body_ast(model_001b.rproc), (
-    "The rproc shown in the tutorial differs from pypomp.models.measles.model_001b.rproc; "
-    "update the code and the prose around it."
-)
-```
-
 One trick is that it uses `@pp.vectorized` to indicate to `pypomp` that the function is manually vectorized, rather than relying on `pypomp` to vectorize it automatically.
 This tells `pypomp` to pass in values for the whole particle swarm, so `X_` and `theta_` are dictionaries of `(J,)` arrays, and the state output is expected to be the same format.
 Because it still passes in a single key, PRNG can be done in a larger, more efficient batch.
 This change allows `mif` to run about 50% faster on a GPU with this model.
 
+```{python}
+#| label: london-timing
+#| echo: false
+# The London timings below come from quant's measles timing test, the same runs
+# ../article/ms.qmd uses, so rerunning quant updates this section. They are read
+# from the article/quant submodule.
+import json
+from pathlib import Path
+
+LONDON_TIMING = Path("../article/quant/tests/measles/timing/results")
+assert LONDON_TIMING.is_dir(), (
+    f"{LONDON_TIMING} is missing; run `git submodule update --init article/quant` "
+    "from the repository root."
+)
+
+
+def _london_run(backend):
+    d = LONDON_TIMING / backend
+    times = pd.read_csv(d / "timings.csv").set_index("phase")["time_seconds"]
+    return times, json.loads((d / "latest.json").read_text())
+
+
+# R is pomp; gpu_jax and gpu are pypomp with jax.random and pypomp.random samplers.
+london = {b: _london_run(b) for b in ["R", "gpu_jax", "gpu"]}
+london_cfg = london["R"][1]["run_config"]
+_cfg_keys = ["UNIT", "NP", "NFITR", "NSTARTS", "NREPS"]
+for _b, (_, _meta) in london.items():
+    assert all(_meta["run_config"][k] == london_cfg[k] for k in _cfg_keys), _b
+_jax_meta, _fast_meta = london["gpu_jax"][1], london["gpu"][1]
+assert (_jax_meta["run_config"]["SAMPLERS"], _fast_meta["run_config"]["SAMPLERS"]) == ("jax", "fast")
+for _k in ["pypomp_version", "backend"]:
+    assert _jax_meta[_k] == _fast_meta[_k], _k
+assert _jax_meta["slurm"]["gpu_type"] == _fast_meta["slurm"]["gpu_type"]
+
+# Task time is IF2 plus the particle filter. Pypomp's first pfilter call includes
+# JIT compilation, which counts here; R has no warm-up, so it has only one call.
+london_min = {
+    b: (t["mif"] + t.get("pfilter_cold", t.get("pfilter_warm"))) / 60
+    for b, (t, _) in london.items()
+}
+london_gpu = _fast_meta["slurm"]["gpu_type"].removeprefix("NVIDIA ")
+london_r_cores = london["R"][1]["hardware"]["cores"]
+jax_sampler_slowdown = london_min["gpu_jax"] / london_min["gpu"]
+```
+
 The second trick is to use `pypomp.random` samplers instead of the standard `jax.random` samplers.
 The `jax.random` samplers use algorithms with extensive branching logic, which must be executed sequentially on GPUs, severely impacting performance.
 In contrast, the samplers in `pypomp.random` utilize approximate inverse cumulative distribution functions (CDFs) that avoid most of this branching logic [@giles2016; @giles2024; @temme1992]. 
-Using the standard JAX samplers can result in execution speeds up to 25 times slower, which can sometimes make code slower than its R `pomp` counterpart.
+In the London benchmark below, using the standard JAX samplers makes `pypomp` `{python} f"{jax_sampler_slowdown:.0f}"` times slower.
 The functions `jax.random.normal` and `jax.random.uniform` are among the exceptions that are highly optimized; they are perfectly fine to use.
 
 The helpers in `smp` are lightweight wrappers around the inverse-CDF functions `gammainv`, `poissoninv`, and `binominv` in `pypomp.random`.
 Because `rproc` gets a single key and the helpers take uniforms instead of keys, `rproc` can draw all of the uniform variates for an Euler step at once, with one call to `jax.random.uniform`, rather than drawing them separately for each gamma, Poisson, and binomial draw.
 The helpers also strip out some of the checks in the full `pypomp.random` samplers (`fast_gamma`, `fast_poisson`, and `fast_binomial`), such as dtype validation and the handling of invalid parameters like negative Poisson rates.
-These checks are useful, but they are unncessary when we are careful with the inputs.
+These checks are useful, but they are unnecessary when we are careful with the inputs.
 Combined with the fast inverse-CDF methods themselves, these choices make the code run fast.
 
-The following table includes execution times for a given POMP task that involved fitting a model to the London time series with IF2 and then evaluating it with the particle filter.
-Without using the inverse polynomial approximations, `pypomp` takes even longer on the task than `pomp` does despite using a GPU.
+The following table, from our quant tests, includes execution times for a POMP task that involved fitting a model to the London time series with IF2 (`{python} london_cfg["NSTARTS"]` searches of `{python} london_cfg["NFITR"]` iterations) and then evaluating each estimate with `{python} london_cfg["NREPS"]` particle filters, all with `{python} f"{london_cfg['NP']:,}"` particles.
+Without the inverse polynomial approximations, `pypomp` on a GPU is only about `{python} f"{london_min['R'] / london_min['gpu_jax']:.0f}"` times faster than `pomp` on `{python} london_r_cores` CPU cores.
+With them, it is about `{python} f"{london_min['R'] / london_min['gpu']:.0f}"` times faster.
 
-| Package | Method | Device | Task Time (minutes) |
-|:---|:---:|:---:|---:|
-| `pomp` | Standard | CPU | 44 |
-| `pypomp` | Standard | V100 GPU | 180 |
-| `pypomp` | Poly approximation | V100 GPU | 7 |
-
-: Speed comparison using the @he2010 London measles model {#tbl-speed-comparison}
+```{python}
+#| label: speed-comparison-table
+#| echo: false
+#| output: asis
+_rows = [
+    ("`pomp`", "Standard", f"{london_r_cores} CPU cores", london_min["R"]),
+    ("`pypomp`", "Standard", london_gpu, london_min["gpu_jax"]),
+    ("`pypomp`", "Poly approximation", london_gpu, london_min["gpu"]),
+]
+print("| Package | Method | Device | Task Time (minutes) |")
+print("|:---|:---:|:---:|---:|")
+for _pkg, _method, _device, _minutes in _rows:
+    print(f"| {_pkg} | {_method} | {_device} | {_minutes:.1f} |")
+print()
+print(
+    f": Speed comparison using the @he2010 London measles model, with `pypomp` "
+    f"{_fast_meta['pypomp_version']} and `pomp` {london['R'][1]['pomp_version']} "
+    "{#tbl-speed-comparison}"
+)
+```
 
 Despite using approximations, these samplers are quite accurate, as indicated by our [quant tests](https://pypomp.github.io/quant/tests/samplers/test.html).
 
