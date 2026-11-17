@@ -86,11 +86,11 @@ measles_box = {
 
 We now sample initial parameter replicates for each of our units. 
 
-The division of parameters into shared (the value is common to all units) and unit-specific (the value varies independently across units) is not fixed by the model itself. 
-In `pypomp`, you have complete control over which parameters are shared and which are unit-specific when initializing a `PanelParameters` object. 
-
-We will configure the model such that `R0`, `sigma`, `gamma`, `sigmaSE`, `cohort`, and `amplitude` have shared values across units. 
-The `shared_names` parameter in `pp.PanelPomp.sample_params()` allows us to specify which parameters should be shared globally across all units in the resulting `PanelParameters` object. 
+When we have panel data, it can be helpful to have some parameter values be shared across units.
+This allows us to combine information across units, and it is more parsimonious than estimating a unique 
+value for each parameter in each unit. 
+Here, we configure the parameters such that `R0`, `sigma`, `gamma`, `sigmaSE`, `cohort`, and `amplitude` have shared values across units. 
+The `shared_names` parameter in `pp.PanelPomp.sample_params()` allows us to specify which parameter values should be shared across units in the resulting `PanelParameters` object. 
 
 ```{python}
 #| label: smoke-test-units
@@ -134,55 +134,7 @@ We would like to call attention to the transition process function for this mode
 ```{python}
 #| label: rproc
 from pypomp.models.measles import _samplers as smp
-from pypomp.random import binominv, gammainv, poissoninv
 
-GAMMA_ADJ = 3  # Same adjustment count as fast_gamma's default.
-N_GAMMA_UNIFORMS = 1 + GAMMA_ADJ
-U_MAX = float(np.nextafter(np.float32(1.0), np.float32(0.0)))
-
-
-def gamma(u, alpha):
-    """fast_gamma from ``N_GAMMA_UNIFORMS`` rows of uniforms ``u``."""
-    u = jnp.clip(u, 1e-7, 1.0 - 1e-7)
-    alpha = jnp.broadcast_to(alpha, u.shape[1:])
-    x = gammainv(u[0], alpha + GAMMA_ADJ)
-    idx = jnp.arange(GAMMA_ADJ - 1, -1, -1, dtype=u.dtype)[:, None]
-    return x * jnp.prod(jnp.power(u[1:], 1.0 / (alpha + idx)), axis=0)
-
-
-def poisson(u, lam):
-    """fast_poisson, from pre-drawn uniforms."""
-    lam = jnp.broadcast_to(lam, u.shape)
-    x = poissoninv(jnp.minimum(u, U_MAX), lam)
-    return jnp.minimum(x, lam + 10.0 * jnp.sqrt(jnp.maximum(lam, 1.0)))
-
-
-def binom(u, n, p):
-    """fast_binomial, from pre-drawn uniforms."""
-    u = jnp.clip(u, jnp.finfo(u.dtype).tiny, U_MAX)
-    return binominv(u, n, jnp.broadcast_to(jnp.clip(p, 0.0, 1.0), u.shape))
-
-
-def euler_probs(r0, r1, dt):
-    """Probabilities of staying, leaving via rate r0, and via rate r1 over one step."""
-    r_sum = r0 + r1
-    p_stay = jnp.exp(-r_sum * dt)
-    scale = (1.0 - p_stay) / r_sum
-    return p_stay, r0 * scale, r1 * scale
-
-
-def multinom_exits(u0, u1, n, p0, p1):
-    """Counts leaving a class of size n with exit probabilities p0 and p1."""
-    x0 = binom(u0, n, p0)
-    p_rem = 1.0 - p0
-    x1 = binom(u1, n - x0, p1 / jnp.where(p_rem > 0.0, p_rem, 1.0))
-    return x0, x1
-
-
-def euler_exits(u0, u1, n, r0, r1, dt):
-    """Euler-multinomial counts leaving a class via rates r0 and r1 over one step."""
-    _, p0, p1 = euler_probs(r0, r1, dt)
-    return multinom_exits(u0, u1, n, p0, p1)
 
 @pp.vectorized
 def rproc(
@@ -284,50 +236,6 @@ assert _body_ast(rproc) == _body_ast(model_001b.rproc), (
 ```
 
 ```{python}
-#| label: check-samplers
-#| echo: false
-# Drift check: the helpers shown above must match pypomp.models.measles._samplers,
-# which rproc imports as smp. Uses _body_ast from the rproc check above.
-_pkg_fns = {
-    name: fn
-    for name, fn in inspect.getmembers(smp, inspect.isfunction)
-    if fn.__module__ == smp.__name__
-}
-_shown_fns = {name: globals()[name] for name in _pkg_fns if name in globals()}
-assert _shown_fns.keys() == _pkg_fns.keys(), (
-    f"smp defines {sorted(_pkg_fns)}, but the tutorial shows {sorted(_shown_fns)}."
-)
-for _name, _fn in _pkg_fns.items():
-    assert _body_ast(_shown_fns[_name]) == _body_ast(_fn), (
-        f"The {_name} shown in the tutorial differs from smp.{_name}; "
-        "update the code and the prose around it."
-    )
-assert (GAMMA_ADJ, N_GAMMA_UNIFORMS, U_MAX) == (
-    smp.GAMMA_ADJ,
-    smp.N_GAMMA_UNIFORMS,
-    smp.U_MAX,
-), "The constants shown in the tutorial differ from those in smp."
-
-# The helpers shown above should give the same draws as smp from the same uniforms.
-_u = jax.random.uniform(jax.random.key(1), (N_GAMMA_UNIFORMS + 2, 1000))
-_n = jnp.full(1000, 500.0)
-assert jnp.array_equal(gamma(_u[:N_GAMMA_UNIFORMS], 0.5), smp.gamma(_u[:N_GAMMA_UNIFORMS], 0.5))
-assert jnp.array_equal(poisson(_u[0], 3.0), smp.poisson(_u[0], 3.0))
-assert all(
-    jnp.array_equal(a, b)
-    for a, b in zip(
-        euler_exits(_u[-2], _u[-1], _n, 50.0, 0.02, 1 / 365.25),
-        smp.euler_exits(_u[-2], _u[-1], _n, 50.0, 0.02, 1 / 365.25),
-    )
-)
-```
-
-One trick is that it uses `@pp.vectorized` to indicate to `pypomp` that the function is manually vectorized, rather than relying on `pypomp` to vectorize it automatically.
-This tells `pypomp` to pass in values for the whole particle swarm, so `X_` and `theta_` are dictionaries of `(J,)` arrays, and the state output is expected to be the same format.
-Because it still passes in a single key, PRNG can be done in a larger, more efficient batch.
-This change allows `mif` to run about 50% faster on a GPU with this model.
-
-```{python}
 #| label: london-timing
 #| echo: false
 # The London timings below come from quant's measles timing test, the same runs
@@ -372,17 +280,116 @@ london_r_cores = london["R"][1]["hardware"]["cores"]
 jax_sampler_slowdown = london_min["gpu_jax"] / london_min["gpu"]
 ```
 
-The second trick is to use `pypomp.random` samplers instead of the standard `jax.random` samplers.
-The `jax.random` samplers use algorithms with extensive branching logic, which must be executed sequentially on GPUs, severely impacting performance.
-In contrast, the samplers in `pypomp.random` utilize approximate inverse cumulative distribution functions (CDFs) that avoid most of this branching logic [@giles2016; @giles2024; @temme1992]. 
+One trick is that it runs the PRNG in one big, more efficient batch.
+It can do this because it uses `@pp.vectorized` to indicate to `pypomp` that the function is manually vectorized, rather than relying on `pypomp` to vectorize it automatically.
+This tells `pypomp` to pass in values for the whole particle swarm, so `X_` and `theta_` are dictionaries of `(J,)` arrays, and the state output is expected to be the same format.
+Because `pypomp` still passes a single key into `rproc`, all of the PRNG can be done with one call to `jax.random.uniform`, which are then passed into wrappers (from `smp`) for the approximate inverse cumulative distribution functions (CDFs) from `pypomp.random`.
+This change allows `mif` to run about 50% faster on a GPU with this model.
+
+We don't use the the standard `jax.random` samplers because they use algorithms with extensive branching logic, which must be executed sequentially on GPUs, severely impacting performance.
+In contrast, the samplers in `pypomp.random` utilize approximate inverse CDFs that avoid most of this branching logic [@giles2016; @giles2024; @temme1992]. 
 In the London benchmark below, using the standard JAX samplers makes `pypomp` `{python} f"{jax_sampler_slowdown:.0f}"` times slower.
 The functions `jax.random.normal` and `jax.random.uniform` are among the exceptions that are highly optimized; they are perfectly fine to use.
 
-The helpers in `smp` are lightweight wrappers around the inverse-CDF functions `gammainv`, `poissoninv`, and `binominv` in `pypomp.random`.
-Because `rproc` gets a single key and the helpers take uniforms instead of keys, `rproc` can draw all of the uniform variates for an Euler step at once, with one call to `jax.random.uniform`, rather than drawing them separately for each gamma, Poisson, and binomial draw.
-The helpers also strip out some of the checks in the full `pypomp.random` samplers (`fast_gamma`, `fast_poisson`, and `fast_binomial`), such as dtype validation and the handling of invalid parameters like negative Poisson rates.
-These checks are useful, but they are unnecessary when we are careful with the inputs.
-Combined with the fast inverse-CDF methods themselves, these choices make the code run fast.
+`smp` is the module `pypomp.models.measles._samplers`, reproduced here:
+
+```{python}
+#| label: samplers
+from pypomp.random import binominv, gammainv, poissoninv
+
+GAMMA_ADJ = 3  # Same adjustment count as fast_gamma's default.
+N_GAMMA_UNIFORMS = 1 + GAMMA_ADJ
+U_MAX = float(np.nextafter(np.float32(1.0), np.float32(0.0)))
+
+
+def gamma(u, alpha):
+    """fast_gamma from ``N_GAMMA_UNIFORMS`` rows of uniforms ``u``."""
+    u = jnp.clip(u, 1e-7, 1.0 - 1e-7)
+    alpha = jnp.broadcast_to(alpha, u.shape[1:])
+    x = gammainv(u[0], alpha + GAMMA_ADJ)
+    idx = jnp.arange(GAMMA_ADJ - 1, -1, -1, dtype=u.dtype)[:, None]
+    return x * jnp.prod(jnp.power(u[1:], 1.0 / (alpha + idx)), axis=0)
+
+
+def poisson(u, lam):
+    """fast_poisson, from pre-drawn uniforms."""
+    lam = jnp.broadcast_to(lam, u.shape)
+    x = poissoninv(jnp.minimum(u, U_MAX), lam)
+    return jnp.minimum(x, lam + 10.0 * jnp.sqrt(jnp.maximum(lam, 1.0)))
+
+
+def binom(u, n, p):
+    """fast_binomial, from pre-drawn uniforms."""
+    u = jnp.clip(u, jnp.finfo(u.dtype).tiny, U_MAX)
+    return binominv(u, n, jnp.broadcast_to(jnp.clip(p, 0.0, 1.0), u.shape))
+
+
+def euler_probs(r0, r1, dt):
+    """Probabilities of staying, leaving via rate r0, and via rate r1 over one step."""
+    r_sum = r0 + r1
+    p_stay = jnp.exp(-r_sum * dt)
+    scale = (1.0 - p_stay) / r_sum
+    return p_stay, r0 * scale, r1 * scale
+
+
+def multinom_exits(u0, u1, n, p0, p1):
+    """Counts leaving a class of size n with exit probabilities p0 and p1."""
+    x0 = binom(u0, n, p0)
+    p_rem = 1.0 - p0
+    x1 = binom(u1, n - x0, p1 / jnp.where(p_rem > 0.0, p_rem, 1.0))
+    return x0, x1
+
+
+def euler_exits(u0, u1, n, r0, r1, dt):
+    """Euler-multinomial counts leaving a class via rates r0 and r1 over one step."""
+    _, p0, p1 = euler_probs(r0, r1, dt)
+    return multinom_exits(u0, u1, n, p0, p1)
+```
+
+```{python}
+#| label: check-samplers
+#| echo: false
+# Drift check: the helpers shown above must match pypomp.models.measles._samplers,
+# which rproc imports as smp. Uses _body_ast from the rproc check above.
+_pkg_fns = {
+    name: fn
+    for name, fn in inspect.getmembers(smp, inspect.isfunction)
+    if fn.__module__ == smp.__name__
+}
+_shown_fns = {name: globals()[name] for name in _pkg_fns if name in globals()}
+assert _shown_fns.keys() == _pkg_fns.keys(), (
+    f"smp defines {sorted(_pkg_fns)}, but the tutorial shows {sorted(_shown_fns)}."
+)
+for _name, _fn in _pkg_fns.items():
+    assert _body_ast(_shown_fns[_name]) == _body_ast(_fn), (
+        f"The {_name} shown in the tutorial differs from smp.{_name}; "
+        "update the code and the prose around it."
+    )
+assert (GAMMA_ADJ, N_GAMMA_UNIFORMS, U_MAX) == (
+    smp.GAMMA_ADJ,
+    smp.N_GAMMA_UNIFORMS,
+    smp.U_MAX,
+), "The constants shown in the tutorial differ from those in smp."
+
+# The helpers shown above should give the same draws as smp from the same uniforms.
+_u = jax.random.uniform(jax.random.key(1), (N_GAMMA_UNIFORMS + 2, 1000))
+_n = jnp.full(1000, 500.0)
+assert jnp.array_equal(gamma(_u[:N_GAMMA_UNIFORMS], 0.5), smp.gamma(_u[:N_GAMMA_UNIFORMS], 0.5))
+assert jnp.array_equal(poisson(_u[0], 3.0), smp.poisson(_u[0], 3.0))
+assert all(
+    jnp.array_equal(a, b)
+    for a, b in zip(
+        euler_exits(_u[-2], _u[-1], _n, 50.0, 0.02, 1 / 365.25),
+        smp.euler_exits(_u[-2], _u[-1], _n, 50.0, 0.02, 1 / 365.25),
+    )
+)
+```
+
+These helpers are lightweight wrappers around the inverse CDF functions `gammainv`, `poissoninv`, and `binominv` in `pypomp.random`.
+The full `pypomp.random` samplers (`fast_gamma`, `fast_poisson`, and `fast_binomial`) call `jax.random.uniform` internally, so we use the bare inverse CDF functions directly to allow for larger batch draws.
+The `smp` helpers also strip out some of the checks in the full `pypomp.random` samplers, such as dtype validation and the handling of invalid parameters like negative Poisson rates.
+These checks are useful, but they are unnecessary when the model code is carefully validated.
+All of these choices come together to make the code run quite fast.
 
 The following table, from our quant tests, includes execution times for a POMP task that involved fitting a model to the London time series with IF2 (`{python} london_cfg["NSTARTS"]` searches of `{python} london_cfg["NFITR"]` iterations) and then evaluating each estimate with `{python} london_cfg["NREPS"]` particle filters, all with `{python} f"{london_cfg['NP']:,}"` particles.
 Without the inverse polynomial approximations, `pypomp` on a GPU is only about `{python} f"{london_min['R'] / london_min['gpu_jax']:.0f}"` times faster than `pomp` on `{python} london_r_cores` CPU cores.
@@ -409,7 +416,29 @@ print(
 )
 ```
 
-Despite using approximations, these samplers are quite accurate, as indicated by our [quant tests](https://pypomp.github.io/quant/tests/samplers/test.html).
+```{python}
+#| label: sampler-accuracy
+#| echo: false
+# Sampler accuracy from quant's sampler test, read from the article/quant submodule.
+_acc = json.loads(
+    Path("../article/quant/tests/samplers/results/accuracy_rl3.json").read_text()
+)
+_w = {d: pd.DataFrame(_acc["wasserstein"][d]["rows"]) for d in ["poisson", "binomial", "gamma"]}
+acc_n = _acc["meta"]["run_config"]["N_ACC"]
+acc_version = _acc["meta"]["pypomp_version"]
+acc_grid = min(len(df) for df in _w.values())
+# Largest Wasserstein-1 distance over the grid, in units of the reference sd, for
+# pypomp vs. jax.random and for two independent jax.random samples (the noise floor).
+acc_w_pp = max((df["w_pp"] / df["sd"]).max() for df in _w.values())
+acc_w_ref = max((df["w_ref"] / df["sd"]).max() for df in _w.values())
+# Largest fraction of uniforms for which poissoninv or binominv misses the exact quantile.
+acc_miss = max(r["rate"] for k in ["poisson", "binomial"] for r in _acc["miss_rates"][k])
+```
+
+Despite using approximations, these samplers are quite accurate, as indicated by our [quant tests](https://pypomp.github.io/quant/tests/samplers/report.html) with `pypomp` `{python} acc_version`.
+Across `{python} acc_grid` parameter values for each of the gamma, Poisson, and binomial samplers, the Wasserstein-1 distance between `{python} f"{acc_n:,}"` `pypomp.random` draws and `{python} f"{acc_n:,}"` `jax.random` draws is at most `{python} f"{acc_w_pp:.2%}"` of a standard deviation.
+That is about the same as the `{python} f"{acc_w_ref:.2%}"` between two independent samples from `jax.random`, so the difference is mostly Monte Carlo noise.
+The inverse CDFs `poissoninv` and `binominv` also return the exact quantile for all but at most `{python} f"{acc_miss:.3%}"` of the uniforms queried.
 
 ## 3. Configuring the Estimation Algorithm (MPIF)
 
