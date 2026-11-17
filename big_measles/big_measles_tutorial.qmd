@@ -215,6 +215,24 @@ _theta = {k: (lo + hi) / 2 for k, (lo, hi) in measles_box.items()}
 _covars = {"pop": 1e6, "birthrate": 20.0}
 _out = rproc(_X, _theta, jax.random.key(0), _covars, 1948.5, 1 / 365.25)
 assert all(v.shape == (4,) and bool(jnp.all(jnp.isfinite(v))) for v in _out.values())
+
+# Drift check: the rproc shown above must match the package's model 001b, which is
+# the one used in this tutorial. Comparing syntax trees ignores comments and formatting.
+import ast
+import inspect
+import textwrap
+from pypomp.models.measles import model_001b
+
+
+def _body_ast(fn):
+    node = ast.parse(textwrap.dedent(inspect.getsource(fn))).body[0]
+    return ast.dump(node.args), [ast.dump(stmt) for stmt in node.body]
+
+
+assert _body_ast(rproc) == _body_ast(model_001b.rproc), (
+    "The rproc shown in the tutorial differs from pypomp.models.measles.model_001b.rproc; "
+    "update the code and the prose around it."
+)
 ```
 
 Two things differ from a process function written for a single particle.
