@@ -129,7 +129,7 @@ panel_measles_obj = pp.models.UKMeasles.panel_pomp(
 )
 ```
 
-We would like to call attention to the transition process function for this model:
+We would like to call attention to the transition process function for this model, which uses a few tricks to run faster:
 
 ```{python}
 #| label: rproc
@@ -235,19 +235,19 @@ assert _body_ast(rproc) == _body_ast(model_001b.rproc), (
 )
 ```
 
-Two things differ from a process function written for a single particle.
-First, `@pp.vectorized` tells `pypomp` not to apply `jax.vmap` to the function.
-Instead, it is called once per Euler step with every state variable as an array with one entry per particle, and with a single random key for the whole step.
-This is optional, and it mainly speeds up CPU runs.
+One trick is that it uses `@pp.vectorized` to indicate to `pypomp` that the function is manually vectorized, rather than relying on `pypomp` to vectorize it automatically.
+This tells `pypomp` to pass in values for the whole particle swarm, so `X_` and `theta_` are dictionaries of `(J,)` arrays, and the state output is expected to be the same format.
+Because it still passes in a single key, PRNG can be done in a larger, more efficient batch.
+This change allows `mif` to run about 50% faster on a GPU with this model.
 
 Second, the function draws all of the step's random numbers with a single call to `jax.random.uniform` and turns them into gamma, Poisson, and binomial draws with the helpers in `smp`.
 The helpers are the measles model's own, and they are built on the inverse-CDF samplers `gammainv`, `poissoninv`, and `binominv` in `pypomp.random`.
 Each class loses individuals through two exits, and the helper `euler_exits` draws the number leaving through each as two binomial draws, which gives the Euler-multinomial transition.
 
-The standard `jax.random` samplers for these distributions are not used.
-They use sampling algorithms with extensive branching logic, which must be executed sequentially on GPUs, severely impacting performance.
+The second trick is to use `pypomp.random` samplers instead of the standard `jax.random` samplers.
+The `jax.random` samplers use algorithms with extensive branching logic, which must be executed sequentially on GPUs, severely impacting performance.
 In contrast, the samplers in `pypomp.random` utilize approximate inverse cumulative distribution functions (CDFs) that avoid most of this branching logic [@giles2016; @giles2024; @temme1992]. 
-Using the standard JAX samplers can result in execution speeds up to 25 times slower, potentially making the code slower than its R `pomp` counterpart.
+Using the standard JAX samplers can result in execution speeds up to 25 times slower, which can sometimes make code slower than its R `pomp` counterpart.
 The functions `jax.random.normal` and `jax.random.uniform` are among the exceptions that are highly optimized; they are perfectly fine to use.
 
 The following table includes execution times for a given POMP task that involved fitting a model to the London time series with IF2 and then evaluating it with the particle filter.
