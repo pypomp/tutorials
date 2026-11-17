@@ -204,12 +204,63 @@ def rinit(theta_: ParamDict, key: RNGKey, covars: CovarDict, t0: InitialTimeFloa
     }
 ```
 
+```{python}
+#| label: check-rinit
+#| echo: false
+# Drift check: the model code shown in this tutorial must match pypomp's Dhaka
+# model, pypomp.models.dacca, which pp.models.dhaka() builds. Comparing syntax
+# trees ignores comments, formatting, and decorators.
+import ast
+import importlib
+import inspect
+import textwrap
+
+_dacca = importlib.import_module("pypomp.models.dacca")
+
+
+def _body_ast(fn):
+    node = ast.parse(textwrap.dedent(inspect.getsource(fn))).body[0]
+    # pypomp prefixes its private helpers with "_" (e.g. _dmeas_helper); ignore that.
+    for n in ast.walk(node):
+        if isinstance(n, ast.Name):
+            n.id = n.id.lstrip("_")
+    return ast.dump(node.args), [ast.dump(stmt) for stmt in node.body]
+
+
+def _check_same(fn, pkg_fn):
+    assert _body_ast(fn) == _body_ast(pkg_fn), (
+        f"{fn.__name__} in the tutorial differs from pypomp.models.dacca.{pkg_fn.__name__}; "
+        "update the code and the prose around it."
+    )
+
+
+# The parameters, state names, and data loaded above must match too.
+assert theta_default.params(as_list=True)[0] == _dacca.theta
+assert statenames == _dacca.statenames and accumvars == _dacca.accumvars
+pd.testing.assert_frame_equal(ys, _dacca.ys, check_dtype=False, check_index_type=False)
+pd.testing.assert_frame_equal(covars, _dacca.covars, check_dtype=False, check_index_type=False)
+
+_check_same(rinit, _dacca._rinit)
+
+# Inputs for the rproc check below
+_theta = theta_default.params(as_list=True)[0]
+_covars0 = covars.iloc[0].to_dict()
+```
+
 ### Process Model Simulator (`rproc`)
 
-This simulates one Euler step of the model dynamics described above. 
+This simulates one Euler step of the model dynamics described above, for all particles at once.
+
+By default, `pypomp` applies `jax.vmap` to `rproc`, so the user writes the dynamics for a single particle.
+The `@pp.vectorized` decorator turns this off.
+The function is then called once per Euler step with each state variable as an array of length $J$, the number of particles, and must handle all $J$ particles itself.
+In practice, this means writing elementwise arithmetic and drawing all the noise in one call from a single key, as in `jax.random.normal(key, (J,))` below, with $J$ read off the state rather than hardcoded.
+Parameters arrive as scalars, except under `mif`, where each particle carries its own perturbed parameters and they arrive as length-$J$ arrays; elementwise code handles both cases.
+We do this for speed: XLA's CPU backend does not vectorize per-particle random number generation across particles, so a vectorized `rproc` can run several times faster on CPU.
 
 ```{python}
 #| label: rproc-definition
+@pp.vectorized
 def rproc(
     X_: StateDict,
     theta_: ParamDict,
@@ -218,59 +269,86 @@ def rproc(
     t: TimeFloat,
     dt: StepSizeFloat,
 ):
-    S, I, Y, deaths, count = X_["S"], X_["I"], X_["Y"], X_["Mn"], X_["count"]
-    pts = jnp.array([X_["R1"], X_["R2"], X_["R3"]])
-    trend, dpopdt, pop = covars["trend"], covars["dpopdt"], covars["pop"]
+    S = X_["S"]
+    I = X_["I"]
+    Y = X_["Y"]
+    deaths = X_["Mn"]
+    q0, q1, q2 = X_["R1"], X_["R2"], X_["R3"]
+    count = X_["count"]
+
+    J = jnp.asarray(S).shape[0]  # number of particles
+
+    trend = covars["trend"]
+    dpopdt = covars["dpopdt"]
+    pop = covars["pop"]
     seas = jnp.array([covars[f"seas{i}"] for i in range(1, 7)])
-    gamma, deltaI, rho = theta_["gamma"], theta_["m"], theta_["rho"]
-    beta_trend, sd_beta, alpha = theta_["beta_trend"], theta_["sigma"], theta_["alpha"]
-    delta, clin, eps = theta_["delta"], theta_["c"], theta_["epsilon"]
-    omegas = jnp.array([theta_[f"omegas{i}"] for i in range(1, 7)])
-    bs = jnp.array([theta_[f"bs{i}"] for i in range(1, 7)])
+
+    gamma = theta_["gamma"]
+    deltaI = theta_["m"]
+    rho = theta_["rho"]
+    eps = theta_["epsilon"]
+    clin = theta_["c"]
+    beta_trend = theta_["beta_trend"]
+    sd_beta = theta_["sigma"]
+    alpha = theta_["alpha"]
+    delta = theta_["delta"]
+    # Stacking along axis 0 keeps per-particle parameters (under mif) aligned with seas
+    omegas = jnp.stack([theta_[f"omegas{i}"] for i in range(1, 7)], axis=0)
+    bs = jnp.stack([theta_[f"bs{i}"] for i in range(1, 7)], axis=0)
 
     nrstage = 3
     std = jnp.sqrt(dt)
 
-    neps = eps * nrstage  # rate of waning stages
-    passages = jnp.zeros(nrstage + 1)
+    neps = eps * nrstage  # rate of passage between immunity stages
+    pass0 = gamma * I
+    pass1 = q0 * neps
+    pass2 = q1 * neps
+    pass3 = q2 * neps
 
-    # Calculate seasonal B-spline terms
-    beta = jnp.exp(beta_trend * trend + jnp.dot(bs, seas))
-    omega = jnp.exp(jnp.dot(omegas, seas))
+    # Seasonal B-spline terms
+    beta = jnp.exp(beta_trend * trend + jnp.dot(seas, bs))
+    omega = jnp.exp(jnp.dot(seas, omegas))
 
-    subkey, key = jax.random.split(key)
-    dw = jax.random.normal(subkey) * std
+    # One Brownian increment per particle, drawn from a single key
+    dw = jax.random.normal(key, (J,)) * std
 
     effI = (I / pop) ** alpha
     births = dpopdt + delta * pop
-    passages = passages.at[0].set(gamma * I)
     ideaths = delta * I
     disease = deltaI * I
     ydeaths = delta * Y
     wanings = rho * Y
 
-    rdeaths = pts * delta
-    passages = passages.at[1:].set(pts * neps)
+    rdeaths0 = q0 * delta
+    rdeaths1 = q1 * delta
+    rdeaths2 = q2 * delta
 
     # Multiplicative Gaussian white noise perturbation to transmission
     infections = (omega + (beta + sd_beta * dw / dt) * effI) * S
     sdeaths = delta * S
 
-    S += (births - infections - sdeaths + passages[nrstage] + wanings) * dt
-    I += (clin * infections - disease - ideaths - passages[0]) * dt
-    Y += ((1 - clin) * infections - ydeaths - wanings) * dt
+    S = S + (births - infections - sdeaths + pass3 + wanings) * dt
+    I = I + (clin * infections - disease - ideaths - pass0) * dt
+    Y = Y + ((1 - clin) * infections - ydeaths - wanings) * dt
 
-    pts = pts + (passages[:-1] - passages[1:] - rdeaths) * dt
+    q0 = q0 + (pass0 - pass1 - rdeaths0) * dt
+    q1 = q1 + (pass1 - pass2 - rdeaths1) * dt
+    q2 = q2 + (pass2 - pass3 - rdeaths2) * dt
+
     deaths = deaths + disease * dt
 
     # Flag negative state occurrences
-    count = count + jnp.any(jnp.hstack([jnp.array([S, I, Y, deaths]), pts]) < 0)
+    count = count + (
+        (S < 0) | (I < 0) | (Y < 0) | (deaths < 0) | (q0 < 0) | (q1 < 0) | (q2 < 0)
+    )
 
     # Clip values to zero to ensure stability
     S = jnp.clip(S, 0)
     I = jnp.clip(I, 0)
     Y = jnp.clip(Y, 0)
-    pts = jnp.clip(pts, 0)
+    q0 = jnp.clip(q0, 0)
+    q1 = jnp.clip(q1, 0)
+    q2 = jnp.clip(q2, 0)
     deaths = jnp.clip(deaths, 0)
 
     return {
@@ -278,11 +356,28 @@ def rproc(
         "I": I,
         "Y": Y,
         "Mn": deaths,
-        "R1": pts[0],
-        "R2": pts[1],
-        "R3": pts[2],
+        "R1": q0,
+        "R2": q1,
+        "R3": q2,
         "count": count,
     }
+```
+
+```{python}
+#| label: check-rproc
+#| echo: false
+# Hidden on purpose: run the rproc shown above on 4 particles, with scalar
+# parameters (as in pfilter) and with per-particle parameters (as in mif).
+_J = 4
+_X = {k: jnp.full(_J, v) for k, v in rinit(_theta, None, _covars0, 1891.0).items()}
+for _th in (_theta, {k: jnp.full(_J, v) for k, v in _theta.items()}):
+    _out = rproc(_X, _th, jax.random.key(0), _covars0, 1891.0, 1 / 240)
+    assert all(v.shape == (_J,) and bool(jnp.all(jnp.isfinite(v))) for v in _out.values())
+
+# Drift check: the rproc shown above must be decorated with @pp.vectorized and
+# match pypomp's Dhaka model.
+assert getattr(rproc, "_pypomp_vectorized", False)
+_check_same(rproc, _dacca._rproc)
 ```
 
 ### Measurement Model (`dmeas` and `rmeas`)
@@ -338,6 +433,19 @@ def rmeas(
     return {"deaths": jax.random.normal(key) * v + deaths}
 ```
 
+```{python}
+#| label: check-dmeas-rmeas
+#| echo: false
+# Drift check against pypomp's Dhaka model (helpers defined in check-rinit).
+for _fn, _pkg_fn in [
+    (dmeas_helper, _dacca._dmeas_helper),
+    (dmeas_helper_tol, _dacca._dmeas_helper_tol),
+    (dmeas, _dacca._dmeas),
+    (rmeas, _dacca._rmeas),
+]:
+    _check_same(_fn, _pkg_fn)
+```
+
 ### Parameter Transformations (`to_est` and `from_est`)
 
 Here, we define functions to transform positive constraints to the real line and back.
@@ -390,6 +498,14 @@ def from_est(theta: ParamDict) -> ParamDict:
 ptrans = pp.ParTrans(to_est=to_est, from_est=from_est)
 ```
 
+```{python}
+#| label: check-par-trans
+#| echo: false
+# Drift check against pypomp's Dhaka model (helpers defined in check-rinit).
+_check_same(to_est, _dacca._to_est)
+_check_same(from_est, _dacca._from_est)
+```
+
 ### Model Initialization
 
 We instantiate our custom model with `pp.Pomp`. 
@@ -413,6 +529,31 @@ dacca_obj = pp.Pomp(
     statenames=statenames,
     par_trans=ptrans,
 )
+```
+
+```{python}
+#| label: check-model
+#| echo: false
+# End-to-end check: with the same key, a fresh copy of the model built above
+# and pp.models.dhaka() give the same particle filter log-likelihood.
+# dacca_obj itself is left untouched.
+import copy
+
+# pypomp.models.dacca passes the covariate times through jnp.array, which rounds
+# them to float32. That shifts the interpolated covariates slightly, which is
+# enough to change a fixed-key estimate, so round them the same way here.
+_covars32 = covars.set_axis(np.array(jnp.array(covars.index.values)), axis=0)
+_mine = pp.Pomp(
+    rinit=rinit, rproc=rproc, dmeas=dmeas, rmeas=rmeas, ys=ys, t0=1891.0,
+    nstep=20, accumvars=accumvars, theta=copy.deepcopy(theta_default), covars=_covars32,
+    statenames=statenames, par_trans=ptrans,
+)
+_pkg = pp.models.dhaka(dt=None, nstep=20)
+for _m in (_mine, _pkg):
+    _m.pfilter(J=100, key=jax.random.key(1))
+_ll_mine, _ll_pkg = (float(_m.results()["logLik"].iloc[0]) for _m in (_mine, _pkg))
+assert np.isfinite(_ll_mine) and np.isclose(_ll_mine, _ll_pkg, rtol=1e-6), (_ll_mine, _ll_pkg)
+del _mine, _pkg
 ```
 
 ## 4. Setup for Parameter Estimation
