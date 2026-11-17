@@ -264,6 +264,15 @@ for t in timing.values():
             r, py_cpu, gpu = (get(t[b]["times"]) for b in ["R", "cpu", "gpu"])
             software_ratios.append(r / py_cpu)
             hardware_ratios.append(py_cpu / gpu)
+# The text says the 4-town panel has the smallest software ratio and the largest
+# hardware ratio, for IF2 and PF alike. Ratios are appended in the order of
+# timing, two per model.
+assert len(software_ratios) == 2 * len(timing)  # every model has a CPU run
+i_panel = list(timing).index("panel_measles")
+for k in (0, 1):
+    others = [j for j in range(len(software_ratios)) if j // 2 != i_panel and j % 2 == k]
+    assert software_ratios[2 * i_panel + k] < min(software_ratios[j] for j in others)
+    assert hardware_ratios[2 * i_panel + k] > max(hardware_ratios[j] for j in others)
 
 # GPU scaling tests: more chains at J = 1,000, or more particles per chain at a
 # fixed number of chains. Each configuration ran in its own process with XLA
@@ -729,6 +738,7 @@ The panel model fits the same measles model to `{python} ", ".join(panel_cfg["un
 MPIF [@wheeler25] filters the towns sequentially within each iteration, so an iteration costs about four single-town iterations with the same number of particles in flight.
 This model tests the panel methods used in Appendix -@sec-big-measles-details.
 With the default XLA backend, its IF2 ratio of R pomp CPU time to GPU time is lower than for the London model because R runs it relatively fast, likely because the random variate generators in R can take a cheaper route for the smaller parameter values of the smaller towns.
+In @tbl-timing-full, it has the smallest ratio of panelPomp time to Pypomp CPU time and the largest ratio of Pypomp CPU time to Pypomp GPU time, for both IF2 and the particle filter, so most of its speedup comes from the GPU.
 
 **S&P 500.**
 The stochastic volatility model of @breto14 has `{python} f"{spx_n_obs:,}"` daily log returns and takes one step of its process model per observation, with a single normal draw.
@@ -822,7 +832,7 @@ latex_table(
 )
 ```
 
-Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation, with the workloads described above, and with Pypomp `{python} tbl_timing_full_version`. Pypomp IF2 and PF times include JIT compilation. Pypomp GPU times are with its default XLA backend and with its CuTe backend. Software ratio is the pomp (or panelPomp) time divided by the Pypomp time on a 36-core node, and total ratio is the pomp time divided by the Pypomp GPU time with each backend. These workloads do not saturate the GPU, so the total ratios understate its throughput; the peak columns of @tbl-timing give the GPU's highest measured IF2 throughput. The 4-town panel has no Pypomp CPU run. `{python} version_warning("tbl-timing-full")`
+Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation, with the workloads described above, and with Pypomp `{python} tbl_timing_full_version`. Pypomp IF2 and PF times include JIT compilation. Pypomp GPU times are with its default XLA backend and with its CuTe backend. Software ratio is the pomp (or panelPomp) time divided by the Pypomp time on a 36-core node, and total ratio is the pomp time divided by the Pypomp GPU time with each backend. These workloads do not saturate the GPU, so the total ratios understate its throughput; the peak columns of @tbl-timing give the GPU's highest measured IF2 throughput. `{python} version_warning("tbl-timing-full")`
 :::
 
 # Comparison with other particle filter libraries {#sec-libraries}
