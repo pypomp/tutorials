@@ -240,10 +240,6 @@ This tells `pypomp` to pass in values for the whole particle swarm, so `X_` and 
 Because it still passes in a single key, PRNG can be done in a larger, more efficient batch.
 This change allows `mif` to run about 50% faster on a GPU with this model.
 
-Second, the function draws all of the step's random numbers with a single call to `jax.random.uniform` and turns them into gamma, Poisson, and binomial draws with the helpers in `smp`.
-The helpers are the measles model's own, and they are built on the inverse-CDF samplers `gammainv`, `poissoninv`, and `binominv` in `pypomp.random`.
-Each class loses individuals through two exits, and the helper `euler_exits` draws the number leaving through each as two binomial draws, which gives the Euler-multinomial transition.
-
 The second trick is to use `pypomp.random` samplers instead of the standard `jax.random` samplers.
 The `jax.random` samplers use algorithms with extensive branching logic, which must be executed sequentially on GPUs, severely impacting performance.
 In contrast, the samplers in `pypomp.random` utilize approximate inverse cumulative distribution functions (CDFs) that avoid most of this branching logic [@giles2016; @giles2024; @temme1992]. 
@@ -262,6 +258,126 @@ Without using the inverse polynomial approximations, `pypomp` takes even longer 
 : Speed comparison using the @he2010 London measles model {#tbl-speed-comparison}
 
 Despite using approximations, these samplers are quite accurate, as indicated by our [quant tests](https://pypomp.github.io/quant/tests/samplers/test.html).
+
+### The Sampler Helpers
+
+`pypomp.random` provides `fast_gamma`, `fast_poisson`, and `fast_binomial`, which each take a key and draw their own uniforms before passing them through an inverse CDF.
+Calling these directly would mean splitting the step's key eight ways, once for each gamma, Poisson, and binomial draw, and making a separate PRNG call for each.
+Instead, `rproc` draws every uniform the step needs with a single call to `jax.random.uniform`, as an array with one row per uniform and one column per particle, and passes rows of it to the helpers in `smp`.
+These helpers apply the same transformations as the `fast_*` samplers, but they start from uniforms that are passed in rather than from a key.
+Their code is short, so we show it in full:
+
+```{python}
+#| label: samplers
+from pypomp.random import binominv, gammainv, poissoninv
+
+GAMMA_ADJ = 3  # Same adjustment count as fast_gamma's default.
+N_GAMMA_UNIFORMS = 1 + GAMMA_ADJ
+U_MAX = float(np.nextafter(np.float32(1.0), np.float32(0.0)))
+
+
+def gamma(u, alpha):
+    """fast_gamma from ``N_GAMMA_UNIFORMS`` rows of uniforms ``u``."""
+    u = jnp.clip(u, 1e-7, 1.0 - 1e-7)
+    alpha = jnp.broadcast_to(alpha, u.shape[1:])
+    x = gammainv(u[0], alpha + GAMMA_ADJ)
+    idx = jnp.arange(GAMMA_ADJ - 1, -1, -1, dtype=u.dtype)[:, None]
+    return x * jnp.prod(jnp.power(u[1:], 1.0 / (alpha + idx)), axis=0)
+
+
+def poisson(u, lam):
+    """fast_poisson, from pre-drawn uniforms."""
+    lam = jnp.broadcast_to(lam, u.shape)
+    x = poissoninv(jnp.minimum(u, U_MAX), lam)
+    return jnp.minimum(x, lam + 10.0 * jnp.sqrt(jnp.maximum(lam, 1.0)))
+
+
+def binom(u, n, p):
+    """fast_binomial, from pre-drawn uniforms."""
+    u = jnp.clip(u, jnp.finfo(u.dtype).tiny, U_MAX)
+    return binominv(u, n, jnp.broadcast_to(jnp.clip(p, 0.0, 1.0), u.shape))
+
+
+def euler_probs(r0, r1, dt):
+    """Probabilities of staying, leaving via rate r0, and via rate r1 over one step."""
+    r_sum = r0 + r1
+    p_stay = jnp.exp(-r_sum * dt)
+    scale = (1.0 - p_stay) / r_sum
+    return p_stay, r0 * scale, r1 * scale
+
+
+def multinom_exits(u0, u1, n, p0, p1):
+    """Counts leaving a class of size n with exit probabilities p0 and p1."""
+    x0 = binom(u0, n, p0)
+    p_rem = 1.0 - p0
+    x1 = binom(u1, n - x0, p1 / jnp.where(p_rem > 0.0, p_rem, 1.0))
+    return x0, x1
+
+
+def euler_exits(u0, u1, n, r0, r1, dt):
+    """Euler-multinomial counts leaving a class via rates r0 and r1 over one step."""
+    _, p0, p1 = euler_probs(r0, r1, dt)
+    return multinom_exits(u0, u1, n, p0, p1)
+```
+
+```{python}
+#| label: check-samplers
+#| echo: false
+# Drift check: the helpers shown above must match pypomp.models.measles._samplers,
+# which rproc imports as smp. Uses _body_ast from the rproc check above.
+_pkg_fns = {
+    name: fn
+    for name, fn in inspect.getmembers(smp, inspect.isfunction)
+    if fn.__module__ == smp.__name__
+}
+_shown_fns = {name: globals()[name] for name in _pkg_fns if name in globals()}
+assert _shown_fns.keys() == _pkg_fns.keys(), (
+    f"smp defines {sorted(_pkg_fns)}, but the tutorial shows {sorted(_shown_fns)}."
+)
+for _name, _fn in _pkg_fns.items():
+    assert _body_ast(_shown_fns[_name]) == _body_ast(_fn), (
+        f"The {_name} shown in the tutorial differs from smp.{_name}; "
+        "update the code and the prose around it."
+    )
+assert (GAMMA_ADJ, N_GAMMA_UNIFORMS, U_MAX) == (
+    smp.GAMMA_ADJ,
+    smp.N_GAMMA_UNIFORMS,
+    smp.U_MAX,
+), "The constants shown in the tutorial differ from those in smp."
+
+# The helpers shown above should give the same draws as smp from the same uniforms.
+_u = jax.random.uniform(jax.random.key(1), (N_GAMMA_UNIFORMS + 2, 1000))
+_n = jnp.full(1000, 500.0)
+assert jnp.array_equal(gamma(_u[:N_GAMMA_UNIFORMS], 0.5), smp.gamma(_u[:N_GAMMA_UNIFORMS], 0.5))
+assert jnp.array_equal(poisson(_u[0], 3.0), smp.poisson(_u[0], 3.0))
+assert all(
+    jnp.array_equal(a, b)
+    for a, b in zip(
+        euler_exits(_u[-2], _u[-1], _n, 50.0, 0.02, 1 / 365.25),
+        smp.euler_exits(_u[-2], _u[-1], _n, 50.0, 0.02, 1 / 365.25),
+    )
+)
+```
+
+Each Euler step of `rproc` uses `N_GAMMA_UNIFORMS + 7 = 11` uniforms per particle: four for the gamma draw, one for the Poisson draw, and two for each of the three calls to `euler_exits`.
+
+`gamma` makes one $\text{Gamma}(\alpha, 1)$ draw from four uniforms.
+The approximation in `gammainv` is most accurate for large shapes, with at least four significant digits when $\alpha \geq 2$, but the shape here is `dt / sigmaSE**2`, which is between about 0.27 and 1.7 for a daily step over our `sigmaSE` box.
+To get around this, `gamma` uses the first uniform, $U_0$, to draw from $\text{Gamma}(\alpha + 3, 1)$ and multiplies the result by $U_1^{1/(\alpha + 2)} U_2^{1/(\alpha + 1)} U_3^{1/\alpha}$ using the other three.
+This relies on the fact that if $X \sim \text{Gamma}(a + 1, 1)$ and $U \sim \text{Uniform}(0, 1)$ are independent, then $X U^{1/a} \sim \text{Gamma}(a, 1)$ [@marsaglia2000], applied three times to step the shape down from $\alpha + 3$ to $\alpha$.
+`rproc` then multiplies the draw by `sigmaSE**2`, giving gamma noise `dw` with mean `dt` and variance `sigmaSE**2 * dt`, which scales the force of infection.
+
+`poisson` and `binom` are thin wrappers around `poissoninv` and `binominv`.
+They keep the uniforms away from 0 and 1, where the inverse CDFs can be infinite or undefined, and `binom` clips `p` to $[0, 1]$ in case rounding pushes it slightly outside.
+`poisson` also caps its draws at $\lambda + 10\sqrt{\max(\lambda, 1)}$, about ten standard deviations above the mean, which bounds the output if the approximation misbehaves far in the tail.
+These choices copy those made in `fast_poisson` and `fast_binomial`.
+
+The last three helpers produce the Euler-multinomial transitions of @breto2009.
+Each class of size $n$ loses individuals through two exits: moving to the next class at rate $r_0$, and dying at rate $r_1 = \mu$.
+Over a step of length $\Delta t$, each individual stays with probability $e^{-(r_0 + r_1)\Delta t}$ and leaves through exit $i$ with probability $\frac{r_i}{r_0 + r_1}\left(1 - e^{-(r_0 + r_1)\Delta t}\right)$, which `euler_probs` computes.
+`multinom_exits` then draws the two counts as a pair of binomials, $X_0 \sim \text{Binomial}(n, p_0)$ and $X_1 \mid X_0 \sim \text{Binomial}\left(n - X_0, \frac{p_1}{1 - p_0}\right)$, which together have the same distribution as a single multinomial draw.
+The `jnp.where` avoids dividing by zero when $p_0 = 1$, in which case $n - X_0 = 0$ and $X_1$ is 0 regardless.
+For the susceptible class, $r_0$ is the noisy force of infection `foi * dw / dt`, so the gamma noise enters `rproc` through this call.
 
 ## 3. Configuring the Estimation Algorithm (MPIF)
 
