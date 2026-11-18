@@ -9,12 +9,12 @@ author:
   - name: Jun Chen
     affiliations:
       - name: Duke University
-        department: Department of Statistics
-    email: chenjunc@umich.edu
+        department: Department of Statistical Science
+    email: j.chen@duke.edu
   - name: Kevin Tan
     affiliations:
       - name: University of Pennsylvania
-        department: Department of Statistics
+        department: Department of Statistics and Data Science
     email: kevtan@wharton.upenn.edu
   - name: Jesse Wheeler
     affiliations:
@@ -39,19 +39,19 @@ author:
   - name: Aaron A. King
     affiliations:
       - name: University of Michigan
-        department: Department of Ecology \& Evolutionary Biology
+        department: Department of Ecology and Evolutionary Biology
     email: kingaa@umich.edu
   - name: Giles Hooker
     affiliations:
       - name: University of Pennsylvania
-        department: Department of Statistics
+        department: Department of Statistics and Data Science
     email: ghooker@wharton.upenn.edu
   - name: Edward L. Ionides
     affiliations:
       - name: University of Michigan
         department: Department of Statistics
     email: ionides@umich.edu   
-keywords: [pomp, JAX, GPU acceleration, likelihood-based inference]
+keywords: [POMP, Hidden Markov Model, State Space Model, JAX, GPU, Likelihood, Particle Filter]
 number-sections: true 
 format:
   pdf:
@@ -60,7 +60,7 @@ format:
     cite-method: natbib
 bibliography: references.bib
 biblio-style: abbrvnat
-abstract: "Nonlinear, non-Gaussian partially observed Markov process (POMP) models arise in various areas including epidemiology, ecology, and robotics. Model-based inferences typically involve computationally intensive Monte Carlo methods.  We introduce Pypomp, a Python library for data analysis via POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. By design, Pypomp supports model development and data analysis as well as method development, following the approach of the extensively used pomp R package. However, Pypomp obtains considerably higher performance: Pypomp running on one GPU can filter as many particles per second as 16,000 CPU cores running compiled pomp. A central algorithm for Pypomp is the particle filter, and Pypomp is faster on our benchmark tests than other GPU-compatible particle filter libraries. The particle filter in Pypomp is differentiable, with a tunable bias-variance tradeoff."
+abstract: "Nonlinear, non-Gaussian partially observed Markov process (POMP) models arise in various areas including epidemiology, ecology, and robotics. Model-based inferences typically involve computationally intensive Monte Carlo methods.  We introduce Pypomp, a Python library for data analysis via POMP models that uses JAX to take advantage of GPU hardware, automatic differentiation, and just-in-time compilation. Pypomp provides a framework for model development and statistical inference, following the approach of the extensively used pomp R package. Pypomp is designed to have high performance: on our benchmark tasks, Pypomp running on one GPU can filter as many particles per second as 16,000 CPU cores running compiled pomp. Pypomp was also faster on these tasks than other GPU-compatible particle filter libraries. Pypomp provides a differentiable particle filter, with a tunable bias-variance tradeoff for the log-likelihood gradient, enabling support for gradient-based Bayesian and maximum likelihood methods."
 header-includes:
   - \usepackage{algorithm}
   - \usepackage{algpseudocode}
@@ -602,24 +602,23 @@ The task of tracking latent states for a POMP model is called the filtering prob
 Pypomp is a Python library combining advances in hardware, software, and algorithms for POMP models, with an emphasis on inference via the particle filter (PF).
 PF, also known as sequential Monte Carlo, provides an estimate of the likelihood of a POMP model [@arulampalam02].
 The basic PF algorithm needs to simulate from the process model but does not evaluate its transition probabilities, a property known as plug-and-play (P&P) [@breto09].
-Pypomp focuses on P&P methods because they facilitate scientific modeling, enabling applications in epidemiology [@mietchen24; @fox22; @wen24], ecology [@augermethe21; @marino19; @blackwood13], finance [@breto14], robotics [@jonschkowski18] and other domains where nonlinear mechanistic stochastic dynamic models are pertinent.
 Pypomp provides P&P inference methods extending PF: maximum likelihood parameter estimation by iterated filtering (IF2) [@ionides15], Bayesian inference by particle Markov chain Monte Carlo [@andrieu10], and stochastic gradient descent (SGD) via a differentiable particle filter (DPF) algorithm called a measurement-off-parameter (MOP) particle filter [@tan24].
+Pypomp focuses on P&P PF-based methods because they have proved effective in scientific applications in epidemiology [@subramanian21; @fox22; @wen24], ecology [@augermethe21; @marino19; @blackwood13], finance [@breto14], robotics [@jonschkowski18] and other domains where nonlinear mechanistic stochastic dynamic models are pertinent.
+Pypomp is not limited to PF methods, and includes, for example, the approximate Bayesian computing (ABC) P&P algorithm of @marjoram03.
 
-Pypomp provides a framework for specifying models and inference methods, a range of pre-built models and methods, and various graphical and diagnostic tools to assist practical data analysis.
+Pypomp provides a framework for specifying models and inference methods, a range of pre-built models and methods, and diagnostic tools to assist practical data analysis.
 Thus, Pypomp supports complete data analysis workflows, facilitating the evaluation of a range of models and statistical methods.
-Models and methods share an interface so that new models can readily be tested on pre-existing methods, and new methods can be tested on pre-existing models.
+Models and methods share an interface so that new models can readily be analyzed using a range of pre-existing methods, and new methods can be tested on pre-existing models.
 These design features are inherited from the R package pomp [@king16].
-Although the method interface of Pypomp (and pomp) is not limited to P&P algorithms, experience has shown that P&P approaches are convenient for scientific data analysis.
-Theoretical obstacles have limited the practical scope of non-P&P algorithms [@roberts01; @karppinen24].
+The method interface of Pypomp (and pomp) is not limited to P&P algorithms, though theoretical obstacles have limited the practical scope of some non-P&P algorithms such as Expectation-Maximization and Markov chain Monte Carlo [@roberts01; @karppinen24].
 
 Pypomp leverages JAX [@bradbury18] to provide just-in-time (JIT) compilation, automatic differentiation (AD), and the capability to run on massively parallel hardware such as GPUs.
 When the state space is small and discrete, or sufficiently close to linear Gaussian for applicability of the extended or unscented Kalman filter, the Dynamax library [@linderman25] provides JAX-based solutions.
-Other JAX-based libraries providing PF and DPF methods for POMP models include PFJAX [@lysy22] and Cuthbert [@duffield26].
+Other JAX-based libraries providing PF and DPF methods for POMP models include PFJAX [@lysy22], cuthbert [@duffield26] and dynestyx [@waxman26].
 PyDPF [@brady26] provides a DPF using PyTorch and focuses on POMP models parameterized using neural networks.
-The NumPy-based libraries particles [@chopin20], a general sequential Monte Carlo framework, and pypfilt [@moss24] provide PF without AD.
+The particles library [@chopin20] and pypfilt [@moss24] provide PF without AD.
 Pypomp distinguishes itself from these other packages by (i) following the design decisions of pomp that support a full data analysis workflow; (ii) superior performance on benchmark tests.
-Pypomp is not limited to PF methods, and includes, for example, the approximate Bayesian computing (ABC) P&P algorithm of @marjoram03.
-However, PF has proved an effective tool for the development and analysis of POMP models in scientific contexts.
+
 
 Pypomp compiles models with JAX's XLA compiler by default; on NVIDIA GPUs, an optional CuTe backend translates them into CUDA kernels [@thakkar23; @cecka26].
 With enough particles and independent replications of an inference method, one GPU running the CuTe backend runs iterated filtering as fast as `{python} f"{min(peak_r_cores_cute.values()):,.0f}"` to `{python} f"{max(peak_r_cores_cute.values()):,.0f}"` CPU cores running pomp (Appendix -@sec-scaling).
@@ -628,26 +627,25 @@ Profile likelihood approaches have been found preferable to Fisher information f
 MCAP algorithms can lead to efficient inference even in a limit where the Monte Carlo error grows with the amount of data [@ning21].
 
 Algorithms to take advantage of JIT compilation, AD, and GPUs are an area of active development.
-Pypomp implements the MOP P&P DPF algorithm of @tan24, with the resulting derivative being called DMOP, implemented within the `train` method.
-DMOP is competitive on benchmark problems when combined with Adam SGD, especially when using IF2 for a warm start [@tan24].
+Pypomp implements the MOP P&P DPF algorithm of @tan24, with the resulting derivative being called DMOP.
+The `train` method implements DMOP with Adam SGD, and this is especially effective when provided with an IF2 warm start [@tan24].
 Pypomp provides approximate inverse transform sampling methods for use in `rproc` and `rmeas` since the rejection sampling used in some `jax.random` samplers is inefficient on GPUs [@giles16; @giles24; @temme92].
 These samplers run `{python} f"{min(sampler_gpu_speedups):.0f}"` to `{python} f"{max(sampler_gpu_speedups):.0f}"` times faster than `jax.random` on a GPU.
 Quantiles of the inverse and rejection samplers draws differ by at most `{python} f"{max_w1_norm * 100:.1f}"`% of a standard deviation on average (Appendix -@sec-samplers).
 
 # POMP Modeling in Pypomp {#sec-pomp}
 
-Let $\{X(t), t_0 \leq t \leq t_{N}\}$ denote the latent process, and write $Y_{1:N}$ for the measurement process at times $t_{1:N}$.
-We suppose $Y_n$ is conditionally independent of the other latent states and measurements given $X_n=X(t_n)$.
-The data are observed values, $y^*_{1:N}$.
-A POMP model is specified by its initial state distribution, $f_{X_0}(x_0 ; \theta)$, state transition density $f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)$, and measurement density $f_{Y_n|X_n}(y_n| x_n; \theta)$, where $\theta$ denotes a vector of model parameters.
+Let $\{X(t), t_0 \leq t \leq t_{N}\}$ denote the latent process, and write $Y_{1:N}$ for the measurement process at observation times $t_{1:N}$.
+Let $Y_n$ be conditionally independent of the other latent states and measurements given $X_n=X(t_n)$.
+The resulting POMP model is specified by its initial state distribution, $f_{X_0}(x_0 ; \theta)$, state transition density $f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)$, and measurement density $f_{Y_n|X_n}(y_n| x_n; \theta)$, where $\theta$ denotes a vector of model parameters.
 For P\&P methods, it suffices to specify a simulator for $f_{X_0}(x_0 ; \theta)$ known as \texttt{rinit}, a simulator for $f_{X_{n+1}|X_{n}}(x_{n+1} | x_{n} ; \theta)$ known as \texttt{rproc}, a simulator for $f_{Y_n|X_n}(y_n| x_n; \theta)$ known as \texttt{rmeas}, and an evaluator for $f_{Y_n|X_n}(y_n| x_n; \theta)$ known as \texttt{dmeas}.
-The user passes JAX-compatible code for these functions, together with the data, to build a \texttt{Pomp} class model object using the \texttt{Pomp} constructor function.
+The user passes JAX-compatible code for these functions, and data consisting of observed values $y^*_{1:N}$, to build a \texttt{Pomp} class model object using the \texttt{Pomp} constructor function.
 Tutorials are available at [https://github.com/pypomp/tutorials](https://github.com/pypomp/tutorials).
 Pypomp includes models for historical monthly cholera mortality in Dhaka, Bangladesh (`pypomp.models.dhaka`), historical weekly measles cases in London, UK (`pypomp.models.UKMeasles.pomp`), daily log returns of the S&P 500 index (`pypomp.models.spx`), and a panel model for measles cases in up to 1,422 urban and rural districts in England and Wales (`pypomp.models.UKMeasles.panel_pomp`).
 
 A collection of POMP models is a PanelPOMP [@breto20], and each constituent POMP is called a _unit_.
 Parameters may be unit-specific or shared between units.
-Marginalized panel iterated filtering (MPIF) [@wheeler25] and DMOP provide likelihood maximization for models of class `PanelPomp`.
+Marginalized panel iterated filtering (MPIF, implemented as `mpif`) [@wheeler25] and `train` provide likelihood maximization for models of class `PanelPomp`.
 
 Below, we demonstrate maximum likelihood estimation with IF2 (`mif`) followed by refinement using SGD (`train`) and then log-likelihood evaluation using PF (`pfilter`), on the `spx` model.
 Each method stores its convergence records, execution time, and arguments in the `results_history` attribute of the `Pomp` object, enabling sequential method chaining and diagnostic investigation by helper methods such as `traces`. 
@@ -667,10 +665,8 @@ spx_obj.train(J=1000, M=10, optimizer=pp.Adam(), eta=pp.LearningRate(
 spx_obj.pfilter(J=1000, reps=10) 
 ```
 
-
-To investigate the benefit of using GPU hardware versus CPU, we compared Pypomp on a GPU with pomp on a CPU because that informs a natural decision for scientists considering Pypomp as a data analysis tool. 
-With model code in compiled C snippets, pomp has comparable speed to other high-performance CPU-based packages for POMP models [@fitzjohn20]. 
-@tbl-timing shows four models with different performance bottlenecks that can be encountered in practice (details in Appendix -@sec-benchmarks and <https://github.com/pypomp/quant>).
+We compared Pypomp on a GPU with pomp on a CPU, noting that pomp has comparable speed to other high-performance CPU-based packages for POMP models [@fitzjohn20] when the pomp model code is compiled. 
+@tbl-timing shows four models with different performance bottlenecks that can be encountered in practice (details in Appendix -@sec-benchmarks).
 Efficiency peaks when the GPU is saturated, and for small tasks CuTe's longer compilation can outweigh its faster iterations (Appendix -@sec-scaling).
 With `jax.random` samplers instead of `pypomp.random`, IF2 for the London measles model took `{python} f"{jax_sampler_slowdown:.0f}"` times longer (Appendix -@sec-samplers).
 
@@ -698,17 +694,20 @@ for model, label in TIMING_MODELS.items():
 latex_table(
     "lrrrrrrr",
     [
-        " & \\texttt{pomp} & \\multicolumn{3}{c}{Pypomp, XLA (1 GPU)} "
-        "& \\multicolumn{3}{c}{Pypomp, CuTe (1 GPU)} \\\\",
+        " & pomp & \\multicolumn{3}{c}{Pypomp, XLA} "
+        "& \\multicolumn{3}{c}{Pypomp, CuTe} \\\\",
         "\\cmidrule(lr){3-5} \\cmidrule(lr){6-8}",
-        "Model & (36 cores) & Time & Cores & Peak & Time & Cores & Peak \\\\",
+        "Model & Time/s & Time/s & Cores & Peak & Time/s & Cores & Peak \\\\",
     ],
     rows,
 )
 ```
 
-Wall-clock time in seconds for 36 IF2 searches, with pomp on 36 CPU cores and Pypomp `{python} tbl_timing_version` on one `{python} gpu_name.removesuffix(" Server Edition")` GPU.
-Cores, the CPU cores running pomp that the GPU matched, is 36 times the pomp time divided by the Pypomp time; Peak is its highest value in scaling tests (Appendix -@sec-scaling). `{python} version_warning("tbl-timing")`
+Comparing Pypomp on GPU to compiled pomp on CPU for 36 log-likelihood evaluations.
+For the PanelPOMP model, we used the panelPomp extension of pomp [@breto25]. 
+Time is wall-clock for 36 CPU cores or one `{python} gpu_name.removesuffix(" Server Edition")` GPU.
+Equivalent cores is 36$\times$ the ratio of the GPU and CPU wall time.
+Peak cores is the highest value for addition tests in Appendix -@sec-scaling.
 :::
 
 # Governance and Acknowledgments {#sec-conclusion}
@@ -717,6 +716,7 @@ The source code for Pypomp is openly available at <https://github.com/pypomp/pyp
 The project is run by the Pypomp organization (<https://github.com/pypomp>) under democratic governance rules that welcome new developers and community contributions.
 The Pypomp project is supported by National Science Foundation grants OAC-2607869 and OAC-2607870. 
 The developers acknowledge coding assistance from artificial intelligence models by OpenAI, Anthropic and Google.
+Validation of the code is carried out at <https://github.com/pypomp/quant>, including cross-checks against pomp for the `spx`, `dhaka`, and `UKmeasles` models.
 
 # References {.unnumbered}
 
@@ -728,7 +728,7 @@ The developers acknowledge coding assistance from artificial intelligence models
 
 # Full benchmark results {#sec-benchmarks}
 
-The four benchmark models stress different parts of the particle filter, which helps locate performance bottlenecks.
+The four benchmark models stress different aspects of PF and related algorithms, which helps locate performance bottlenecks.
 
 **Cholera, Dhaka.**
 The cholera model of @king08 has `{python} f"{n_dacca_obs:,}"` monthly observations with 20 Euler steps between each, and each step updates a stochastic differential equation with one normal draw.
@@ -782,21 +782,6 @@ wl_np, wl_nfitr, wl_nstarts, wl_nreps = workload["dacca"]
 spx_np, spx_nfitr, _, spx_nreps = workload["spx"]
 ```
 
-@tbl-timing benchmarks Pypomp `{python} tbl_timing_full_version` against pomp `{python} pomp_bench_version` and panelPomp `{python} panelpomp_bench_version`.
-R pomp and Pypomp run the same workload in a given benchmark.
-CPU runs used 36-core nodes with Intel Xeon `{python} " or ".join(cpu_models)` processors, and GPU runs used one NVIDIA `{python} gpu_name`.
-Each benchmark runs `{python} wl_nstarts` IF2 searches from the same starting points and then runs replicate particle filters at each search's IF2 estimate, with as many particles per filter as per search.
-The cholera and both measles benchmarks use `{python} f"{wl_np:,}"` particles, `{python} wl_nfitr` IF2 iterations, and `{python} wl_nreps` particle filter replicates, and the S&P 500 benchmark uses `{python} f"{spx_np:,}"` particles, `{python} spx_nfitr` iterations, and `{python} spx_nreps` replicates.
-
-Fitting the measles model of @he10 to all `{python} f"{n_big:,}"` towns and cities for 1950--1963 took one GPU running the CuTe backend `{python} big_hours` hours, including likelihood evaluation, versus an estimated `{python} r_big_months` months for R on a 36-core node, extrapolating linearly from panelPomp's cost on the 4-town panel (Appendix -@sec-big-measles-details).
-Thus, Pypomp enables a scientific analysis that was previously considered infeasible [@becker17].
-
-@tbl-timing-full extends @tbl-timing with IF2 and particle filter times for Pypomp on a 36-core CPU node like those used for R pomp.
-Pypomp on CPU was `{python} fmt_ratio(min(software_ratios))` to `{python} fmt_ratio(max(software_ratios))` times faster than R pomp, and moving Pypomp to the GPU with the default XLA backend makes it another `{python} fmt_ratio(min(hardware_ratios))` to `{python} fmt_ratio(max(hardware_ratios))` times faster.
-These workloads are sized for R and too small to saturate the GPU, so the GPU ratios understate what the GPU can do.
-At these sizes, the CuTe backend's longer compilation outweighs its faster iterations: its IF2 was slower than XLA's for every model except the S&P 500.
-At its peak throughput in the scaling tests (Appendix -@sec-scaling), one GPU runs IF2 `{python} f"{min(peak_r_cores.values()) / R_CORES:.0f}"` to `{python} f"{max(peak_r_cores.values()) / R_CORES:.0f}"` times as fast as R on the 36-core node with the default XLA backend, and `{python} f"{min(peak_r_cores_cute.values()) / R_CORES:.0f}"` to `{python} f"{max(peak_r_cores_cute.values()) / R_CORES:.0f}"` times as fast with the CuTe backend.
-
 ::: {#tbl-timing-full}
 ```{python}
 #| echo: false
@@ -837,15 +822,31 @@ latex_table(
 )
 ```
 
-Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation, with the workloads described above, and with Pypomp `{python} tbl_timing_full_version`. Pypomp IF2 and PF times include JIT compilation. Pypomp GPU times are with its default XLA backend and with its CuTe backend. Software ratio is the pomp (or panelPomp) time divided by the Pypomp time on a 36-core node, and total ratio is the pomp time divided by the Pypomp GPU time with each backend. These workloads do not saturate the GPU, so the total ratios understate its throughput; the peak columns of @tbl-timing give the GPU's highest measured IF2 throughput. `{python} version_warning("tbl-timing-full")`
+Wall-clock time in seconds for IF2 and for particle filter (PF) evaluation described in #sec-benchmarks, for Pypomp `{python} tbl_timing_full_version`. Pypomp IF2 and PF times include JIT compilation. Pypomp GPU times are with its default XLA backend and with its CuTe backend. Software ratio is the pomp (or panelPomp) time divided by the Pypomp time on a 36-core node, and total ratio is the pomp time divided by the Pypomp GPU time with each backend. These workloads do not saturate the GPU, so the total ratios understate its throughput; the peak columns of @tbl-timing give the GPU's highest measured IF2 throughput. `{python} version_warning("tbl-timing-full")`
 :::
+
+@tbl-timing benchmarks Pypomp `{python} tbl_timing_full_version` against pomp `{python} pomp_bench_version` and panelPomp `{python} panelpomp_bench_version`.
+R pomp and Pypomp run the same workload in a given benchmark.
+CPU runs used 36-core nodes with Intel Xeon `{python} " or ".join(cpu_models)` processors, and GPU runs used one NVIDIA `{python} gpu_name`.
+Each benchmark runs `{python} wl_nstarts` IF2 searches from the same starting points and then runs replicate particle filters at each search's IF2 estimate, with as many particles per filter as per search.
+The cholera and both measles benchmarks use `{python} f"{wl_np:,}"` particles, `{python} wl_nfitr` IF2 iterations, and `{python} wl_nreps` particle filter replicates, and the S&P 500 benchmark uses `{python} f"{spx_np:,}"` particles, `{python} spx_nfitr` iterations, and `{python} spx_nreps` replicates.
+
+Fitting the measles model of @he10 to all `{python} f"{n_big:,}"` towns and cities for 1950--1963 took one GPU running the CuTe backend `{python} big_hours` hours, including likelihood evaluation, versus an estimated `{python} r_big_months` months for R on a 36-core node, extrapolating linearly from panelPomp's cost on the 4-town panel (Appendix -@sec-big-measles-details).
+Thus, Pypomp enables a scientific analysis that was previously considered infeasible [@becker17].
+
+@tbl-timing-full extends @tbl-timing with IF2 and particle filter times for Pypomp on a 36-core CPU node like those used for R pomp.
+Pypomp on CPU was `{python} fmt_ratio(min(software_ratios))` to `{python} fmt_ratio(max(software_ratios))` times faster than R pomp, and moving Pypomp to the GPU with the default XLA backend makes it another `{python} fmt_ratio(min(hardware_ratios))` to `{python} fmt_ratio(max(hardware_ratios))` times faster.
+These workloads are sized for R and too small to saturate the GPU, so the GPU ratios understate what the GPU can do.
+At these sizes, the CuTe backend's longer compilation outweighs its faster iterations: its IF2 was slower than XLA's for every model except the S&P 500.
+At its peak throughput in the scaling tests (Appendix -@sec-scaling), one GPU runs IF2 `{python} f"{min(peak_r_cores.values()) / R_CORES:.0f}"` to `{python} f"{max(peak_r_cores.values()) / R_CORES:.0f}"` times as fast as R on the 36-core node with the default XLA backend, and `{python} f"{min(peak_r_cores_cute.values()) / R_CORES:.0f}"` to `{python} f"{max(peak_r_cores_cute.values()) / R_CORES:.0f}"` times as fast with the CuTe backend.
+
 
 # Comparison with other particle filter libraries {#sec-libraries}
 
-@tbl-libraries times the particle filter workloads of @tbl-timing-full in other Python particle filter libraries, with each model written as a user of that library would write it.
-Every library runs the bootstrap particle filter with the same number of filters and particles as in @tbl-timing-full.
-The GPU libraries ran on one `{python} gpu_name`, the GPU model used in @tbl-timing, with `{python} lib_release_text`, but each library's timing script ran separately from the benchmarks in @tbl-timing-full, so the Pypomp times in the two tables differ somewhat.
-We left out Dynamax [@linderman25], since its only particle filter is a Rao--Blackwellized filter for switching linear Gaussian models.
+@tbl-libraries benchmarks the PF workloads of @tbl-timing-full in other Python PF libraries, with each model written as a user of that library would write it.
+Every library runs the bootstrap PF with the same number of particles and filtering operations as in @tbl-timing-full.
+The GPU libraries ran on one `{python} gpu_name`, the GPU model used in @tbl-timing, with `{python} lib_release_text`, but each library's timing script ran separately from the benchmarks in @tbl-timing-full, so the Pypomp times in the two tables are not identical.
+Dynamax [@linderman25] is not included in this comparison since its only particle filter is a Rao--Blackwellized filter for switching linear Gaussian models.
 
 @tbl-libraries gives two times for each GPU library: a call with the filter already compiled, and the first call, which includes JIT compilation.
 IF2 compiles its filter once and then runs it at every iteration, so in an IF2 search with hundreds of iterations the compiled time dominates, and we compare the libraries by it below, against Pypomp with its default XLA backend.
@@ -858,7 +859,7 @@ On the S&P 500 model, whose steps are cheap, every GPU library's first call took
 Once compiled, Pypomp was the fastest GPU library on all four models, and its CuTe backend ran the compiled filter a further `{python} fmt_range(lib_cute_gain, 1)` times as fast as its default XLA backend.
 Notably, compilation time makes up a smaller fraction of the total runtime for parameter estimation methods which require repeated particle filtering, giving Pypomp a stronger edge in such applications. 
 
-The CPU-only libraries `particles` and `pypfilt` were timed on one core, and we scaled each time to 36 cores assuming perfect scaling, which flatters them.
+The CPU-only libraries `particles` and `pypfilt` were timed on one core, and we scaled each time to 36 cores assuming perfect scaling, which is biased in their favor since it ignores the cost of parallelization.
 The last column gives Pypomp on a 36-core CPU node like those in @tbl-timing-full, measured rather than projected.
 Even under the perfect-scaling assumption, `particles` took `{python} fmt_range(lib_cpu_vs_pypomp['particles'], 1)` times as long as Pypomp on CPU, and `pypfilt` took `{python} fmt_range(lib_cpu_vs_pypomp['pypfilt'], 1)` times as long.
 
@@ -913,7 +914,7 @@ tbl = latex_table(
 Markdown(tbl.data.replace("\\setlength{\\tabcolsep}{4pt}", "\\small\\setlength{\\tabcolsep}{3.5pt}"))
 ```
 
-Wall-clock time in seconds for the particle filter benchmarks of @tbl-timing-full in Pypomp `{python} tbl_libraries_version` with its default XLA backend and with its CuTe backend and Philox generator, `pfjax` `{python} lib_version["pfjax"]` and `cuthbert` `{python} lib_version["cuthbert"]` (JAX), `pydpf` `{python} lib_version["pydpf"]` (PyTorch), and `particles` `{python} lib_version["particles"]` and `pypfilt` `{python} lib_version["pypfilt"]` (NumPy). GPU times are from one `{python} gpu_name`; for each model, the first row is the time for a call with the filter already compiled, and the second row, in parentheses, is the first call, which includes JIT compilation. (${>}1\,$h) means the first call did not finish within an hour, so there is no compiled time. For the measles models, `pfjax` and `cuthbert` draw with the `jax.random` samplers (Appendix -@sec-samplers). $^\dagger$`particles` and `pypfilt` run only on CPUs; their times are the time for one filter on one core, multiplied by the number of filters and divided by 36. The last column is Pypomp (default XLA backend) on a 36-core CPU node, measured in the benchmarks of @tbl-timing-full. `{python} version_warning("tbl-libraries")`
+Wall-clock time in seconds for the particle filter benchmarks of @tbl-timing-full in Pypomp `{python} tbl_libraries_version` with its default XLA backend and with its CuTe backend and Philox generator, `pfjax` `{python} lib_version["pfjax"]`, `cuthbert` `{python} lib_version["cuthbert"]` (JAX), `pydpf` `{python} lib_version["pydpf"]` (PyTorch), `particles` `{python} lib_version["particles"]` and `pypfilt` `{python} lib_version["pypfilt"]` (NumPy). GPU times are from one `{python} gpu_name`; for each model, the first row is the time for a call with the filter already compiled, and the second row, in parentheses, is the first call, which includes JIT compilation. (${>}1\,$h) means the first call did not finish within an hour, so there is no compiled time. For the measles models, `pfjax` and `cuthbert` draw with the `jax.random` samplers (Appendix -@sec-samplers). $^\dagger$`particles` and `pypfilt` run only on CPUs; their times are the time for one filter on one core, multiplied by the number of filters and divided by 36. The last column is Pypomp (default XLA backend) on a 36-core CPU node, measured in the benchmarks of @tbl-timing-full. `{python} version_warning("tbl-libraries")`
 :::
 
 
@@ -1029,7 +1030,7 @@ fixed_chains = sorted({
 })
 ```
 
-The benchmarks in @tbl-timing and @tbl-timing-full use the R configuration, which does not give the GPU enough work to reach its highest throughput for every model.
+The benchmarks in @tbl-timing and @tbl-timing-full use a configuration suitable for CPU computation, which does not give the GPU enough work to reach its highest throughput for every model.
 The scaling tests in quant ran IF2 on one `{python} gpu_name` GPU with more particles in flight, added in two ways: more searches of 1,000 particles each, or more particles for each of a fixed number of searches.
 Each configuration, with $K$ searches of $J$ particles each ($KJ$ total particles in flight), ran in its own process and ran a short IF2 search of $m$ iterations twice, taking $t_{\mathrm{cold}}$ seconds on the first run and $t_{\mathrm{warm}}$ seconds on the second (excluding JIT compilation).
 Projecting to the benchmark's $M$ IF2 iterations with compilation included gives the throughput, in particles filtered per second,
@@ -1069,10 +1070,10 @@ IF2 throughput on one GPU, as the number of CPU cores running R that the GPU mat
 # Random variable samplers {#sec-samplers}
 
 `jax.random` draws Poisson, binomial, and gamma random variables with rejection samplers, which loop a random number of times per draw.
-This suits GPUs poorly, since threads that run together wait for the slowest one.
-`pypomp.random` instead provides approximate inverse-CDF samplers, which avoid rejection loops.
-@tbl-samplers compares the two on 1,000,000 draws per call, with parameters spread across the values where each sampler switches algorithms.
-The approximation error is small: over a grid of parameter values, the Wasserstein distance between 1,000,000 draws from each `pypomp.random` sampler and from a reference sampler is at most `{python} f"{max_w1_norm * 100:.1f}"`% of the reference standard deviation.
+This is poorly adapted to GPU architecture, since GPU threads that run synchronously wait for the slowest one.
+To address this, `pypomp.random` provides inverse-CDF samplers, which avoid rejection loops.
+To assess the numerical error in the inverse-CDF calculation, we evaluated the Wasserstein distance between 1,000,000 draws from each `pypomp.random` sampler and from a reference sampler over a grid of parameter values, with results shown in @tbl-samplers.
+We found a difference of at most `{python} f"{max_w1_norm * 100:.1f}"`% of the reference standard deviation, which we considered to be small in the context of this application.
 In the London measles benchmark, the `jax.random` samplers made IF2 `{python} f"{jax_sampler_slowdown:.0f}"` times slower and particle filtering `{python} f"{jax_sampler_pf_slowdown:.0f}"` times slower on the GPU. `{python} version_warning("jax-samplers")`
 
 ::: {#tbl-samplers}
