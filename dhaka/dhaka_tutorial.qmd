@@ -204,12 +204,63 @@ def rinit(theta_: ParamDict, key: RNGKey, covars: CovarDict, t0: InitialTimeFloa
     }
 ```
 
+```{python}
+#| label: check-rinit
+#| echo: false
+# Drift check: the model code shown in this tutorial must match pypomp's Dhaka
+# model, pypomp.models.dacca, which pp.models.dhaka() builds. Comparing syntax
+# trees ignores comments, formatting, and decorators.
+import ast
+import importlib
+import inspect
+import textwrap
+
+_dacca = importlib.import_module("pypomp.models.dacca")
+
+
+def _body_ast(fn):
+    node = ast.parse(textwrap.dedent(inspect.getsource(fn))).body[0]
+    # pypomp prefixes its private helpers with "_" (e.g. _dmeas_helper); ignore that.
+    for n in ast.walk(node):
+        if isinstance(n, ast.Name):
+            n.id = n.id.lstrip("_")
+    return ast.dump(node.args), [ast.dump(stmt) for stmt in node.body]
+
+
+def _check_same(fn, pkg_fn):
+    assert _body_ast(fn) == _body_ast(pkg_fn), (
+        f"{fn.__name__} in the tutorial differs from pypomp.models.dacca.{pkg_fn.__name__}; "
+        "update the code and the prose around it."
+    )
+
+
+# The parameters, state names, and data loaded above must match too.
+assert theta_default.params(as_list=True)[0] == _dacca.theta
+assert statenames == _dacca.statenames and accumvars == _dacca.accumvars
+pd.testing.assert_frame_equal(ys, _dacca.ys, check_dtype=False, check_index_type=False)
+pd.testing.assert_frame_equal(covars, _dacca.covars, check_dtype=False, check_index_type=False)
+
+_check_same(rinit, _dacca._rinit)
+
+# Inputs for the rproc check below
+_theta = theta_default.params(as_list=True)[0]
+_covars0 = covars.iloc[0].to_dict()
+```
+
 ### Process Model Simulator (`rproc`)
 
-This simulates one Euler step of the model dynamics described above. 
+This simulates one Euler step of the model dynamics described above, for all particles at once.
+
+By default, `pypomp` applies `jax.vmap` to `rproc`, so the user writes the dynamics for a single particle.
+The `@pp.vectorized` decorator turns this off.
+The function is then called once per Euler step with each state variable as an array of length $J$, the number of particles, and must handle all $J$ particles itself.
+In practice, this means writing elementwise arithmetic and drawing all the noise in one call from a single key, as in `jax.random.normal(key, (J,))` below, with $J$ read off the state rather than hardcoded.
+Parameters arrive as scalars, except under `mif`, where each particle carries its own perturbed parameters and they arrive as length-$J$ arrays; elementwise code handles both cases.
+We do this for speed: XLA's CPU backend does not vectorize per-particle random number generation across particles, so a vectorized `rproc` can run several times faster on CPU.
 
 ```{python}
 #| label: rproc-definition
+@pp.vectorized
 def rproc(
     X_: StateDict,
     theta_: ParamDict,
@@ -218,59 +269,86 @@ def rproc(
     t: TimeFloat,
     dt: StepSizeFloat,
 ):
-    S, I, Y, deaths, count = X_["S"], X_["I"], X_["Y"], X_["Mn"], X_["count"]
-    pts = jnp.array([X_["R1"], X_["R2"], X_["R3"]])
-    trend, dpopdt, pop = covars["trend"], covars["dpopdt"], covars["pop"]
+    S = X_["S"]
+    I = X_["I"]
+    Y = X_["Y"]
+    deaths = X_["Mn"]
+    q0, q1, q2 = X_["R1"], X_["R2"], X_["R3"]
+    count = X_["count"]
+
+    J = jnp.asarray(S).shape[0]  # number of particles
+
+    trend = covars["trend"]
+    dpopdt = covars["dpopdt"]
+    pop = covars["pop"]
     seas = jnp.array([covars[f"seas{i}"] for i in range(1, 7)])
-    gamma, deltaI, rho = theta_["gamma"], theta_["m"], theta_["rho"]
-    beta_trend, sd_beta, alpha = theta_["beta_trend"], theta_["sigma"], theta_["alpha"]
-    delta, clin, eps = theta_["delta"], theta_["c"], theta_["epsilon"]
-    omegas = jnp.array([theta_[f"omegas{i}"] for i in range(1, 7)])
-    bs = jnp.array([theta_[f"bs{i}"] for i in range(1, 7)])
+
+    gamma = theta_["gamma"]
+    deltaI = theta_["m"]
+    rho = theta_["rho"]
+    eps = theta_["epsilon"]
+    clin = theta_["c"]
+    beta_trend = theta_["beta_trend"]
+    sd_beta = theta_["sigma"]
+    alpha = theta_["alpha"]
+    delta = theta_["delta"]
+    # Stacking along axis 0 keeps per-particle parameters (under mif) aligned with seas
+    omegas = jnp.stack([theta_[f"omegas{i}"] for i in range(1, 7)], axis=0)
+    bs = jnp.stack([theta_[f"bs{i}"] for i in range(1, 7)], axis=0)
 
     nrstage = 3
     std = jnp.sqrt(dt)
 
-    neps = eps * nrstage  # rate of waning stages
-    passages = jnp.zeros(nrstage + 1)
+    neps = eps * nrstage  # rate of passage between immunity stages
+    pass0 = gamma * I
+    pass1 = q0 * neps
+    pass2 = q1 * neps
+    pass3 = q2 * neps
 
-    # Calculate seasonal B-spline terms
-    beta = jnp.exp(beta_trend * trend + jnp.dot(bs, seas))
-    omega = jnp.exp(jnp.dot(omegas, seas))
+    # Seasonal B-spline terms
+    beta = jnp.exp(beta_trend * trend + jnp.dot(seas, bs))
+    omega = jnp.exp(jnp.dot(seas, omegas))
 
-    subkey, key = jax.random.split(key)
-    dw = jax.random.normal(subkey) * std
+    # One Brownian increment per particle, drawn from a single key
+    dw = jax.random.normal(key, (J,)) * std
 
     effI = (I / pop) ** alpha
     births = dpopdt + delta * pop
-    passages = passages.at[0].set(gamma * I)
     ideaths = delta * I
     disease = deltaI * I
     ydeaths = delta * Y
     wanings = rho * Y
 
-    rdeaths = pts * delta
-    passages = passages.at[1:].set(pts * neps)
+    rdeaths0 = q0 * delta
+    rdeaths1 = q1 * delta
+    rdeaths2 = q2 * delta
 
     # Multiplicative Gaussian white noise perturbation to transmission
     infections = (omega + (beta + sd_beta * dw / dt) * effI) * S
     sdeaths = delta * S
 
-    S += (births - infections - sdeaths + passages[nrstage] + wanings) * dt
-    I += (clin * infections - disease - ideaths - passages[0]) * dt
-    Y += ((1 - clin) * infections - ydeaths - wanings) * dt
+    S = S + (births - infections - sdeaths + pass3 + wanings) * dt
+    I = I + (clin * infections - disease - ideaths - pass0) * dt
+    Y = Y + ((1 - clin) * infections - ydeaths - wanings) * dt
 
-    pts = pts + (passages[:-1] - passages[1:] - rdeaths) * dt
+    q0 = q0 + (pass0 - pass1 - rdeaths0) * dt
+    q1 = q1 + (pass1 - pass2 - rdeaths1) * dt
+    q2 = q2 + (pass2 - pass3 - rdeaths2) * dt
+
     deaths = deaths + disease * dt
 
     # Flag negative state occurrences
-    count = count + jnp.any(jnp.hstack([jnp.array([S, I, Y, deaths]), pts]) < 0)
+    count = count + (
+        (S < 0) | (I < 0) | (Y < 0) | (deaths < 0) | (q0 < 0) | (q1 < 0) | (q2 < 0)
+    )
 
     # Clip values to zero to ensure stability
     S = jnp.clip(S, 0)
     I = jnp.clip(I, 0)
     Y = jnp.clip(Y, 0)
-    pts = jnp.clip(pts, 0)
+    q0 = jnp.clip(q0, 0)
+    q1 = jnp.clip(q1, 0)
+    q2 = jnp.clip(q2, 0)
     deaths = jnp.clip(deaths, 0)
 
     return {
@@ -278,11 +356,28 @@ def rproc(
         "I": I,
         "Y": Y,
         "Mn": deaths,
-        "R1": pts[0],
-        "R2": pts[1],
-        "R3": pts[2],
+        "R1": q0,
+        "R2": q1,
+        "R3": q2,
         "count": count,
     }
+```
+
+```{python}
+#| label: check-rproc
+#| echo: false
+# Hidden on purpose: run the rproc shown above on 4 particles, with scalar
+# parameters (as in pfilter) and with per-particle parameters (as in mif).
+_J = 4
+_X = {k: jnp.full(_J, v) for k, v in rinit(_theta, None, _covars0, 1891.0).items()}
+for _th in (_theta, {k: jnp.full(_J, v) for k, v in _theta.items()}):
+    _out = rproc(_X, _th, jax.random.key(0), _covars0, 1891.0, 1 / 240)
+    assert all(v.shape == (_J,) and bool(jnp.all(jnp.isfinite(v))) for v in _out.values())
+
+# Drift check: the rproc shown above must be decorated with @pp.vectorized and
+# match pypomp's Dhaka model.
+assert getattr(rproc, "_pypomp_vectorized", False)
+_check_same(rproc, _dacca._rproc)
 ```
 
 ### Measurement Model (`dmeas` and `rmeas`)
@@ -338,6 +433,19 @@ def rmeas(
     return {"deaths": jax.random.normal(key) * v + deaths}
 ```
 
+```{python}
+#| label: check-dmeas-rmeas
+#| echo: false
+# Drift check against pypomp's Dhaka model (helpers defined in check-rinit).
+for _fn, _pkg_fn in [
+    (dmeas_helper, _dacca._dmeas_helper),
+    (dmeas_helper_tol, _dacca._dmeas_helper_tol),
+    (dmeas, _dacca._dmeas),
+    (rmeas, _dacca._rmeas),
+]:
+    _check_same(_fn, _pkg_fn)
+```
+
 ### Parameter Transformations (`to_est` and `from_est`)
 
 Here, we define functions to transform positive constraints to the real line and back.
@@ -390,6 +498,14 @@ def from_est(theta: ParamDict) -> ParamDict:
 ptrans = pp.ParTrans(to_est=to_est, from_est=from_est)
 ```
 
+```{python}
+#| label: check-par-trans
+#| echo: false
+# Drift check against pypomp's Dhaka model (helpers defined in check-rinit).
+_check_same(to_est, _dacca._to_est)
+_check_same(from_est, _dacca._from_est)
+```
+
 ### Model Initialization
 
 We instantiate our custom model with `pp.Pomp`. 
@@ -415,10 +531,36 @@ dacca_obj = pp.Pomp(
 )
 ```
 
+```{python}
+#| label: check-model
+#| echo: false
+# End-to-end check: with the same key, a fresh copy of the model built above
+# and pp.models.dhaka() give the same particle filter log-likelihood.
+# dacca_obj itself is left untouched.
+import copy
+
+# pypomp.models.dacca passes the covariate times through jnp.array, which rounds
+# them to float32. That shifts the interpolated covariates slightly, which is
+# enough to change a fixed-key estimate, so round them the same way here.
+_covars32 = covars.set_axis(np.array(jnp.array(covars.index.values)), axis=0)
+_mine = pp.Pomp(
+    rinit=rinit, rproc=rproc, dmeas=dmeas, rmeas=rmeas, ys=ys, t0=1891.0,
+    nstep=20, accumvars=accumvars, theta=copy.deepcopy(theta_default), covars=_covars32,
+    statenames=statenames, par_trans=ptrans,
+)
+_pkg = pp.models.dhaka(dt=None, nstep=20)
+for _m in (_mine, _pkg):
+    _m.pfilter(J=100, key=jax.random.key(1))
+_ll_mine, _ll_pkg = (float(_m.results()["logLik"].iloc[0]) for _m in (_mine, _pkg))
+assert np.isfinite(_ll_mine) and np.isclose(_ll_mine, _ll_pkg, rtol=1e-6), (_ll_mine, _ll_pkg)
+del _mine, _pkg
+```
+
 ## 4. Setup for Parameter Estimation
 
 When fitting POMP models, it can be helpful to use a "run level" variable to control how much effort is put into the computation (e.g., number of particles, number of iterations). 
 This allows one to quickly test code with few iterations and few particles, then increase the effort as confidence in the code grows.
+Run level 4 uses the settings of the IFAD-0.97 searches under comparable effort in Section 6.
 
 ```{python}
 #| label: prep-search
@@ -428,11 +570,11 @@ np.random.seed(MAIN_SEED)
 
 RUN_LEVEL = int(os.environ.get("RUN_LEVEL", "1"))
 NREPS_FITR = (2, 3, 20, 100)[RUN_LEVEL - 1]
-NP_FITR = (2, 5, 100, 5000)[RUN_LEVEL - 1]
+NP_FITR = (2, 500, 1000, 5000)[RUN_LEVEL - 1]
 M_MIF = (2, 5, 100, 175)[RUN_LEVEL - 1]
-M_TRAIN = (2, 20, 40, 175)[RUN_LEVEL - 1]
-NP_EVAL = (2, 5, 1000, 5000)[RUN_LEVEL - 1]
-NREPS_EVAL = (2, 5, 20, 36)[RUN_LEVEL - 1]
+M_TRAIN = (2, 20, 40, 400)[RUN_LEVEL - 1]
+NP_EVAL = (2, 1000, 1000, 5000)[RUN_LEVEL - 1]
+NREPS_EVAL = (2, 5, 24, 36)[RUN_LEVEL - 1]
 WARMUP = (1, 5, 10, 10)[RUN_LEVEL - 1]
 ```
 
@@ -541,14 +683,13 @@ We now optimize the parameters using IFAD.
 ```{python}
 #| label: run-dmop
 
-key, subkey = jax.random.split(key)
 # Warm up with an IF2 search
 dacca_obj.mif(
     theta=initial_params_list,
     rw_sd=RW_SD,
     M=M_MIF,
     J=NP_FITR,
-    key=subkey,
+    key=key,
 )
 ```
 
@@ -588,78 +729,113 @@ dacca_obj.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
 
 ## 6. Comparing Optimization Methods
 
-This section displays the IF2 and IFAD results for the Dhaka model computed in @dmop_repo, which follows the approach above for IFAD-0.97 in addition to fitting models with IF2 alone, IFAD-0, and IFAD-1.
+This section shows the IF2 and IFAD results for the Dhaka model from the DMOP paper [@dmop_repo], which follows the approach above for IFAD-0.97 and also fits the model with IF2 alone, IFAD-0, and IFAD-1.
+Each method ran 100 searches from starting values drawn from the box above, using `pypomp` 1.0.5 on a GPU.
+The figures and table are read from the `dmop/` submodule, so they match the paper exactly.
 For more details and analysis, see @dmop_repo.
 
 ::: {.panel-tabset}
 
 ## Comparable Computational Effort
 
-The figures below show the results obtained under comparable computational effort, where each model was given about as much time as IFAD-0.97 required to reach its MLE. 
+Each method ran for about 15 minutes.
+IF2 alone ran for 1950 iterations.
+IFAD-0.97 ran a 175-iteration IF2 warm start followed by 400 Adam iterations, while IFAD-0 and IFAD-1 ran 60 IF2 iterations followed by 410 and 425 Adam iterations, respectively.
 
 ### Raincloud Plot of Final Log-Likelihoods
 
-Plots the log-likelihood distribution across replicates.
-IFAD-0.97 yields the best results overall.
-The dotted red line shows the maximized log-likelihood.
+This plot shows the distribution of final log-likelihoods across the searches, omitting those below -3800.
+IFAD-0.97 yields the best results overall, with most of its searches ending close to the best-known maximized log-likelihood, shown by the dotted red line.
 
 ![Raincloud Plot of Final Log-Likelihoods (Comparable Effort)](imgs/precise_raincloud.png){width=85%}
 
-### Convergence Traces Comparison (Time-Scaled)
+### Convergence Traces
 
-This section shows the log-likelihood search traces.
-The shaded regions cover the area between the 10th and 100th percentiles of log-likelihood estimates at each iteration.
-We use a dotted red line to display the MLE.
-The vertical dotted lines indicate where the IFAD runs switch from IF2 to Adam optimization.
-Some log-likelihood estimates appear to be above the MLE; this is because the estimates prior to the final iteration use just 1 replicate instead of 36 replicates to estimate the log-likelihood, which leads to larger Monte Carlo variance.
+This plot shows the log-likelihood search traces against elapsed time.
+The solid lines show the median, and the shaded regions cover the area between the 10th and 100th percentiles of log-likelihood estimates at each iteration.
+The dotted red line shows the MLE, and the vertical dotted lines show where the IFAD runs switch from IF2 to Adam.
+Some estimates appear above the MLE because each one comes from a single noisy particle filter evaluation.
 
 ![Convergence Traces Comparison (Comparable Effort)](imgs/precise_traces.png){width=85%}
 
 ## Extended Computational Effort
 
-The figures below show the results obtained under extended computational effort.
+IF2 alone ran for 4 times as many iterations, and the IFAD variants ran for 4 times as many Adam iterations, for about 60 minutes each.
 
 ### Raincloud Plot of Final Log-Likelihoods
 
-Plots the log-likelihood distribution across replicates.
-Note how IFAD-0.97 exhibits very low Monte Carlo variance, with each search converging to similar values. 
+IFAD-0.97 exhibits very low Monte Carlo variance, with nearly every search converging to similar values.
+IFAD-1 moves closer to IFAD-0.97, while IF2 and IFAD-0 remain well short of it.
 
 ![Raincloud Plot of Final Log-Likelihoods (Extended Effort)](imgs/precise_raincloud_long.png){width=85%}
 
-### Convergence Traces Comparison (Time-Scaled)
+### Convergence Traces
 
-This section shows the log-likelihood search traces.
-Aside from IFAD-1, each method appears to heavily plateau by the end. 
-IFAD-1 shows potential for continued improvement, likely because it is unbiased, but it is slow to converge due to its high variance. 
+IFAD-0 and IF2 plateau heavily by the end.
+IFAD-1 is still improving, likely because it is unbiased, but its high variance makes it slow to converge.
 
 ![Convergence Traces Comparison (Extended Effort)](imgs/precise_traces_long.png){width=85%}
 
 ### Parameter Density Plots
 
-This section shows density plots of final parameter estimates across the replicates. 
-Again, the estimates for IFAD-0.97 typically exhibit very low Monte Carlo variance, although IFAD-0 shows lower variance for $S_0$ and $R_{1,0}$. 
-IF2 generally has the highest Monte Carlo variance amongst the methods. 
+This plot shows the densities of final estimates across the searches for nine key parameters.
+The estimates for IFAD-0.97 typically have the lowest Monte Carlo variance, although IFAD-0 has lower variance for the initial state proportions $S_0$, $I_0$ and $R_{1,0}$.
+IF2 generally has the highest Monte Carlo variance.
 
 ![Parameter Density Plots (Extended Effort)](imgs/precise_density_long.png){width=100%}
 
 :::
 
-### Best Log-Likelihoods and Computational Times
+### Maximum Log-Likelihoods and Computational Times
 
-This table displays the log-likelihood statistics and elapsed times obtained from the final particle filter evaluations across the replicates for the models.
-The best log-likelihood found by IFAD-0.97 does not increase much from optimizing for longer, suggesting that the associated parameter estimates are very close to the true MLE. 
-The other methods fall short of this, but they do improve at least somewhat from running for longer, with IFAD-1 catching up to IFAD-0.97 in terms of the best log-likelihood. 
+```{python}
+#| label: read-dmop-table
+#| echo: false
+# Read the paper's results table (imgs/precise_table.tex in the dmop/
+# submodule), so this table always matches the paper.
+from pathlib import Path
 
-| Optimization Method | Best Log-Likelihood | Median Log-Likelihood | IF2 time (s) | DMOP time (s) |
-|:---|:---:|:---:|:---:|:---:|
-| **Comparable Computational Effort** | | | | |
-| IFAD-0.97 | -3744.17 | -3745.77 | 244 | 615 |
-| IFAD-1 | -3745.12 | -3749.12 | 89 | 788 |
-| IF2 | -3747.82 | -3755.41 | 889 | — |
-| IFAD-0 | -3748.69 | -3753.88 | 90 | 788 |
-| **Extended Computational Effort** | | | | |
-| IFAD-0.97 | -3744.19 | -3744.22 | 246 | 2435 |
-| IFAD-1 | -3744.19 | -3745.46 | 89 | 3145 |
-| IF2 | -3747.02 | -3750.14 | 3534 | — |
-| IFAD-0 | -3747.97 | -3752.41 | 93 | 3198 |
+DMOP_TABLE = Path("dmop/imgs/precise_table.tex")
+assert DMOP_TABLE.exists(), (
+    f"{DMOP_TABLE} is missing; run `make dmop` in this directory"
+)
+dmop_rows = []
+_effort = None
+for _line in DMOP_TABLE.read_text().splitlines():
+    if r"\multicolumn" in _line:
+        _effort = "Comparable" if "Comparable" in _line else "Extended"
+    elif _line.startswith(("IF2", "IFAD")):
+        _cells = [c.strip() for c in _line.rstrip(" \\").split("&")]
+        dmop_rows.append(dict(zip(
+            ["effort", "method", "max", "reeval", "median", "if2", "dmop"],
+            [_effort, *_cells],
+        )))
+assert len(dmop_rows) == 8, dmop_rows
+best = {r["effort"]: r for r in dmop_rows if r["method"] == "IFAD-0.97"}
+best_if2_long = next(
+    r for r in dmop_rows if r["effort"] == "Extended" and r["method"] == "IF2"
+)
+```
 
+The table below gives the log-likelihoods and times for each method.
+"Maximum" is the largest of the 100 final log-likelihoods, which is biased upward because it is the best of many noisy estimates.
+"Re-evaluated" is a fresh particle filter estimate for that same search, as in the second call to `pfilter()` above, which removes this bias at the cost of being a single noisy estimate.
+"Median" is the median over all 100 searches.
+The times come from separate runs that skip the per-iteration log-likelihood estimates used for the traces above, so that this extra work does not distort the comparison.
+
+IFAD-0.97 reaches a maximum of `{python} best["Comparable"]["max"]` within about 15 minutes, beating IF2 even when IF2 runs 4 times as long (`{python} best_if2_long["max"]`).
+Running IFAD-0.97 longer barely changes its maximum (`{python} best["Extended"]["max"]`), suggesting that its estimates are very close to the true MLE.
+
+```{python}
+#| label: dmop-table
+#| echo: false
+#| output: asis
+print("| Optimization Method | Maximum | Re-evaluated | Median | IF2 time (s) | DMOP time (s) |")
+print("|:---|:---:|:---:|:---:|:---:|:---:|")
+for _effort in ("Comparable", "Extended"):
+    print(f"| **{_effort} Computational Effort** | | | | | |")
+    for r in dmop_rows:
+        if r["effort"] == _effort:
+            _dmop = "—" if r["dmop"] == "-" else r["dmop"]
+            print(f"| {r['method']} | {r['max']} | {r['reeval']} | {r['median']} | {r['if2']} | {_dmop} |")
+```
