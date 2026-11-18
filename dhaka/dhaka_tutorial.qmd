@@ -560,6 +560,7 @@ del _mine, _pkg
 
 When fitting POMP models, it can be helpful to use a "run level" variable to control how much effort is put into the computation (e.g., number of particles, number of iterations). 
 This allows one to quickly test code with few iterations and few particles, then increase the effort as confidence in the code grows.
+Run level 4 uses the settings of the IFAD-0.97 searches under comparable effort in Section 6.
 
 ```{python}
 #| label: prep-search
@@ -569,11 +570,11 @@ np.random.seed(MAIN_SEED)
 
 RUN_LEVEL = int(os.environ.get("RUN_LEVEL", "1"))
 NREPS_FITR = (2, 3, 20, 100)[RUN_LEVEL - 1]
-NP_FITR = (2, 5, 100, 5000)[RUN_LEVEL - 1]
+NP_FITR = (2, 500, 1000, 5000)[RUN_LEVEL - 1]
 M_MIF = (2, 5, 100, 175)[RUN_LEVEL - 1]
-M_TRAIN = (2, 20, 40, 175)[RUN_LEVEL - 1]
-NP_EVAL = (2, 5, 1000, 5000)[RUN_LEVEL - 1]
-NREPS_EVAL = (2, 5, 20, 36)[RUN_LEVEL - 1]
+M_TRAIN = (2, 20, 40, 400)[RUN_LEVEL - 1]
+NP_EVAL = (2, 1000, 1000, 5000)[RUN_LEVEL - 1]
+NREPS_EVAL = (2, 5, 24, 36)[RUN_LEVEL - 1]
 WARMUP = (1, 5, 10, 10)[RUN_LEVEL - 1]
 ```
 
@@ -682,14 +683,13 @@ We now optimize the parameters using IFAD.
 ```{python}
 #| label: run-dmop
 
-key, subkey = jax.random.split(key)
 # Warm up with an IF2 search
 dacca_obj.mif(
     theta=initial_params_list,
     rw_sd=RW_SD,
     M=M_MIF,
     J=NP_FITR,
-    key=subkey,
+    key=key,
 )
 ```
 
@@ -729,78 +729,113 @@ dacca_obj.pfilter(J=NP_EVAL, reps=NREPS_EVAL)
 
 ## 6. Comparing Optimization Methods
 
-This section displays the IF2 and IFAD results for the Dhaka model computed in @dmop_repo, which follows the approach above for IFAD-0.97 in addition to fitting models with IF2 alone, IFAD-0, and IFAD-1.
+This section shows the IF2 and IFAD results for the Dhaka model from the DMOP paper [@dmop_repo], which follows the approach above for IFAD-0.97 and also fits the model with IF2 alone, IFAD-0, and IFAD-1.
+Each method ran 100 searches from starting values drawn from the box above, using `pypomp` 1.0.5 on a GPU.
+The figures and table are read from the `dmop/` submodule, so they match the paper exactly.
 For more details and analysis, see @dmop_repo.
 
 ::: {.panel-tabset}
 
 ## Comparable Computational Effort
 
-The figures below show the results obtained under comparable computational effort, where each model was given about as much time as IFAD-0.97 required to reach its MLE. 
+Each method ran for about 15 minutes.
+IF2 alone ran for 1950 iterations.
+IFAD-0.97 ran a 175-iteration IF2 warm start followed by 400 Adam iterations, while IFAD-0 and IFAD-1 ran 60 IF2 iterations followed by 410 and 425 Adam iterations, respectively.
 
 ### Raincloud Plot of Final Log-Likelihoods
 
-Plots the log-likelihood distribution across replicates.
-IFAD-0.97 yields the best results overall.
-The dotted red line shows the maximized log-likelihood.
+This plot shows the distribution of final log-likelihoods across the searches, omitting those below -3800.
+IFAD-0.97 yields the best results overall, with most of its searches ending close to the best-known maximized log-likelihood, shown by the dotted red line.
 
 ![Raincloud Plot of Final Log-Likelihoods (Comparable Effort)](imgs/precise_raincloud.png){width=85%}
 
-### Convergence Traces Comparison (Time-Scaled)
+### Convergence Traces
 
-This section shows the log-likelihood search traces.
-The shaded regions cover the area between the 10th and 100th percentiles of log-likelihood estimates at each iteration.
-We use a dotted red line to display the MLE.
-The vertical dotted lines indicate where the IFAD runs switch from IF2 to Adam optimization.
-Some log-likelihood estimates appear to be above the MLE; this is because the estimates prior to the final iteration use just 1 replicate instead of 36 replicates to estimate the log-likelihood, which leads to larger Monte Carlo variance.
+This plot shows the log-likelihood search traces against elapsed time.
+The solid lines show the median, and the shaded regions cover the area between the 10th and 100th percentiles of log-likelihood estimates at each iteration.
+The dotted red line shows the MLE, and the vertical dotted lines show where the IFAD runs switch from IF2 to Adam.
+Some estimates appear above the MLE because each one comes from a single noisy particle filter evaluation.
 
 ![Convergence Traces Comparison (Comparable Effort)](imgs/precise_traces.png){width=85%}
 
 ## Extended Computational Effort
 
-The figures below show the results obtained under extended computational effort.
+IF2 alone ran for 4 times as many iterations, and the IFAD variants ran for 4 times as many Adam iterations, for about 60 minutes each.
 
 ### Raincloud Plot of Final Log-Likelihoods
 
-Plots the log-likelihood distribution across replicates.
-Note how IFAD-0.97 exhibits very low Monte Carlo variance, with each search converging to similar values. 
+IFAD-0.97 exhibits very low Monte Carlo variance, with nearly every search converging to similar values.
+IFAD-1 moves closer to IFAD-0.97, while IF2 and IFAD-0 remain well short of it.
 
 ![Raincloud Plot of Final Log-Likelihoods (Extended Effort)](imgs/precise_raincloud_long.png){width=85%}
 
-### Convergence Traces Comparison (Time-Scaled)
+### Convergence Traces
 
-This section shows the log-likelihood search traces.
-Aside from IFAD-1, each method appears to heavily plateau by the end. 
-IFAD-1 shows potential for continued improvement, likely because it is unbiased, but it is slow to converge due to its high variance. 
+IFAD-0 and IF2 plateau heavily by the end.
+IFAD-1 is still improving, likely because it is unbiased, but its high variance makes it slow to converge.
 
 ![Convergence Traces Comparison (Extended Effort)](imgs/precise_traces_long.png){width=85%}
 
 ### Parameter Density Plots
 
-This section shows density plots of final parameter estimates across the replicates. 
-Again, the estimates for IFAD-0.97 typically exhibit very low Monte Carlo variance, although IFAD-0 shows lower variance for $S_0$ and $R_{1,0}$. 
-IF2 generally has the highest Monte Carlo variance amongst the methods. 
+This plot shows the densities of final estimates across the searches for nine key parameters.
+The estimates for IFAD-0.97 typically have the lowest Monte Carlo variance, although IFAD-0 has lower variance for the initial state proportions $S_0$, $I_0$ and $R_{1,0}$.
+IF2 generally has the highest Monte Carlo variance.
 
 ![Parameter Density Plots (Extended Effort)](imgs/precise_density_long.png){width=100%}
 
 :::
 
-### Best Log-Likelihoods and Computational Times
+### Maximum Log-Likelihoods and Computational Times
 
-This table displays the log-likelihood statistics and elapsed times obtained from the final particle filter evaluations across the replicates for the models.
-The best log-likelihood found by IFAD-0.97 does not increase much from optimizing for longer, suggesting that the associated parameter estimates are very close to the true MLE. 
-The other methods fall short of this, but they do improve at least somewhat from running for longer, with IFAD-1 catching up to IFAD-0.97 in terms of the best log-likelihood. 
+```{python}
+#| label: read-dmop-table
+#| echo: false
+# Read the paper's results table (imgs/precise_table.tex in the dmop/
+# submodule), so this table always matches the paper.
+from pathlib import Path
 
-| Optimization Method | Best Log-Likelihood | Median Log-Likelihood | IF2 time (s) | DMOP time (s) |
-|:---|:---:|:---:|:---:|:---:|
-| **Comparable Computational Effort** | | | | |
-| IFAD-0.97 | -3744.17 | -3745.77 | 244 | 615 |
-| IFAD-1 | -3745.12 | -3749.12 | 89 | 788 |
-| IF2 | -3747.82 | -3755.41 | 889 | — |
-| IFAD-0 | -3748.69 | -3753.88 | 90 | 788 |
-| **Extended Computational Effort** | | | | |
-| IFAD-0.97 | -3744.19 | -3744.22 | 246 | 2435 |
-| IFAD-1 | -3744.19 | -3745.46 | 89 | 3145 |
-| IF2 | -3747.02 | -3750.14 | 3534 | — |
-| IFAD-0 | -3747.97 | -3752.41 | 93 | 3198 |
+DMOP_TABLE = Path("dmop/imgs/precise_table.tex")
+assert DMOP_TABLE.exists(), (
+    f"{DMOP_TABLE} is missing; run `make dmop` in this directory"
+)
+dmop_rows = []
+_effort = None
+for _line in DMOP_TABLE.read_text().splitlines():
+    if r"\multicolumn" in _line:
+        _effort = "Comparable" if "Comparable" in _line else "Extended"
+    elif _line.startswith(("IF2", "IFAD")):
+        _cells = [c.strip() for c in _line.rstrip(" \\").split("&")]
+        dmop_rows.append(dict(zip(
+            ["effort", "method", "max", "reeval", "median", "if2", "dmop"],
+            [_effort, *_cells],
+        )))
+assert len(dmop_rows) == 8, dmop_rows
+best = {r["effort"]: r for r in dmop_rows if r["method"] == "IFAD-0.97"}
+best_if2_long = next(
+    r for r in dmop_rows if r["effort"] == "Extended" and r["method"] == "IF2"
+)
+```
 
+The table below gives the log-likelihoods and times for each method.
+"Maximum" is the largest of the 100 final log-likelihoods, which is biased upward because it is the best of many noisy estimates.
+"Re-evaluated" is a fresh particle filter estimate for that same search, as in the second call to `pfilter()` above, which removes this bias at the cost of being a single noisy estimate.
+"Median" is the median over all 100 searches.
+The times come from separate runs that skip the per-iteration log-likelihood estimates used for the traces above, so that this extra work does not distort the comparison.
+
+IFAD-0.97 reaches a maximum of `{python} best["Comparable"]["max"]` within about 15 minutes, beating IF2 even when IF2 runs 4 times as long (`{python} best_if2_long["max"]`).
+Running IFAD-0.97 longer barely changes its maximum (`{python} best["Extended"]["max"]`), suggesting that its estimates are very close to the true MLE.
+
+```{python}
+#| label: dmop-table
+#| echo: false
+#| output: asis
+print("| Optimization Method | Maximum | Re-evaluated | Median | IF2 time (s) | DMOP time (s) |")
+print("|:---|:---:|:---:|:---:|:---:|:---:|")
+for _effort in ("Comparable", "Extended"):
+    print(f"| **{_effort} Computational Effort** | | | | | |")
+    for r in dmop_rows:
+        if r["effort"] == _effort:
+            _dmop = "—" if r["dmop"] == "-" else r["dmop"]
+            print(f"| {r['method']} | {r['max']} | {r['reeval']} | {r['median']} | {r['if2']} | {_dmop} |")
+```

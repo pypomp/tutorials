@@ -1,3 +1,7 @@
 [submodule "article_jmlr/quant"]
 	path = article/quant
 	url = https://github.com/pypomp/quant.git
+[submodule "dhaka/dmop"]
+	path = dhaka/dmop
+	url = https://github.com/pypomp/dmop.git
+	shallow = true
