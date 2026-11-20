@@ -583,7 +583,13 @@ lib_same_samplers = {
     for m in TIMING_MODELS
 }
 lib_measles_fast = [x for m in SAMPLER_MODELS for x in lib_same_samplers[m]]
-lib_all_same_samplers = [x for xs in lib_same_samplers.values() for x in xs]
+# The introduction compares them with Pypomp's compiled filter on its CuTe backend.
+lib_same_samplers_cute = [
+    lib_s(m, l + "_fast" if m in SAMPLER_MODELS else l, "warm_s")
+    / lib_s(m, "pypomp_cute", "warm_s")
+    for m in TIMING_MODELS
+    for l in JAX_LIBS
+]
 # The text says Pypomp's compiled filter is the fastest GPU library on every
 # model (a timed-out run has no warm time, so it compares as not faster), and
 # that pydpf's first call on the S&P 500 model is the only one faster than
@@ -737,7 +743,7 @@ Efficiency peaks when the GPU is saturated, and for small tasks CuTe's longer co
 With `jax.random` samplers instead of `pypomp.random`, IF2 for the London measles model took `{python} f"{jax_sampler_slowdown:.0f}"` times longer (Appendix -@sec-samplers).
 
 To assess the speed of Pypomp compared to other GPU-based particle filter libraries , we ran  the same particle filter workloads in five other Python libraries (Appendix -@sec-libraries).
-Once compiled, Pypomp was the fastest of these GPU libraries on all four models: with the same random variable samplers, `pfjax` and `cuthbert` took `{python} fmt_range(lib_all_same_samplers, 1)` times as long as Pypomp with its default XLA backend.
+Once compiled, Pypomp was the fastest of these GPU libraries on all four models: with the same random variable samplers, `pfjax` and `cuthbert` took `{python} fmt_range(lib_same_samplers_cute, 1)` times as long as Pypomp with its CuTe backend.
 
 # Governance and Acknowledgments {#sec-conclusion}
 
