@@ -911,13 +911,11 @@ def fmt_pypomp_cpu(model):
 
 
 def fmt_jax_lib(model, lib):
-    """pfjax or cuthbert with the jax.random and the pypomp.random samplers, or,
-    where the model draws only normals, one time spanning both columns."""
-    if model in SAMPLER_MODELS:
-        return tuple(
-            f"{a} & {b}" for a, b in zip(fmt_lib(model, lib), fmt_lib(model, lib + "_fast"))
-        )
-    return tuple(f"\\multicolumn{{2}}{{c}}{{{x}}}" for x in fmt_lib(model, lib))
+    """pfjax or cuthbert with the jax.random and the pypomp.random samplers.
+    Where the model draws only normals, the one run goes under jax and the
+    pypomp column gets a dash."""
+    fast = fmt_lib(model, lib + "_fast") if model in SAMPLER_MODELS else ("---", "")
+    return tuple(f"{a} & {b}" for a, b in zip(fmt_lib(model, lib), fast))
 
 
 # Each model takes two rows: compiled times, then first calls in parentheses.
@@ -950,7 +948,7 @@ tbl = latex_table(
 Markdown(tbl.data.replace("\\setlength{\\tabcolsep}{4pt}", "\\footnotesize\\setlength{\\tabcolsep}{2pt}"))
 ```
 
-Wall-clock time in seconds for the particle filter benchmarks of @tbl-timing-full in Pypomp `{python} tbl_libraries_version` with its default XLA backend and with its CuTe backend and Philox generator, `pfjax` `{python} lib_version["pfjax"]`, `cuthbert` `{python} lib_version["cuthbert"]` (JAX), `pydpf` `{python} lib_version["pydpf"]` (PyTorch), `particles` `{python} lib_version["particles"]` and `pypfilt` `{python} lib_version["pypfilt"]` (NumPy). GPU times are from one `{python} gpu_name`; for each model, the first row is the time for a call with the filter already compiled, and the second row, in parentheses, is the first call, which includes JIT compilation. (${>}1\,$h) means the first call did not finish within an hour, so there is no compiled time. $^\ddagger$On the measles models, `pfjax` and `cuthbert` ran once with the `jax.random` samplers (`jax`) and once with the `pypomp.random` samplers that Pypomp uses (`pypomp`) in their per-particle steps (Appendix -@sec-samplers); the cholera and S&P 500 models draw only normal variables, so they have one time. $^\dagger$`particles` and `pypfilt` run only on CPUs; their times are the time for one filter on one core, multiplied by the number of filters and divided by 36. The last column is Pypomp (default XLA backend) on a 36-core CPU node, measured in the benchmarks of @tbl-timing-full. `{python} version_warning("tbl-libraries")`
+Wall-clock time in seconds for the particle filter benchmarks of @tbl-timing-full in Pypomp `{python} tbl_libraries_version` with its default XLA backend and with its CuTe backend and Philox generator, `pfjax` `{python} lib_version["pfjax"]`, `cuthbert` `{python} lib_version["cuthbert"]` (JAX), `pydpf` `{python} lib_version["pydpf"]` (PyTorch), `particles` `{python} lib_version["particles"]` and `pypfilt` `{python} lib_version["pypfilt"]` (NumPy). GPU times are from one `{python} gpu_name`; for each model, the first row is the time for a call with the filter already compiled, and the second row, in parentheses, is the first call, which includes JIT compilation. (${>}1\,$h) means the first call did not finish within an hour, so there is no compiled time. $^\ddagger$On the measles models, `pfjax` and `cuthbert` ran once with the `jax.random` samplers (`jax`) and once with the `pypomp.random` samplers that Pypomp uses (`pypomp`) in their per-particle steps (Appendix -@sec-samplers); the cholera and S&P 500 models draw only normal variables, so their one time is under `jax`. $^\dagger$`particles` and `pypfilt` run only on CPUs; their times are the time for one filter on one core, multiplied by the number of filters and divided by 36. The last column is Pypomp (default XLA backend) on a 36-core CPU node, measured in the benchmarks of @tbl-timing-full. `{python} version_warning("tbl-libraries")`
 :::
 
 @tbl-libraries gives two times for each GPU library: a call with the filter already compiled, and the first call, which includes JIT compilation.
