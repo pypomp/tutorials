@@ -689,7 +689,7 @@ latex_table(
 )
 ```
 
-Comparing Pypomp on GPU to compiled pomp on CPU for 36 IF2 runs.
+Comparing Pypomp on GPU to compiled pomp on CPU for 36 iterated filtering runs.
 For the PanelPOMP model, we used the panelPomp extension of pomp [@breto25]. 
 Time is wall-clock for 36 CPU cores or one `{python} gpu_name.removesuffix(" Server Edition")` GPU.
 Cores is 36$\times$ the ratio of the CPU and GPU wall time, estimating the equivalent throughput of a number of pomp CPU cores.
