@@ -889,7 +889,6 @@ Dynamax [@linderman25] is not included in this comparison since its only particl
 ```{python}
 #| echo: false
 
-
 def fmt_lib_s(x):
     return f"{x:.2f}" if x < 1 else fmt_s(x)
 
@@ -938,7 +937,7 @@ tbl = latex_table(
         " & \\multicolumn{2}{c}{Pypomp} & \\multicolumn{2}{c}{\\texttt{pfjax}$^\\ddagger$} "
         "& \\multicolumn{2}{c}{\\texttt{cuthbert}$^\\ddagger$} & & & & \\\\",
         "\\cmidrule(lr){2-3} \\cmidrule(lr){4-5} \\cmidrule(lr){6-7}",
-        "Model & XLA & CuTe & \\texttt{jax} & \\texttt{pypomp} & \\texttt{jax} & \\texttt{pypomp} "
+        "\\raisebox{2ex}[0pt][0pt]{Model} & XLA & CuTe & Rej. & Inv. & Rej. & Inv. "
         "& \\texttt{pydpf} & \\texttt{particles}$^\\dagger$ & \\texttt{pypfilt}$^\\dagger$ & Pypomp \\\\",
     ],
     rows,
